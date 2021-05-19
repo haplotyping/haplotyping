@@ -4,7 +4,15 @@ import haplotyping
 
 class Splits:
     
-    def __init__(self, sortedIndexFile: str, h5file):
+    """
+    Internal use, get splitting k-mers from index
+    """
+    
+    def __init__(self, sortedIndexFile: str, h5file, filenameBase, debug=False):
+        
+        """
+        Internal use only: initialize
+        """
         
         #logger
         self._logger = logging.getLogger(__name__)
@@ -17,6 +25,7 @@ class Splits:
         self.minimumFrequency = h5file["/config"].attrs["minimumFrequency"]
         self.h5file = h5file
         self.maxNumber = 0
+        self.debug = debug
         
         #check existence group
         if not "/split" in h5file:
@@ -27,13 +36,16 @@ class Splits:
             self._logger.warning("canonical splitting k-mer dataset already in hdf5 storage")
         else:
         
-            try:
-                self.tmpDirectory = tempfile.TemporaryDirectory()
-                pytablesFile = self.tmpDirectory.name+"/kmer.data_tmp_split.h5"
-                
-                pytablesFile = "kmer.data_tmp_split.h5"
-                if os.path.exists(pytablesFile):
-                    os.remove(pytablesFile)
+            try:                                                
+                if self.debug:
+                    self.tmpDirectory = None
+                    pytablesFile = filenameBase+"_tmp_split.h5"
+                    if os.path.exists(pytablesFile):
+                        os.remove(pytablesFile)
+                    self._logger.debug("store temporary in "+pytablesFile)    
+                else:
+                    self.tmpDirectory = tempfile.TemporaryDirectory()
+                    pytablesFile = self.tmpDirectory.name+"/kmer.data_tmp_split.h5"
             
                 #create datasets
                 with tables.open_file(pytablesFile, mode="w", title="Temporary storage") as self.pytables_storage:
@@ -59,7 +71,8 @@ class Splits:
             #except:
             #    self._logger.error("problem occurred while constructing splits")
             finally:
-                self.tmpDirectory.cleanup()
+                if not self.debug:
+                    self.tmpDirectory.cleanup()
 
     
     def _parseIndex(self, filename: str):

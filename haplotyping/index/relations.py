@@ -5,13 +5,23 @@ import numpy as np
 
 class Relations:
     
-    def __init__(self, readFiles,pairedReadFiles, h5file):
+    """
+    Internal use, parse read files and store results in database
+    """
+    
+    def __init__(self, readFiles,pairedReadFiles, h5file, filenameBase, debug):
+        
+        """
+        Internal use only: initialize
+        """
         
         #logger
         self._logger = logging.getLogger(__name__)
         self._logger.info("parse "+str(len(readFiles))+" readfiles and "+str(2*len(pairedReadFiles))+" paired readfiles")
         
         self.stepSizeStorage=10000
+        self.debug = debug
+        self.filenameBase = filenameBase
         
         #set variables
         self.k = h5file["/config"].attrs["k"]
@@ -59,16 +69,22 @@ class Relations:
         else:
             
             try:
-                self.tmpDirectory = tempfile.TemporaryDirectory()
-                pytablesFile = self.tmpDirectory.name+"/kmer.data_tmp_relations.h5"
                 
-                pytablesMainFile = "kmer.data_tmp_main_relations.h5"
-                pytablesDumpFile = "kmer.data_tmp_dump_relations.h5"
-                if os.path.exists(pytablesMainFile):
-                    os.remove(pytablesMainFile)
-                if os.path.exists(pytablesDumpFile):
-                    os.remove(pytablesDumpFile)
-                    
+                if self.debug:
+                    self.tmpDirectory = None
+                    pytablesMainFile = self.filenameBase+"_tmp_relations_main.h5"
+                    pytablesDumpFile = self.filenameBase+"_tmp_relations_dump.h5"
+                    if os.path.exists(pytablesMainFile):
+                        os.remove(pytablesMainFile)
+                    if os.path.exists(pytablesDumpFile):
+                        os.remove(pytablesDumpFile)
+                    self._logger.debug("store temporary in "+pytablesMainFile) 
+                    self._logger.debug("store temporary in "+pytablesDumpFile) 
+                else:
+                    self.tmpDirectory = tempfile.TemporaryDirectory()
+                    pytablesMainFile = self.tmpDirectory.name+"/kmer.data_tmp_relations_main.h5"
+                    pytablesDumpFile = self.tmpDirectory.name+"/kmer.data_tmp_relations_dump.h5"
+                
                 with tables.open_file(pytablesMainFile, mode="w", 
                                       title="Temporary main storage") as self.pytables_main_storage, \
                      tables.open_file(pytablesDumpFile, mode="w", 
@@ -87,7 +103,8 @@ class Relations:
             #except:
             #    self._logger.error("problem occurred while constructing relations")
             finally:
-                self.tmpDirectory.cleanup()
+                if not self.debug:
+                    self.tmpDirectory.cleanup()
                 
               
     def _processReadFiles(self):    
@@ -1120,24 +1137,31 @@ class Relations:
 
 
     def _getAutomaton(self):        
-        if os.path.exists("tmpAutomaton.data"):
-            with open("tmpAutomaton.data", "rb") as f:
-                self.automatonSplits = pickle.load(f)
+        if self.debug:
+            filenameAutomaton = self.filenameBase+"_tmp_relations_automaton.data"
+            if os.path.exists(filenameAutomaton):
+                with open(filenameAutomaton, "rb") as f:
+                    self.automatonSplits = pickle.load(f)
+                    self._logger.warning("automaton loaded from previous run")
+                    return
         else:
-            self._logger.debug("create automaton for "+str(self.numberOfKmers)+" k-mers")
-            self.automatonSplits = ahocorasick.Automaton()
-            kmers = self.h5file["/split/ckmer"]
-            for i in range(self.numberOfKmers):
-                kmer = kmers[i][0].decode()
-                kmerType = kmers[i][1].decode()
-                rkmer = haplotyping.General.reverse_complement(kmer)
-                rkmerType = "l" if kmerType=="r" else ("r" if kmerType=="l" else "b")
-                self.automatonSplits.add_word(kmer,(i,"c",kmerType))
-                #if canonical k-mer equals reverse complement, don't insert for rc
-                if not kmer==rkmer:
-                    self.automatonSplits.add_word(rkmer,(i,"r",rkmerType))
-            self.automatonSplits.make_automaton()
-            with open("tmpAutomaton.data", "wb") as f:
+            filenameAutomaton = None
+        
+        self._logger.debug("create automaton for "+str(self.numberOfKmers)+" k-mers")
+        self.automatonSplits = ahocorasick.Automaton()
+        kmers = self.h5file["/split/ckmer"]
+        for i in range(self.numberOfKmers):
+            kmer = kmers[i][0].decode()
+            kmerType = kmers[i][1].decode()
+            rkmer = haplotyping.General.reverse_complement(kmer)
+            rkmerType = "l" if kmerType=="r" else ("r" if kmerType=="l" else "b")
+            self.automatonSplits.add_word(kmer,(i,"c",kmerType))
+            #if canonical k-mer equals reverse complement, don't insert for rc
+            if not kmer==rkmer:
+                self.automatonSplits.add_word(rkmer,(i,"r",rkmerType))
+        self.automatonSplits.make_automaton()
+        if self.debug:
+            with open(filenameAutomaton, "wb") as f:
                 pickle.dump(self.automatonSplits, f)
 
                 
