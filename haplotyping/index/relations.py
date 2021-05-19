@@ -186,9 +186,6 @@ class Relations:
         self.tableDumpConnectedPair.flush()
         self.tableDumpCycle.flush()
         self.tableDumpReversal.flush()
-        
-        
-            
                 
     def _processReadFile(self, filename: str):
         startTime = time.time()
@@ -641,8 +638,10 @@ class Relations:
                                                   firstGroupedConnectedLink,
                                                   indexCounter[sizeConnected][1]) 
                         firstGroupedConnectedLink+=sizeConnected
-                previousHashKey=row["hashKey"]                     
+                previousHashKey=row["hashKey"]
+                indexCounter={row["sizeConnected"]:[row["firstDumpConnectedLink"],0,[]]}  
             if not row["sizeConnected"] in indexCounter.keys():
+                #todo: this should not happen
                 indexCounter={row["sizeConnected"]:[row["firstDumpConnectedLink"],0,[]]}  
             indexCounter[row["sizeConnected"]][1]+=1
             indexCounter[row["sizeConnected"]][2].append(row["lengthConnected"])

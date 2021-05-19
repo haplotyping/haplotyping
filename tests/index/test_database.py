@@ -41,6 +41,42 @@ class DatabaseTestCase(unittest.TestCase):
             self.assertEqual(h5file["/config"].attrs["readPairedTotal"],5000,"unexpected paired number of reads")
             self.assertEqual(h5file["/config"].attrs["readTotal"],7500,"unexpected number of reads")
             
+    def test_ckmer(self):
+        with h5py.File(self.tmpIndexLocation,"r") as h5file:
+            #test for empty
+            self.assertTrue(h5file["/split/ckmer"].shape[0]>0,"no splitting k-mers")
+            previousCkmer = None
+            for row in np.array(h5file["/split/ckmer"]):
+                if not previousCkmer == None:
+                    self.assertTrue(row[0]>previousCkmer,"k-mers not properly sorted")
+                previousCkmer = row[0]
+                self.assertTrue(row[2]>=row[3][0][0],"inconsistent direct left distinct")
+                self.assertTrue(row[2]>=row[3][0][1],"inconsistent direct left number")
+                self.assertTrue(row[2]>=row[3][1][0],"inconsistent direct right distinct")
+                self.assertTrue(row[2]>=row[3][1][1],"inconsistent direct right number")
+                self.assertTrue(row[2]>=row[4][0],"inconsistent connected")
+                self.assertTrue(row[2]>=row[5][0],"inconsistent cycle")
+                self.assertTrue(row[2]>=row[6][0],"inconsistent reversal")
+            
+    def test_direct(self):
+        directList = []
+        def itemKey(fromCkmerLink,fromDirection,toCkmerLink,toDirection,distance,number):
+            key = str(fromCkmerLink)+str(fromDirection)+str(toCkmerLink)+str(toDirection)
+            key = key + str(distance) +"|"+str(number)
+            return key
+        with h5py.File(self.tmpIndexLocation,"r") as h5file:
+            #test for empty
+            self.assertTrue(h5file["/relations/direct"].shape[0]>0,"no direct relations")
+            #create list with keys
+            for row in np.array(h5file["/relations/direct"]):
+                directList.append(itemKey(row[0],row[1],row[2],row[3],row[4],row[5]))
+            directSet = set(directList)
+            #test for unique information
+            self.assertEqual(len(directSet),len(directList),"duplication in direct relations")
+            #test for symmetry
+            for row in np.array(h5file["/relations/direct"]):
+                self.assertTrue(itemKey(row[2],row[3],row[0],row[1],row[4],row[5]) 
+                                in directList,"direct relations not symmetric")            
         
     def tearDown(self):
         if self.tmpDirectory:
