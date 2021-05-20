@@ -626,33 +626,32 @@ class Relations:
         self.tableDumpConnectedIndex.cols.hashKey.create_csindex()
         self.tableDumpConnectedIndex.flush()
         previousHashKey=None
-        indexCounter={}        
+        previousData=None    
         firstGroupedConnectedLink=0
         for row in self.tableDumpConnectedIndex.itersorted("hashKey"):
             if not row["hashKey"]==previousHashKey:
-                if previousHashKey:
-                    for sizeConnected in indexCounter.keys():
-                        lengthConnected = int(np.median(indexCounter[sizeConnected][2]))
-                        saveGroupedConnectedIndex(previousHashKey,sizeConnected,lengthConnected,
-                                                  indexCounter[sizeConnected][0],
-                                                  firstGroupedConnectedLink,
-                                                  indexCounter[sizeConnected][1]) 
-                        firstGroupedConnectedLink+=sizeConnected
+                if previousHashKey:                    
+                    sizeConnected = min(previousData["sizes"])
+                    lengthConnected = int(np.median(previousData["lengths"]))                    
+                    saveGroupedConnectedIndex(previousHashKey,sizeConnected,lengthConnected,
+                                              previousData["firstDumpConnectedLink"],
+                                              firstGroupedConnectedLink,
+                                              previousData["number"]) 
+                    firstGroupedConnectedLink+=sizeConnected
                 previousHashKey=row["hashKey"]
-                indexCounter={row["sizeConnected"]:[row["firstDumpConnectedLink"],0,[]]}  
-            if not row["sizeConnected"] in indexCounter.keys():
-                #todo: this should not happen
-                indexCounter={row["sizeConnected"]:[row["firstDumpConnectedLink"],0,[]]}  
-            indexCounter[row["sizeConnected"]][1]+=1
-            indexCounter[row["sizeConnected"]][2].append(row["lengthConnected"])
+                previousData={"firstDumpConnectedLink": row["firstDumpConnectedLink"],
+                              "number": 0, "lengths": [], "sizes": []}
+            previousData["number"]+=1
+            previousData["sizes"].append(row["sizeConnected"])
+            previousData["lengths"].append(row["lengthConnected"])
         if previousHashKey:
-            for sizeConnected in indexCounter.keys():
-                lengthConnected = int(np.median(indexCounter[sizeConnected][2]))
-                saveGroupedConnectedIndex(previousHashKey,sizeConnected,lengthConnected,
-                                                  indexCounter[sizeConnected][0],
-                                                  firstGroupedConnectedLink,
-                                                  indexCounter[sizeConnected][1]) 
-                firstGroupedConnectedLink+=sizeConnected    
+            sizeConnected = min(previousData["sizes"]) 
+            lengthConnected = int(np.median(previousData["lengths"]))
+            saveGroupedConnectedIndex(previousHashKey,sizeConnected,lengthConnected,
+                                      previousData["firstDumpConnectedLink"],
+                                      firstGroupedConnectedLink,
+                                      previousData["number"]) 
+            firstGroupedConnectedLink+=sizeConnected    
         self.tableGroupedConnectedIndex.flush()
         self.tableGroupedConnected.flush()
                 
