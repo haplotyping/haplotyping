@@ -60,22 +60,18 @@ class DatabaseTestCase(unittest.TestCase):
             
     def test_direct(self):
         directList = []
-        def itemKey(fromCkmerLink,fromDirection,toCkmerLink,toDirection,distance,number):
-            key = str(fromCkmerLink)+str(fromDirection)+str(toCkmerLink)+str(toDirection)
-            key = key + str(distance) +"|"+str(number)
-            return key
         with h5py.File(self.tmpIndexLocation,"r") as h5file:
             #test for empty
             self.assertTrue(h5file["/relations/direct"].shape[0]>0,"no direct relations")
             #create list with keys
             for row in np.array(h5file["/relations/direct"]):
-                directList.append(itemKey(row[0],row[1],row[2],row[3],row[4],row[5]))
+                directList.append((row[0],row[1],row[2],row[3],row[4],row[5],))
             directSet = set(directList)
             #test for unique information
             self.assertEqual(len(directSet),len(directList),"duplication in direct relations")
             #test for symmetry
             for row in np.array(h5file["/relations/direct"]):
-                self.assertTrue(itemKey(row[2],row[3],row[0],row[1],row[4],row[5]) 
+                self.assertTrue((row[2],row[3],row[0],row[1],row[4],row[5],) 
                                 in directList,"direct relations not symmetric")            
         
     def tearDown(self):
