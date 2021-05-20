@@ -97,47 +97,80 @@ class Splits:
             return (rightSplitTrunks,rightSplitKmers)
 
         #loop over sorted list with k-mers, detect right splitting k-mers
-        with gzip.open(filename, "rt") as f: 
-            self._logger.debug("parse sorted list to detect right splitting k-mers")
-            reader = csv.reader(f, delimiter="\t")
-            previousTrunk = ""
-            previousBranch = ""
-            previousKmer = ""
-            previousNumber = 0            
-            stored={}
-            for line in reader:
-                currentTrunk = line[0][:-1]
-                currentBranch = line[0][-1]
-                currentKmer = line[0]
-                currentNumber = int(line[1])
-                if currentNumber < self.minimumFrequency:
-                    pass
-                else:
-                    if currentTrunk==previousTrunk:
-                        if currentBranch==previousBranch:
-                            self._logger.warning("detected reoccurrence of same k-mer ("+currentKmer+")")
-                        else:
-                            if not previousBranch in stored.keys():
-                                stored[previousBranch]=previousNumber
-                            stored[currentBranch]=currentNumber
+        try:
+            with gzip.open(filename, "rt") as f: 
+                self._logger.debug("parse sorted list to detect right splitting k-mers")
+                reader = csv.reader(f, delimiter="\t")
+                previousTrunk = ""
+                previousBranch = ""
+                previousKmer = ""
+                previousNumber = 0            
+                stored={}
+                errorNumber = 0
+                for line in reader:
+                    if len(line)<2:
+                        if errorNumber==0:
+                            self._logger.warning("unexpected item in sorted list: "+str(line))
+                        errorNumber+=1
                     else:
-                        if len(stored)>0:
-                            (rightSplitTrunks,rightSplitKmers) = saveToDumpStorage(previousTrunk,stored,
-                                                                                  rightSplitTrunks,rightSplitKmers)
-                            stored={}
-                    previousTrunk = currentTrunk
-                    previousBranch = currentBranch
-                    previousKmer = currentKmer
-                    previousNumber = currentNumber
-            if len(stored)>0:
-                (rightSplitTrunks,rightSplitKmers) = saveToDumpStorage(previousTrunk,stored,
-                                                                      rightSplitTrunks,rightSplitKmers)  
-            self.tableDumpKmers.flush()
-            #stats
-            self._logger.debug("found "+str(rightSplitTrunks)+" rightSplitTrunks")
-            self._logger.debug("found "+str(rightSplitKmers)+" rightSplitKmers")
-            self.h5file["/config/"].attrs["rightSplitTrunks"]=rightSplitTrunks
-            self.h5file["/config/"].attrs["rightSplitKmers"]=rightSplitKmers
+                        currentTrunk = line[0][:-1]
+                        currentBranch = line[0][-1]
+                        currentKmer = line[0]
+                        #always get number
+                        try:
+                            currentNumber = int(line[1])
+                        except ValueError:
+                            currentNumber = 0
+                        #check k-mer size
+                        if not len(currentKmer)==self.k:
+                            if errorNumber==0:
+                                self._logger.warning("different k-mer size in sorted list ("+
+                                                   str(len(currentKmer))+" instead of "+str(self.k)+")")
+                            errorNumber+=1
+                        #check sorted
+                        elif not (previousKmer=="") and not (previousKmer<currentKmer):
+                            if errorNumber==0:
+                                self._logger.warning("provided list not properly sorted")
+                            errorNumber+=1
+                        #check frequency
+                        elif currentNumber<1:
+                            if errorNumber==0:
+                                self._logger.warning("unexpected frequency for "+str(currentKmer))
+                            errorNumber+=1
+                        else:
+                            if currentNumber < self.minimumFrequency:
+                                pass
+                            else:
+                                if currentTrunk==previousTrunk:
+                                    if currentBranch==previousBranch:
+                                        self._logger.warning("detected reoccurrence of same k-mer ("+currentKmer+")")
+                                    else:
+                                        if not previousBranch in stored.keys():
+                                            stored[previousBranch]=previousNumber
+                                        stored[currentBranch]=currentNumber
+                                else:
+                                    if len(stored)>0:
+                                        (rightSplitTrunks,rightSplitKmers) = saveToDumpStorage(previousTrunk,stored,
+                                                                                              rightSplitTrunks,rightSplitKmers)
+                                        stored={}
+                                previousTrunk = currentTrunk
+                                previousBranch = currentBranch
+                                previousKmer = currentKmer
+                                previousNumber = currentNumber
+                if len(stored)>0:
+                    (rightSplitTrunks,rightSplitKmers) = saveToDumpStorage(previousTrunk,stored,
+                                                                          rightSplitTrunks,rightSplitKmers)  
+                self.tableDumpKmers.flush()
+                #warning
+                if errorNumber>0:
+                    self._logger.warning("skipped "+str(errorNumber)+" items in sorted list")
+                #stats
+                self._logger.debug("found "+str(rightSplitTrunks)+" rightSplitTrunks")
+                self._logger.debug("found "+str(rightSplitKmers)+" rightSplitKmers")
+                self.h5file["/config/"].attrs["rightSplitTrunks"]=rightSplitTrunks
+                self.h5file["/config/"].attrs["rightSplitKmers"]=rightSplitKmers
+        except OSError as ex:
+            self._logger.error("problem with sorted list: "+str(ex))
 
 
     def _sort(self):
@@ -150,30 +183,33 @@ class Splits:
         #create sorted and grouped storage
         self.tableDumpKmers.flush()                
         numberOfSplittingKmers=self.tableDumpKmers.shape[0]
-        self._logger.debug("sort and group "+str(numberOfSplittingKmers)+" splitting k-mers")
-        self.tableDumpKmers.cols.ckmer.create_csindex()
-        self.tableDumpKmers.flush()
-        previousCkmer=None
-        previousType=None
-        previousN=None
-        self.maxNumber = 0
-        for row in self.tableDumpKmers.itersorted("ckmer",checkCSI=True):
-            currentCkmer=row["ckmer"]
-            currentType=row["type"]
-            currentN=row["number"]
-            if previousCkmer and not previousCkmer==currentCkmer:
-                saveToSortedStorage(previousCkmer,previousType,previousN)
+        if numberOfSplittingKmers>0:
+            self._logger.debug("sort and group "+str(numberOfSplittingKmers)+" splitting k-mers")
+            self.tableDumpKmers.cols.ckmer.create_csindex()
+            self.tableDumpKmers.flush()
+            previousCkmer=None
+            previousType=None
+            previousN=None
+            self.maxNumber = 0
+            for row in self.tableDumpKmers.itersorted("ckmer",checkCSI=True):
+                currentCkmer=row["ckmer"]
+                currentType=row["type"]
+                currentN=row["number"]
+                if previousCkmer and not previousCkmer==currentCkmer:
+                    saveToSortedStorage(previousCkmer,previousType,previousN)
+                    self.maxNumber=max(self.maxNumber,previousN)
+                    previousType=currentType
+                elif previousCkmer and not previousType==currentType:
+                    previousType="b"
+                else:
+                    previousType=currentType
+                previousCkmer=currentCkmer
+                previousN=currentN
+            if previousCkmer:        
+                saveToSortedStorage(previousCkmer,previousType,previousN) 
                 self.maxNumber=max(self.maxNumber,previousN)
-                previousType=currentType
-            elif previousCkmer and not previousType==currentType:
-                previousType="b"
-            else:
-                previousType=currentType
-            previousCkmer=currentCkmer
-            previousN=currentN
-        if previousCkmer:        
-            saveToSortedStorage(previousCkmer,previousType,previousN) 
-            self.maxNumber=max(self.maxNumber,previousN)
+        else:
+            self._logger.warning("no splitting k-mers to sort and group")
             
     def _store(self):
         canonicalSplitKmers = 0

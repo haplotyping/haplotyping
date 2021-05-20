@@ -1,7 +1,8 @@
 import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-import unittest, tempfile, logging, h5py
+import unittest, tempfile, logging, h5py, gzip, csv
+import numpy as np
 from haplotyping.index.database import *
 
 class DatabaseTestCase(unittest.TestCase):
@@ -12,18 +13,45 @@ class DatabaseTestCase(unittest.TestCase):
         logging.getLogger("haplotyping.index.database").setLevel(logging.ERROR)
         
         try:
-            #set variables
-            self.k = 31
+            self.dataLocation = os.path.abspath("./tests/index/testdata/") 
+            self.sortedListLocation = self.dataLocation+"/kmer.list.sorted.gz"
+            #get k from sorted list
+            with gzip.open(self.sortedListLocation, "rt") as f: 
+                reader = csv.reader(f, delimiter="\t")
+                for line in reader:
+                    self.k = len(line[0])
+                    break
             self.name = "Test hdf5 database"
             self.minimumFrequency = 2
+            #find reads
+            (self.unpairedReadFiles, self.pairedReadFiles, 
+                 self.allReadFiles) = haplotyping.index.Database.detectReadFiles(self.dataLocation)
+            #compute read statistics directly
+            self.readUnpairedTotal=0
+            self.readPairedTotal=0
+            self.minReadLength = float("inf")
+            self.maxReadLength = 0
+            for filename in self.unpairedReadFiles:
+                with gzip.open(filename, "rb") as f:
+                    for i, l in enumerate(f):
+                        if i%4==1:
+                            self.maxReadLength=max(self.maxReadLength,len(l.decode().strip()))
+                            self.minReadLength=min(self.minReadLength,len(l.decode().strip()))
+                    self.readUnpairedTotal+=round((i+1)/4)
+            for pairedReadFile in self.pairedReadFiles:
+                for filename in pairedReadFile:
+                    with gzip.open(filename, "rb") as f:
+                        for i, l in enumerate(f):
+                            if i%4==1:
+                                self.maxReadLength=max(self.maxReadLength,len(l.decode().strip()))
+                                self.minReadLength=min(self.minReadLength,len(l.decode().strip()))
+                        self.readPairedTotal+=round((i+1)/4)
             #create temporary index
-            self.tmpDirectory = tempfile.TemporaryDirectory()
-            self.dataLocation = os.path.abspath("./tests/index/testdata/") 
+            self.tmpDirectory = tempfile.TemporaryDirectory()            
             self.tmpIndexLocation = self.tmpDirectory.name+"/kmer.data.h5"
-            self.reads = [self.dataLocation+"/reads.fastq.gz"]
-            self.pairedReads = [[self.dataLocation+"/reads_R1.fastq.gz", self.dataLocation+"/reads_R2.fastq.gz"]]
-            self.database = haplotyping.index.Database(31, self.name, self.tmpDirectory.name+"/kmer.data", 
-                                          self.dataLocation+"/kmer.list.sorted.gz", self.reads, self.pairedReads,
+            #create database
+            self.database = haplotyping.index.Database(self.k, self.name, self.tmpDirectory.name+"/kmer.data", 
+                                          self.sortedListLocation , self.unpairedReadFiles, self.pairedReadFiles,
                                           minimumFrequency=self.minimumFrequency)
         except:
             self.tmpDirectory.cleanup()
@@ -35,11 +63,16 @@ class DatabaseTestCase(unittest.TestCase):
             self.assertEqual(h5file["/config"].attrs["name"],self.name,"unexpected index name")
             self.assertEqual(h5file["/config"].attrs["minimumFrequency"],
                              self.minimumFrequency,"unexpected minimum frequency")
-            self.assertEqual(h5file["/config"].attrs["readLengthMinimum"],151,"unexpected minimum read length")
-            self.assertEqual(h5file["/config"].attrs["readLengthMaximum"],151,"unexpected maximum read length")
-            self.assertEqual(h5file["/config"].attrs["readUnpairedTotal"],2500,"unexpected unpaired number of reads")
-            self.assertEqual(h5file["/config"].attrs["readPairedTotal"],5000,"unexpected paired number of reads")
-            self.assertEqual(h5file["/config"].attrs["readTotal"],7500,"unexpected number of reads")
+            self.assertEqual(h5file["/config"].attrs["readLengthMinimum"],self.minReadLength,
+                             "unexpected minimum read length")
+            self.assertEqual(h5file["/config"].attrs["readLengthMaximum"],self.maxReadLength,
+                             "unexpected maximum read length")
+            self.assertEqual(h5file["/config"].attrs["readUnpairedTotal"],self.readUnpairedTotal,
+                             "unexpected unpaired number of reads")
+            self.assertEqual(h5file["/config"].attrs["readPairedTotal"],self.readPairedTotal,
+                             "unexpected paired number of reads")
+            self.assertEqual(h5file["/config"].attrs["readTotal"],self.readPairedTotal+self.readUnpairedTotal,
+                             "unexpected number of reads")
             
     def test_ckmer(self):
         with h5py.File(self.tmpIndexLocation,"r") as h5file:

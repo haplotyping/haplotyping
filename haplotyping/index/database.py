@@ -1,6 +1,4 @@
-import logging, h5py, tables, gzip, csv, os, time
-import ahocorasick
-import numpy as np
+import logging, h5py, os, glob, re
 
 import haplotyping
 import haplotyping.index.splits
@@ -96,10 +94,52 @@ class Database:
                 self._logger.debug("get splitting k-mers from the provided index")
                 haplotyping.index.splits.Splits(sortedIndexFile, h5file, self.filenameBase, self.debug)   
 
-                #parse read files
-                self._logger.debug("parse read files and store results in database")
-                haplotyping.index.relations.Relations(readFiles,pairedReadFiles, h5file, self.filenameBase, self.debug)   
+                #parse read files if splitting k-mers were found
+                if h5file["/config/"].attrs["canonicalSplitKmersBoth"]>0:
+                    self._logger.debug("parse read files and store results in database")
+                    haplotyping.index.relations.Relations(readFiles,pairedReadFiles, h5file, self.filenameBase, self.debug)  
+                else:
+                    self._logger.error("no splitting k-mers were found")
                 
                 #finished
                 h5file.flush()
+                
+                
+    def detectReadFiles(location: str, recursive=True):
+        unpairedReadFiles = []
+        pairedReadFiles = []
+        #get files
+        patterns = ["*.fq.gz","*.fastq.gz"]
+        if recursive:
+            allReadFiles = [y for x in os.walk(location) 
+                for p in patterns
+                for y in glob.glob(os.path.join(x[0], p))]
+        else:
+            allReadFiles = [y for p in patterns
+                for y in glob.glob(os.path.join(location, p))]
+        allReadFiles.sort()
+        #split between regular and paired
+        processed = set()
+        for filename in allReadFiles:
+            if filename in processed:
+                pass
+            else:
+                basename = os.path.basename(filename)
+                dirname = filename[:len(filename)-len(basename)]  
+                if re.search(r'([^a-zA-Z0-9])R1([^a-zA-Z0-9])', basename):
+                    filename0 = dirname + basename
+                    filename1 = dirname + re.sub(r'([^a-zA-Z0-9])R1([^a-zA-Z0-9])', 
+                                                 '\\1R2\\2', basename)
+                    if filename0==filename and filename1 in allReadFiles and not filename in processed:
+                        processed.add(filename0)
+                        processed.add(filename1)
+                        pairedReadFiles.append((filename0,filename1,))
+                    else:
+                        processed.add(filename)
+                        unpairedReadFiles.append(filename)
+                else:
+                    processed.add(filename)
+                    unpairedReadFiles.append(filename)
+
+        return (unpairedReadFiles, pairedReadFiles, allReadFiles)
 
