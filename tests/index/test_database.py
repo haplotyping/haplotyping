@@ -76,10 +76,12 @@ class DatabaseTestCase(unittest.TestCase):
             
     def test_ckmer(self):
         with h5py.File(self.tmpIndexLocation,"r") as h5file:
+            ckmers = h5file.get("/split/ckmer")
+            ckmerTotal = ckmers.shape[0]
             #test for empty
-            self.assertTrue(h5file["/split/ckmer"].shape[0]>0,"no splitting k-mers")
+            self.assertTrue(ckmerTotal>0,"no splitting k-mers")
             previousCkmer = None
-            for row in np.array(h5file["/split/ckmer"]):
+            for row in np.array(ckmers):
                 if not previousCkmer == None:
                     self.assertTrue(row[0]>previousCkmer,"k-mers not properly sorted")
                 previousCkmer = row[0]
@@ -90,22 +92,65 @@ class DatabaseTestCase(unittest.TestCase):
                 self.assertTrue(row[2]>=row[4][0],"inconsistent connected")
                 self.assertTrue(row[2]>=row[5][0],"inconsistent cycle")
                 self.assertTrue(row[2]>=row[6][0],"inconsistent reversal")
+            #test cycle
+            for row in np.array(h5file["/split/cycle"]):
+                self.assertTrue(row[0]<ckmerTotal,"linking to non-existing entry")
+                self.assertTrue(row[1]>0,"length should be positive")
+                self.assertTrue(row[2]>0,"number should be positive")
+                self.assertTrue(ckmers[row[0]][5][0]>0,"k-mer not labelled as cycle")
+            #test reversal
+            for row in np.array(h5file["/split/reversal"]):
+                self.assertTrue(row[0]<ckmerTotal,"linking to non-existing entry")
+                self.assertTrue(row[1]>0,"length should be positive")
+                self.assertTrue(row[2]>0,"number should be positive")
+                self.assertTrue(ckmers[row[0]][6][0]>0,"k-mer not labelled as reversal")
             
     def test_direct(self):
         directList = []
         with h5py.File(self.tmpIndexLocation,"r") as h5file:
+            ckmerTotal = h5file["/split/ckmer"].shape[0]
             #test for empty
             self.assertTrue(h5file["/relations/direct"].shape[0]>0,"no direct relations")
             #create list with keys
             for row in np.array(h5file["/relations/direct"]):
-                directList.append((row[0],row[1],row[2],row[3],row[4],row[5],))
+                directList.append((row[0],row[1],row[2],row[3],row[4],row[5],row[6],))
             directSet = set(directList)
             #test for unique information
             self.assertEqual(len(directSet),len(directList),"duplication in direct relations")
             #test for symmetry
             for row in np.array(h5file["/relations/direct"]):
-                self.assertTrue((row[2],row[3],row[0],row[1],row[4],row[5],) 
-                                in directList,"direct relations not symmetric")            
+                self.assertTrue((row[2],row[3],row[0],row[1],row[4],row[5],row[6],) 
+                                in directList,"direct relations not symmetric")              
+                
+    def test_connected(self):
+        with h5py.File(self.tmpIndexLocation,"r") as h5file:
+            ckmerTotal = h5file["/split/ckmer"].shape[0]
+            numberOfConnected = h5file["/relations/connected"].shape[0]
+            numberOfConnectedIndex = h5file["/relations/connectedIndex"].shape[0]
+            numberOfCkmer = h5file["/relations/ckmer"].shape[0]
+            numberOfCkmerConnected = h5file["/relations/ckmerConnected"].shape[0]
+            #test connected
+            for row in np.array(h5file["/relations/connectedIndex"]):
+                self.assertTrue(row[0]<ckmerTotal,"linking to non-existing entry")
+            #test index
+            for row in np.array(h5file["/relations/connectedIndex"]):
+                self.assertTrue(row[0]<=row[1],"size cannot exceed length")
+                self.assertTrue(row[0]>0,"size should be positive")
+                self.assertTrue(row[3]>0,"number should be positive")
+                self.assertTrue(row[2]+row[0]<=numberOfConnected,"linking to non-existing entries")
+            #test pairs
+            for row in np.array(h5file["/relations/connectedPair"]):
+                self.assertTrue(row[0]<numberOfConnectedIndex,"linking to non-existing entry")
+                self.assertTrue(row[1]<numberOfConnectedIndex,"linking to non-existing entry")
+                self.assertTrue(row[2]>0,"number should be positive")
+            #test ckmer
+            self.assertEqual(ckmerTotal,numberOfCkmer,"inconsistent size")
+            for row in np.array(h5file["/relations/ckmer"]):
+                if row[1]>0:
+                    self.assertTrue(row[1]+row[0]<=numberOfCkmerConnected,"linking to non-existing entries")
+            #test ckmer connected
+            for row in np.array(h5file["/relations/ckmerConnected"]):
+                self.assertTrue(row[0]<numberOfConnectedIndex,"linking to non-existing entry")
         
     def tearDown(self):
         if self.tmpDirectory:

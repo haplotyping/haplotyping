@@ -9,7 +9,7 @@ class Relations:
     Internal use, parse read files and store results in database
     """
     
-    def __init__(self, readFiles,pairedReadFiles, h5file, filenameBase, debug):
+    def __init__(self, unpairedReadFiles, pairedReadFiles, h5file, filenameBase, debug):
         
         """
         Internal use only: initialize
@@ -17,7 +17,10 @@ class Relations:
         
         #logger
         self._logger = logging.getLogger(__name__)
-        self._logger.info("parse "+str(len(readFiles))+" readfiles and "+str(2*len(pairedReadFiles))+" paired readfiles")
+        if len(unpairedReadFiles)>0:
+            self._logger.info("parse "+str(len(unpairedReadFiles))+" unpaired readfile(s)")
+        if len(pairedReadFiles)>0:
+            self._logger.info("parse "+str(2*len(pairedReadFiles))+" paired readfile(s)")
         
         self.stepSizeStorage=10000
         self.debug = debug
@@ -26,7 +29,7 @@ class Relations:
         #set variables
         self.k = h5file["/config"].attrs["k"]
         self.h5file = h5file
-        self.readFiles = readFiles
+        self.unpairedReadFiles = unpairedReadFiles
         self.pairedReadFiles = pairedReadFiles
         self.numberOfKmers = self.h5file["/split/ckmer"].shape[0]
         self.numberOfDirectRelations = 0
@@ -89,9 +92,6 @@ class Relations:
                                       title="Temporary main storage") as self.pytables_main_storage, \
                      tables.open_file(pytablesDumpFile, mode="w", 
                                       title="Temporary dump storage") as self.pytables_dump_storage :
-                    #initialisation
-                    self._getAutomaton()
-                    
                     #process
                     self._processReadFiles()
                     self._group()
@@ -119,16 +119,21 @@ class Relations:
         }
         tableDumpConnectedDef = {
             "ckmerLink": self._getTablesUint(self.numberOfKmers,0),
+            "splitLocation": tables.StringCol(1,pos=1),
         }
         tableDumpConnectedIndexDef = {
             "hashKey": tables.StringCol(21,pos=0),
             "sizeConnected": tables.UInt64Col(pos=1),
             "lengthConnected": tables.UInt64Col(pos=2),
             "firstDumpConnectedLink": tables.UInt64Col(pos=3),
+            "storeSingleConnected": tables.UInt8Col(pos=4),
+            "directConnected": tables.UInt8Col(pos=5),
         }
         tableDumpConnectedPairDef = {
-            "hashKey0": tables.StringCol(21,pos=0),
-            "hashKey1": tables.StringCol(21,pos=1),
+            "dumpConnectedIndexLink0": tables.UInt64Col(pos=0),
+            "hashKey0": tables.StringCol(21,pos=1),
+            "dumpConnectedIndexLink1": tables.UInt64Col(pos=2),
+            "hashKey1": tables.StringCol(21,pos=3),
         }
         tableDumpCycleDef = {
             "ckmerLink": self._getTablesUint(self.numberOfKmers,0),
@@ -145,6 +150,7 @@ class Relations:
                                 "dumpConnected", tableDumpConnectedDef, 
                                 "Temporary to dump connections")
         self.numberTableDumpConnected = 0
+        self.numberTableDumpConnectedIndex = 0
         self.tableDumpConnectedIndex = self.pytables_dump_storage.create_table(self.pytables_dump_storage.root,
                                 "dumpConnectedIndex", tableDumpConnectedIndexDef, 
                                 "Temporary for index dumped connections")
@@ -158,14 +164,17 @@ class Relations:
                                 "dumpReversal", tableDumpReversalDef, 
                                 "Temporary for dumped reversals")
         
+        #get automaton
+        automatonSplits = self._getAutomatonSplits()
+        
         #process and register unpaired read files
         dtypeList = [("file","S255"),("readLength","uint64"),
                      ("readNumber","uint64"),("processTime","uint32")]
-        ds = self.h5file["/config/"].create_dataset("unpairedReads",(len(self.readFiles),),
+        ds = self.h5file["/config/"].create_dataset("unpairedReads",(len(self.unpairedReadFiles),),
                                           dtype=np.dtype(dtypeList),chunks=None)
-        for i in range(len(self.readFiles)):
-            (readLength,readNumber,processTime) = self._processReadFile(self.readFiles[i])
-            ds[i] = (self.readFiles[i],
+        for i in range(len(self.unpairedReadFiles)):
+            (readLength,readNumber,processTime) = self._processReadFile(self.unpairedReadFiles[i],automatonSplits)
+            ds[i] = (self.unpairedReadFiles[i],
                      readLength,readNumber,int(processTime))
 
 
@@ -176,7 +185,7 @@ class Relations:
                                           dtype=np.dtype(dtypeList),chunks=None)
         for i in range(len(self.pairedReadFiles)):
             (readLength,readNumber,processTime) = self._processPairedReadFiles(self.pairedReadFiles[i][0],
-                                                                         self.pairedReadFiles[i][1])
+                                                                         self.pairedReadFiles[i][1],automatonSplits)
             ds[i] = (self.pairedReadFiles[i][0],self.pairedReadFiles[i][1],
                      readLength,readNumber,int(processTime))
             
@@ -187,7 +196,7 @@ class Relations:
         self.tableDumpCycle.flush()
         self.tableDumpReversal.flush()
                 
-    def _processReadFile(self, filename: str):
+    def _processReadFile(self, filename: str, automatonSplits):
         startTime = time.time()
         with gzip.open(filename, "rt") as f:
             readLengthMinimum=None
@@ -204,7 +213,7 @@ class Relations:
                     readLengthMaximum=(len(sequence) if readLengthMaximum==None 
                                        else max(readLengthMaximum,len(sequence)))
                     readNumber+=1
-                    matchesList=self._computeMatchesList(sequence)
+                    matchesList=self._computeMatchesList(sequence, automatonSplits)
                     for matches in matchesList:
                         self._processMatches(matches)
                     self._processConnected(sum(matchesList,[]),False)
@@ -221,17 +230,17 @@ class Relations:
             self.processReadsTime+=endTime-startTime
             return (readLengthMaximum,readNumber,endTime-startTime)
 
-    def _processPairedReadFiles(self, filename0: str, filename1: str):
+    def _processPairedReadFiles(self, filename0: str, filename1: str, automatonSplits):
         startTime = time.time()
         
-        def storePairedConnected(hashKey0,hashKey1):
-            if hashKey0 and hashKey1 and not hashKey0==hashKey1:
+        def storePairedConnected(link0,link1):
+            if not (link0==None or link1==None):
                 dumpConnectedPair = self.tableDumpConnectedPair.row
-                dumpConnectedPair["hashKey0"]=hashKey0
-                dumpConnectedPair["hashKey1"]=hashKey1
+                dumpConnectedPair["dumpConnectedIndexLink0"]=link0
+                dumpConnectedPair["dumpConnectedIndexLink1"]=link1
                 dumpConnectedPair.append()
-                dumpConnectedPair["hashKey0"]=hashKey1
-                dumpConnectedPair["hashKey1"]=hashKey0
+                dumpConnectedPair["dumpConnectedIndexLink0"]=link1
+                dumpConnectedPair["dumpConnectedIndexLink1"]=link0
                 dumpConnectedPair.append()
         
         with gzip.open(filename0, "rt") as f0, gzip.open(filename1, "rt") as f1:
@@ -256,18 +265,18 @@ class Relations:
                     readLengthMaximum=(max(len(sequence0),len(sequence1)) if readLengthMaximum==None 
                                        else max(readLengthMaximum,len(sequence0),len(sequence1)))
                     readNumber+=2      
-                    matchesList0=self._computeMatchesList(sequence0)
-                    matchesList1=self._computeMatchesList(sequence1)
+                    matchesList0=self._computeMatchesList(sequence0, automatonSplits)
+                    matchesList1=self._computeMatchesList(sequence1, automatonSplits)
                     connectedHashKeys0=set()
                     connectedHashKeys1=set()
                     for matches0 in matchesList0:
                         self._processMatches(matches0)
-                    hashKey0 = self._processConnected(sum(matchesList0,[]),len(matchesList1)>0)
+                    dumpConnectedIndexLink0 = self._processConnected(sum(matchesList0,[]),len(matchesList1)>0)
                     for matches1 in matchesList1:
                         self._processMatches(matches1)
-                    hashKey1 = self._processConnected(sum(matchesList1,[]),len(matchesList0)>0)
+                    dumpConnectedIndexLink1 = self._processConnected(sum(matchesList1,[]),len(matchesList0)>0)
                     #connecting real pair
-                    storePairedConnected(hashKey0,hashKey1) 
+                    storePairedConnected(dumpConnectedIndexLink0,dumpConnectedIndexLink1) 
                 else:
                     break
             endTime = time.time()
@@ -300,6 +309,9 @@ class Relations:
         tableGroupedDirectErrorDef = {
             "sortKey": tables.StringCol(2+(2*self.maxNumberofLinkDigits),pos=0),
         }
+        tableGroupedDirectProblemDef = {
+            "sortKey": tables.StringCol(2+(2*self.maxNumberofLinkDigits),pos=0),
+        }
         tableFilteredDirectDef = {
             "fromCkmerLink": self._getTablesUint(self.numberOfKmers,0),
             "fromDirection": tables.StringCol(1,pos=1),
@@ -307,6 +319,7 @@ class Relations:
             "toDirection": tables.StringCol(1,pos=3),
             "distance": self._getTablesUint(self.maxDirectDistance,4),
             "number": tables.UInt16Col(pos=5),
+            "problem": tables.UInt8Col(pos=6),
         }
         tableGroupedCycleDef = {
             "ckmerLink": self._getTablesUint(self.numberOfKmers,0),
@@ -321,12 +334,18 @@ class Relations:
         tableDumpDirectErrorDef = {
             "sortKey": tables.StringCol(2+(2*self.maxNumberofLinkDigits),pos=0),
         }
+        tableDumpDirectProblemDef = {
+            "sortKey": tables.StringCol(2+(2*self.maxNumberofLinkDigits),pos=0),
+        }
         self.tableGroupedDirect = self.pytables_main_storage.create_table(self.pytables_main_storage.root, 
                                 "groupedDirect", tableGroupedDirectDef, 
                                 "Temporary to store grouped direct relations")
         self.tableGroupedDirectError = self.pytables_main_storage.create_table(self.pytables_main_storage.root, 
                                 "groupedDirectError", tableGroupedDirectErrorDef, 
                                 "Temporary to store grouped direct error relations")
+        self.tableGroupedDirectProblem = self.pytables_main_storage.create_table(self.pytables_main_storage.root, 
+                                "groupedDirectProblem", tableGroupedDirectProblemDef, 
+                                "Temporary to store grouped direct problem relations")
         self.tableFilteredDirect = self.pytables_main_storage.create_table(self.pytables_main_storage.root, 
                                 "filteredDirect", tableFilteredDirectDef, 
                                 "Temporary to store filtered direct relations")
@@ -339,6 +358,9 @@ class Relations:
         self.tableDumpDirectError = self.pytables_dump_storage.create_table(self.pytables_dump_storage.root, 
                                 "dumpDirectError", tableDumpDirectErrorDef, 
                                 "Temporary to dump direct errors")
+        self.tableDumpDirectProblem = self.pytables_dump_storage.create_table(self.pytables_dump_storage.root, 
+                                "dumpDirectProblem", tableDumpDirectProblemDef, 
+                                "Temporary to dump direct problems")
         def saveGroupedDirect(sortKey,fromCkmer,fromDirection,toCkmer,toDirection,distance,number):   
             groupedDirectRow = self.tableGroupedDirect.row            
             groupedDirectRow["sortKey"] = sortKey
@@ -353,7 +375,11 @@ class Relations:
             groupedDirectErrorRow = self.tableGroupedDirectError.row            
             groupedDirectErrorRow["sortKey"] = sortKey
             groupedDirectErrorRow.append()    
-        def saveFilteredDirect(fromCkmer,fromDirection,toCkmer,toDirection,distance,number):   
+        def saveGroupedDirectProblem(sortKey):   
+            groupedDirectProblemRow = self.tableGroupedDirectProblem.row            
+            groupedDirectProblemRow["sortKey"] = sortKey
+            groupedDirectProblemRow.append()    
+        def saveFilteredDirect(fromCkmer,fromDirection,toCkmer,toDirection,distance,number,problematic):   
             filteredDirectRow = self.tableFilteredDirect.row            
             filteredDirectRow["fromCkmerLink"] = fromCkmer
             filteredDirectRow["fromDirection"] = fromDirection
@@ -361,6 +387,7 @@ class Relations:
             filteredDirectRow["toDirection"] = toDirection
             filteredDirectRow["distance"] = distance
             filteredDirectRow["number"] = number
+            filteredDirectRow["problem"] = 1 if problematic else 0
             filteredDirectRow.append()    
         def saveGroupedCycle(ckmerLink,minimumLength,number):  
             self.maxCycleLength = max(self.maxCycleLength,minimumLength)
@@ -387,10 +414,20 @@ class Relations:
                 n=round(len(sortKey)/2)
                 dumpDirectErrorRow["sortKey"] = sortKey[n:]+sortKey[:n]
                 dumpDirectErrorRow.append()
+        def saveDumpDirectProblems(problemList):
+            dumpDirectProblemRow = self.tableDumpDirectProblem.row
+            for sortKey in problemList:
+                dumpDirectProblemRow["sortKey"] = sortKey
+                dumpDirectProblemRow.append()
+                #keep symmetry
+                n=round(len(sortKey)/2)
+                dumpDirectProblemRow["sortKey"] = sortKey[n:]+sortKey[:n]
+                dumpDirectProblemRow.append()
             
         def checkIndexCounter(indexCounter):
             #initialise
-            removeList = set()            
+            removeList = set() 
+            problemList = set()
             
             #distance based check and compute trunks
             ckmerInfo = self.h5file.get("/split/ckmer")
@@ -418,7 +455,7 @@ class Relations:
                         distanceFreqs[distance]+=number
             if not ((len(trunkFreqs)>1) or (len(distanceFreqs)>1)):
                 #(probably) no problem
-                return (indexCounter, removeList, False)
+                return (indexCounter, removeList, problemList)
             
             #try restricting to the most frequent trunk
             mostFrequentTrunks = [(k,v) for k, v in trunkFreqs.items() if v==max(trunkFreqs.values())]
@@ -437,10 +474,14 @@ class Relations:
                             newIndexCounter[toCkmerLink][toDirection] = [number,distance,sortKey,None]
                         else:
                             removeList.add(sortKey)
-                return (newIndexCounter,removeList, False)
+                return (newIndexCounter,removeList, problemList)
             
             #problems, but not directly fixable
-            return (indexCounter, removeList, True)
+            for toCkmerLink in indexCounter.keys():
+                for toDirection in indexCounter[toCkmerLink].keys():
+                    sortKey = indexCounter[toCkmerLink][toDirection][2]
+                    problemList.add(sortKey)
+            return (indexCounter, removeList, problemList)
 
         #create grouped storage direct relations
         self.tableDumpDirect.flush()  
@@ -458,8 +499,9 @@ class Relations:
                 if not ((row["fromCkmerLink"]==fromLink) and 
                         (row["fromDirection"]==fromDirection)):
                     if previousSortKey:
-                        (indexCounter,removeList,detectedProblem) = checkIndexCounter(indexCounter)
+                        (indexCounter,removeList,problemList) = checkIndexCounter(indexCounter)
                         saveDumpDirectErrors(removeList)
+                        saveDumpDirectProblems(problemList)
                         for toCkmerLink in indexCounter.keys():
                             for toDirection in indexCounter[toCkmerLink].keys():
                                 number = indexCounter[toCkmerLink][toDirection][0]
@@ -479,8 +521,9 @@ class Relations:
             indexCounter[row["toCkmerLink"]][row["toDirection"]][0]+=1
             indexCounter[row["toCkmerLink"]][row["toDirection"]][1].append(row["distance"])
         if previousSortKey:
-            (indexCounter,removeList,detectedProblem) = checkIndexCounter(indexCounter)
+            (indexCounter,removeList,problemList) = checkIndexCounter(indexCounter)
             saveDumpDirectErrors(removeList)
+            saveDumpDirectProblems(problemList)
             for toCkmerLink in indexCounter.keys():
                 for toDirection in indexCounter[toCkmerLink].keys():
                     number = indexCounter[toCkmerLink][toDirection][0]
@@ -506,6 +549,22 @@ class Relations:
             saveGroupedDirectError(previousSortKey.decode())
         self.tableGroupedDirectError.flush() 
         
+        #create grouped storage direct relations that are problematic
+        self.tableDumpDirectProblem.flush() 
+        numberOfDirectProblem=self.tableDumpDirectProblem.shape[0]
+        self._logger.debug("group "+str(numberOfDirectProblem)+" direct problem relations")
+        self.tableDumpDirectProblem.cols.sortKey.create_csindex()
+        self.tableDumpDirectProblem.flush() 
+        previousSortKey=None
+        for row in self.tableDumpDirectProblem.itersorted("sortKey"):
+            if not row["sortKey"]==previousSortKey:
+                if previousSortKey:
+                    saveGroupedDirectProblem(previousSortKey.decode())
+                previousSortKey=row["sortKey"]
+        if previousSortKey:
+            saveGroupedDirectProblem(previousSortKey.decode())
+        self.tableGroupedDirectProblem.flush() 
+        
         #create filtered storage direct relations
         self.tableGroupedDirect.flush() 
         numberOfDirect=self.tableGroupedDirect.shape[0]
@@ -514,10 +573,16 @@ class Relations:
         self.tableGroupedDirect.flush() 
         self.tableGroupedDirectError.cols.sortKey.create_csindex()
         self.tableGroupedDirectError.flush()
+        self.tableGroupedDirectProblem.cols.sortKey.create_csindex()
+        self.tableGroupedDirectProblem.flush()
         errorIterator = self.tableGroupedDirectError.itersorted("sortKey")
-        self._logger.debug("filter "+str(numberOfDirect)+" by checking "+str(numberOfDirectError)+" errors")
+        problemIterator = self.tableGroupedDirectProblem.itersorted("sortKey")
+        self._logger.debug("filter "+str(numberOfDirect)+" direct relations by checking "+str(numberOfDirectError)+" errors")
+        self._logger.debug("label filtered by checking "+str(numberOfDirectProblem)+" problems")
         errorRow = None
         errorIteratorFinished = False
+        problemRow = None
+        problemIteratorFinished = False
         for row in self.tableGroupedDirect.itersorted("sortKey"):
             if not errorIteratorFinished:
                 if (errorRow==None) or (errorRow and errorRow[0]<row[0]):
@@ -526,11 +591,20 @@ class Relations:
                         if errorRow[0]>=row[0]:
                             errorIteratorFinished = False
                             break  
+            if not problemIteratorFinished:
+                if (problemRow==None) or (problemRow and problemRow[0]<row[0]):
+                    problemIteratorFinished = True
+                    for problemRow in problemIterator:
+                        if problemRow[0]>=row[0]:
+                            problemIteratorFinished = False
+                            break  
             if errorIteratorFinished or not (errorRow[0]==row[0]):
-                saveFilteredDirect(row[1],row[2],row[3],row[4],row[5],row[6])
+                if problemIteratorFinished or not (problemRow[0]==row[0]):
+                    saveFilteredDirect(row[1],row[2],row[3],row[4],row[5],row[6],False)
+                else:
+                    saveFilteredDirect(row[1],row[2],row[3],row[4],row[5],row[6],True)
         self.tableFilteredDirect.flush()
-                
-               
+
         #create grouped storage cycles
         self.tableDumpCycle.flush()  
         numberOfCycles=self.tableDumpCycle.shape[0]
@@ -588,7 +662,8 @@ class Relations:
             "firstDumpConnectedLink": self._getTablesUint(numberDumpConnected,3),
             "firstGroupedConnectedLink": self._getTablesUint(numberDumpConnected,4),
             "number": self._getTablesUint(numberDumpConnected,5),
-            "processed": tables.UInt8Col(pos=6),
+            "directConnected": tables.UInt8Col(pos=6),
+            "processed": tables.UInt8Col(pos=7),
         } 
         self.tableGroupedConnected = self.pytables_main_storage.create_table(self.pytables_main_storage.root, 
                                 "groupedConnected", tableGroupedConnectedDef, 
@@ -598,7 +673,7 @@ class Relations:
                                 "Temporary to store grouped connected index")
         
         def saveGroupedConnectedIndex(hashKey,sizeConnected,lengthConnected,
-                                      firstDumpConnectedLink,firstGroupedConnectedLink,number):
+                                      firstDumpConnectedLink,firstGroupedConnectedLink,number,directConnected):
             #update number
             self.maxConnectedIndexNumber = max(self.maxConnectedIndexNumber,number)
             #store in index
@@ -609,6 +684,7 @@ class Relations:
             groupedConnectedIndexRow["firstDumpConnectedLink"] = firstDumpConnectedLink
             groupedConnectedIndexRow["firstGroupedConnectedLink"] = firstGroupedConnectedLink
             groupedConnectedIndexRow["number"] = number
+            groupedConnectedIndexRow["directConnected"] = directConnected
             groupedConnectedIndexRow.append()
             #store connected
             groupedConnectedRow = self.tableGroupedConnected.row
@@ -616,6 +692,85 @@ class Relations:
             for ckmerLink in connected:
                 groupedConnectedRow["ckmerLink"] = ckmerLink[0]
                 groupedConnectedRow.append()
+                
+        #loop over dumped results to reduce based on direct connections
+        self.tableDumpConnectedIndex.flush()
+        self.tableDumpConnected.flush()
+        automatonDirect = self._getAutomatonDirect()
+        for row in self.tableDumpConnectedIndex.iterrows():
+            firstDumpConnectedLink = row["firstDumpConnectedLink"]
+            sizeConnected = row["sizeConnected"]
+            lengthConnected = row["lengthConnected"]
+            storeSingleConnected = row["storeSingleConnected"]
+            connected = self.tableDumpConnected[firstDumpConnectedLink:firstDumpConnectedLink+sizeConnected]
+            #find start and end
+            startConnected=len(connected)  
+            endConnected=0
+            #check left
+            previousCkmerLink=None
+            ckmerLink=None
+            leftSize=0
+            for i in range(len(connected)): 
+                previousCkmerLink=ckmerLink
+                (ckmerLink,splitLocation)=connected[i]
+                if not (splitLocation=="r"):
+                    startConnected=i
+                    break
+                elif not previousCkmerLink==None:
+                    #check if really direct connection
+                    directHash = self._getAutomatonDirectHash(previousCkmerLink,ckmerLink)
+                    try:
+                        distance = automatonDirect.get(directHash)
+                        leftSize+= distance
+                    except:
+                        startConnected=i
+                        break
+            #check right
+            previousCkmerLink=None
+            ckmerLink=None
+            rightSize=0                            
+            for i in range(len(connected))[::-1]:            
+                previousCkmerLink=ckmerLink
+                (ckmerLink,splitLocation)=connected[i]
+                if not (splitLocation=="l"):
+                    endConnected=i
+                    break
+                elif not previousCkmerLink==None:
+                    #check if really direct connection
+                    directHash = self._getAutomatonDirectHash(previousCkmerLink,ckmerLink)
+                    try:
+                        distance = automatonDirect.get(directHash)
+                        rightSize+= distance
+                    except:
+                        endConnected=i
+                        break
+            filteredConnected = connected[startConnected:endConnected+1]    
+            if storeSingleConnected and (len(filteredConnected)==0):
+                filteredConnected = connected[max(0,startConnected-1):min(endConnected+2,len(connected))]   
+            boundary = 0 if storeSingleConnected else 1            
+            if len(filteredConnected)>boundary:
+                filteredConnected = [x[0] for x in filteredConnected]
+                directConnected = 1
+                for i in range(1,len(filteredConnected)):
+                    directHash = self._getAutomatonDirectHash(filteredConnected[i-1],filteredConnected[i])
+                    try:
+                        automatonDirect.get(directHash)
+                    except:
+                        directConnected = 0
+                        break
+                row["firstDumpConnectedLink"]=firstDumpConnectedLink+startConnected
+                row["sizeConnected"]=len(filteredConnected)
+                row["lengthConnected"]=lengthConnected-leftSize-rightSize
+                row["hashKey"] = self._hashConnected(filteredConnected)
+                row["directConnected"] = directConnected
+                row.update()   
+        self.tableDumpConnectedIndex.flush()
+        #update connected pairs
+        for row in self.tableDumpConnectedPair.iterrows():
+            row["hashKey0"] = self.tableDumpConnectedIndex[row["dumpConnectedIndexLink0"]]["hashKey"]
+            row["hashKey1"] = self.tableDumpConnectedIndex[row["dumpConnectedIndexLink1"]]["hashKey"]
+            row.update()
+        self.tableDumpConnectedPair.flush()
         
         #create grouped storage connected index
         self.tableDumpConnectedIndex.flush()
@@ -632,25 +787,28 @@ class Relations:
             if not row["hashKey"]==previousHashKey:
                 if previousHashKey:                    
                     sizeConnected = min(previousData["sizes"])
-                    lengthConnected = int(np.median(previousData["lengths"]))                    
+                    lengthConnected = int(np.median(previousData["lengths"]))  
+                    directConnected = min(previousData["directConnected"])
                     saveGroupedConnectedIndex(previousHashKey,sizeConnected,lengthConnected,
                                               previousData["firstDumpConnectedLink"],
                                               firstGroupedConnectedLink,
-                                              previousData["number"]) 
+                                              previousData["number"],directConnected) 
                     firstGroupedConnectedLink+=sizeConnected
                 previousHashKey=row["hashKey"]
                 previousData={"firstDumpConnectedLink": row["firstDumpConnectedLink"],
-                              "number": 0, "lengths": [], "sizes": []}
+                              "number": 0, "lengths": [], "sizes": [], "directConnected": []}
             previousData["number"]+=1
             previousData["sizes"].append(row["sizeConnected"])
             previousData["lengths"].append(row["lengthConnected"])
+            previousData["directConnected"].append(row["directConnected"])
         if previousHashKey:
             sizeConnected = min(previousData["sizes"]) 
             lengthConnected = int(np.median(previousData["lengths"]))
+            directConnected = min(previousData["directConnected"])
             saveGroupedConnectedIndex(previousHashKey,sizeConnected,lengthConnected,
                                       previousData["firstDumpConnectedLink"],
                                       firstGroupedConnectedLink,
-                                      previousData["number"]) 
+                                      previousData["number"],directConnected) 
             firstGroupedConnectedLink+=sizeConnected    
         self.tableGroupedConnectedIndex.flush()
         self.tableGroupedConnected.flush()
@@ -902,7 +1060,8 @@ class Relations:
         dtypeList = [("fromCkmerLink",self._getUint(self.numberOfKmers)),("fromDirection","S1"),
                      ("toCkmerLink",self._getUint(self.numberOfKmers)),("toDirection","S1"),
                      ("distance",self._getUint(self.maxDirectDistance)),
-                     ("number",self._getUint(self.maxDirectNumber))]
+                     ("number",self._getUint(self.maxDirectNumber)),
+                     ("problem","uint8")]
         dt=np.dtype(dtypeList)
         ds=self.h5file["/relations/"].create_dataset("direct",(self.numberOfDirectRelations,),
                                           dtype=dt,chunks=None)
@@ -953,13 +1112,14 @@ class Relations:
         dtypeList = [("sizeConnected",self._getUint(self.maxConnectedIndexSize)),
                      ("lengthConnected",self._getUint(self.maxConnectedIndexLength)),
                      ("connectedLink",self._getUint(numberOfConnected)),
-                     ("number",self._getUint(self.maxConnectedIndexNumber))]
+                     ("number",self._getUint(self.maxConnectedIndexNumber)),
+                     ("directConnected", "uint8"),]
         dt=np.dtype(dtypeList)
         ds=self.h5file["/relations/"].create_dataset("connectedIndex",(numberOfConnectedIndex,),
                                           dtype=dt,chunks=None)
         self._logger.info("store "+str(numberOfConnectedIndex)+" sets of connected k-mers")
         for i in range(0,numberOfConnectedIndex,self.stepSizeStorage):
-            ds[i:i+self.stepSizeStorage] = [(x[1],x[2],x[4],x[5],) for x in 
+            ds[i:i+self.stepSizeStorage] = [(x[1],x[2],x[4],x[5],x[6],) for x in 
                                             self.tableGroupedConnectedIndex[i:i+self.stepSizeStorage]]    
         #store connectedPair
         numberOfConnectedPair=self.tableGroupedConnectedPair.shape[0]
@@ -1024,7 +1184,7 @@ class Relations:
             problemStartPositions.append(m.span()[0]+1)
         return problemStartPositions
     
-    def _computeMatchesList(self,sequence):
+    def _computeMatchesList(self,sequence,automatonSplits):
         def saveDumpCycle(link,length): 
             #save data
             cycleRow = self.tableDumpCycle.row    
@@ -1044,7 +1204,7 @@ class Relations:
         problems = self._computeProblemStartPositions(sequence)
         relevantProblem = None if len(problems)==0 else problems[0]
         matches = []
-        for end_index, (link,orientation,splitLocation) in self.automatonSplits.iter(sequence):
+        for end_index, (link,orientation,splitLocation) in automatonSplits.iter(sequence):
             pos=1+end_index-self.k
             if link in history.keys():
                 if history[link][0]==orientation:
@@ -1071,38 +1231,27 @@ class Relations:
     def _processConnected(self,matches,storeSingleConnected):    
         boundary = 0 if storeSingleConnected else 1
         if len(matches)>boundary:   
-            startConnected=len(matches)  
-            endConnected=0
-            for i in range(len(matches)):            
-                (pos,link,orientation,splitLocation)=matches[i]
-                if not (splitLocation=="r"):
-                    startConnected=i
-                    break
-            for i in range(len(matches))[::-1]:            
-                (pos,link,orientation,splitLocation)=matches[i]
-                if not (splitLocation=="l"):
-                    endConnected=i
-                    break  
-            if (endConnected-startConnected)>boundary:
-                connected = [x[1] for x in matches[startConnected:endConnected+1]]
+            if len(matches)>boundary:
+                connected = [(x[1],x[3],) for x in matches]
                 sizeConnected=len(connected)
-                lengthConnected=1+matches[endConnected][0]-matches[startConnected][0]
+                lengthConnected=1+matches[-1][0]-matches[0][0]
                 self.maxConnectedIndexSize=max(self.maxConnectedIndexSize,sizeConnected)
                 self.maxConnectedIndexLength=max(self.maxConnectedIndexLength,lengthConnected)
-                connectedHashKey = self._hashConnected(connected)
                 connectedIndexRow = self.tableDumpConnectedIndex.row
-                connectedIndexRow["hashKey"] = connectedHashKey
                 connectedIndexRow["sizeConnected"] = sizeConnected
                 connectedIndexRow["lengthConnected"] = lengthConnected
                 connectedIndexRow["firstDumpConnectedLink"] = self.numberTableDumpConnected
+                connectedIndexRow["storeSingleConnected"] = 1 if storeSingleConnected else 0
                 connectedIndexRow.append()
+                self.numberTableDumpConnectedIndex+=1
                 #store connected
                 connectedRow = self.tableDumpConnected.row                        
                 for i in range(len(connected)):
-                    connectedRow["ckmerLink"] = connected[i]
+                    connectedRow["ckmerLink"] = connected[i][0]
+                    connectedRow["splitLocation"] = connected[i][1]
                     connectedRow.append()
                     self.numberTableDumpConnected+=1    
-                return connectedHashKey
+                return self.numberTableDumpConnectedIndex-1
         return None
         
     def _processMatches(self,matches):
@@ -1134,33 +1283,61 @@ class Relations:
                     saveDumpDirect(link2,direction2,link1,direction1,pos2-pos1)
 
 
-    def _getAutomaton(self):        
+    def _getAutomatonSplits(self):        
         if self.debug:
-            filenameAutomaton = self.filenameBase+"_tmp_relations_automaton.data"
+            filenameAutomaton = self.filenameBase+"_tmp_automaton_splits.data"
             if os.path.exists(filenameAutomaton):
                 with open(filenameAutomaton, "rb") as f:
-                    self.automatonSplits = pickle.load(f)
+                    automatonSplits = pickle.load(f)
                     self._logger.warning("automaton loaded from previous run")
-                    return
+                    return automatonSplits
         else:
             filenameAutomaton = None
         
         self._logger.debug("create automaton for "+str(self.numberOfKmers)+" k-mers")
-        self.automatonSplits = ahocorasick.Automaton()
+        automatonSplits = ahocorasick.Automaton()
         kmers = self.h5file["/split/ckmer"]
         for i in range(self.numberOfKmers):
             kmer = kmers[i][0].decode()
             kmerType = kmers[i][1].decode()
             rkmer = haplotyping.General.reverse_complement(kmer)
             rkmerType = "l" if kmerType=="r" else ("r" if kmerType=="l" else "b")
-            self.automatonSplits.add_word(kmer,(i,"c",kmerType))
+            automatonSplits.add_word(kmer,(i,"c",kmerType))
             #if canonical k-mer equals reverse complement, don't insert for rc
             if not kmer==rkmer:
-                self.automatonSplits.add_word(rkmer,(i,"r",rkmerType))
-        self.automatonSplits.make_automaton()
+                automatonSplits.add_word(rkmer,(i,"r",rkmerType))
+        automatonSplits.make_automaton()
         if self.debug:
             with open(filenameAutomaton, "wb") as f:
-                pickle.dump(self.automatonSplits, f)
+                pickle.dump(automatonSplits, f)
+        return automatonSplits
+    
+    def _getAutomatonDirectHash(self,link0,link1):
+        return str(link0)+"-"+str(link1)
+        
+    def _getAutomatonDirect(self):        
+        if self.debug:
+            filenameAutomaton = self.filenameBase+"_tmp_automaton_direct.data"
+            if os.path.exists(filenameAutomaton):
+                with open(filenameAutomaton, "rb") as f:
+                    automatonDirect = pickle.load(f)
+                    self._logger.warning("automaton loaded from previous run")
+                    return automatonDirect
+        else:
+            filenameAutomaton = None
+        
+        self._logger.debug("create automaton for direct relations")
+        automatonDirect = ahocorasick.Automaton()
+        self.tableFilteredDirect.flush() 
+        for row in self.tableFilteredDirect.iterrows():
+            if row["problem"]==0:
+                directHash = self._getAutomatonDirectHash(row["fromCkmerLink"],row["toCkmerLink"])
+                automatonDirect.add_word(directHash,row["distance"])            
+        automatonDirect.make_automaton()
+        if self.debug:
+            with open(filenameAutomaton, "wb") as f:
+                pickle.dump(automatonDirect, f)
+        return automatonDirect
 
                 
     def _getTablesUint(self, maximumValue, position):
