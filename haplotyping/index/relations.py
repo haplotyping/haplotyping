@@ -1,6 +1,6 @@
 import logging, h5py, tables, gzip, time
 import os, sys, tempfile, ahocorasick, pickle
-import re, haplotyping
+import re, haplotyping, collections
 import numpy as np
 
 class Relations:
@@ -437,8 +437,13 @@ class Relations:
                 for toDirection in indexCounter[toCkmerLink].keys():
                     toCkmer = ckmerInfo[toCkmerLink][0].decode()
                     number = indexCounter[toCkmerLink][toDirection][0]
-                    distance = int(np.median(indexCounter[toCkmerLink][toDirection][1]))
-                    if toDirection.decode()=="l":
+                    #compute sorted modi, take the minimum
+                    distanceFrequencies = collections.Counter(indexCounter[toCkmerLink][toDirection][1])
+                    distanceModi = [k for k, v in distanceFrequencies.items() if v==max(distanceFrequencies.values())]
+                    #distance = int(np.median(indexCounter[toCkmerLink][toDirection][1]))
+                    #distance = sorted(distanceModi)[int(np.ceil(len(distanceModi)/2)-1)]                    
+                    distance = min(distanceModi)                  
+                    if (toDirection.decode()=="l"):
                         trunk=toCkmer[:-1]
                     else:
                         trunk=haplotyping.General.reverse_complement(toCkmer)[:-1]
