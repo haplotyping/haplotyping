@@ -44,7 +44,6 @@ class Database:
         
     """
         
-    
     def __init__(self, k: int, name: str, 
                  filenameBase: str,
                  sortedIndexFile: str,
@@ -105,6 +104,8 @@ class Database:
                 h5file.flush()
                 
                 
+    letters = ["A","C","G","T"]
+        
     def detectReadFiles(location: str, recursive=True):
         unpairedReadFiles = []
         pairedReadFiles = []

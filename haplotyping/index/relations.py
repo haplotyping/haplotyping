@@ -22,6 +22,8 @@ class Relations:
         if len(pairedReadFiles)>0:
             self._logger.info("parse "+str(2*len(pairedReadFiles))+" paired readfile(s)")
         
+        self.problemPattern = re.compile(r"["+"".join(haplotyping.index.Database.letters)+
+                                         "][^"+"".join(haplotyping.index.Database.letters)+"]+")
         self.stepSizeStorage=10000
         self.debug = debug
         self.filenameBase = filenameBase
@@ -429,9 +431,9 @@ class Relations:
             removeList = set() 
             problemList = set()
             
-            #distance based check and compute trunks
+            #distance based check and base check
             ckmerInfo = self.h5file.get("/split/ckmer")
-            trunkFreqs = {}
+            baseFreqs = {}
             distanceFreqs = {}
             for toCkmerLink in indexCounter.keys():
                 for toDirection in indexCounter[toCkmerLink].keys():
@@ -444,36 +446,36 @@ class Relations:
                     #distance = sorted(distanceModi)[int(np.ceil(len(distanceModi)/2)-1)]                    
                     distance = min(distanceModi)                  
                     if (toDirection.decode()=="l"):
-                        trunk=toCkmer[:-1]
+                        base=toCkmer[:-1]
                     else:
-                        trunk=haplotyping.General.reverse_complement(toCkmer)[:-1]
-                    #update with median distance and trunk
+                        base=haplotyping.General.reverse_complement(toCkmer)[:-1]
+                    #update with median distance and base
                     indexCounter[toCkmerLink][toDirection][1] = distance
-                    indexCounter[toCkmerLink][toDirection][3] = trunk
-                    if not trunk in trunkFreqs.keys():
-                        trunkFreqs[trunk]=number
+                    indexCounter[toCkmerLink][toDirection][3] = base
+                    if not base in baseFreqs.keys():
+                        baseFreqs[base]=number
                     else:
-                        trunkFreqs[trunk]+=number
+                        baseFreqs[base]+=number
                     if not distance in distanceFreqs.keys():
                         distanceFreqs[distance]=number
                     else:
                         distanceFreqs[distance]+=number
-            if not ((len(trunkFreqs)>1) or (len(distanceFreqs)>1)):
+            if not ((len(baseFreqs)>1) or (len(distanceFreqs)>1)):
                 #(probably) no problem
                 return (indexCounter, removeList, problemList)
             
-            #try restricting to the most frequent trunk
-            mostFrequentTrunks = [(k,v) for k, v in trunkFreqs.items() if v==max(trunkFreqs.values())]
-            if len(mostFrequentTrunks)==1:
-                mostFrequentTrunk = mostFrequentTrunks[0][0]
+            #try restricting to the most frequent base
+            mostFrequentBases = [(k,v) for k, v in baseFreqs.items() if v==max(baseFreqs.values())]
+            if len(mostFrequentBases)==1:
+                mostFrequentBase = mostFrequentBases[0][0]
                 newIndexCounter = {}
                 for toCkmerLink in indexCounter.keys():
                     for toDirection in indexCounter[toCkmerLink].keys():
                         number = indexCounter[toCkmerLink][toDirection][0]
                         distance = indexCounter[toCkmerLink][toDirection][1]
                         sortKey = indexCounter[toCkmerLink][toDirection][2]
-                        trunk = indexCounter[toCkmerLink][toDirection][3]
-                        if trunk==mostFrequentTrunk:
+                        base = indexCounter[toCkmerLink][toDirection][3]
+                        if base==mostFrequentBase:
                             if not toCkmerLink in newIndexCounter.keys():
                                 newIndexCounter[toCkmerLink] = {}
                             newIndexCounter[toCkmerLink][toDirection] = [number,distance,sortKey,None]
@@ -756,16 +758,17 @@ class Relations:
             if len(filteredConnected)>boundary:
                 filteredConnected = [x[0] for x in filteredConnected]
                 directConnected = 1
+                recomputedLength=0
                 for i in range(1,len(filteredConnected)):
                     directHash = self._getAutomatonDirectHash(filteredConnected[i-1],filteredConnected[i])
                     try:
-                        automatonDirect.get(directHash)
+                        recomputedLength += automatonDirect.get(directHash)
                     except:
                         directConnected = 0
                         break
                 row["firstDumpConnectedLink"]=firstDumpConnectedLink+startConnected
                 row["sizeConnected"]=len(filteredConnected)
-                row["lengthConnected"]=lengthConnected-leftSize-rightSize
+                row["lengthConnected"]=recomputedLength if directConnected>0 else (lengthConnected-leftSize-rightSize)
                 row["hashKey"] = self._hashConnected(filteredConnected)
                 row["directConnected"] = directConnected
                 row.update()   
@@ -1183,9 +1186,8 @@ class Relations:
         return computeHash(connected)
     
     def _computeProblemStartPositions(self,sequence):
-        problemStartPositions = []
-        problemPattern = re.compile(r"[ACGT][^ACGT]+")
-        for m in re.finditer(problemPattern, sequence):
+        problemStartPositions = []        
+        for m in re.finditer(self.problemPattern, sequence):
             problemStartPositions.append(m.span()[0]+1)
         return problemStartPositions
     

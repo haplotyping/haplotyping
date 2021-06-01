@@ -77,6 +77,7 @@ class DatabaseTestCase(unittest.TestCase):
     def test_ckmer(self):
         with h5py.File(self.tmpIndexLocation,"r") as h5file:
             ckmers = h5file.get("/split/ckmer")
+            bases = h5file.get("/split/base")
             ckmerTotal = ckmers.shape[0]
             #test for empty
             self.assertTrue(ckmerTotal>0,"no splitting k-mers")
@@ -85,13 +86,21 @@ class DatabaseTestCase(unittest.TestCase):
                 if not previousCkmer == None:
                     self.assertTrue(row[0]>previousCkmer,"k-mers not properly sorted")
                 previousCkmer = row[0]
-                self.assertTrue(row[2]>=row[3][0][0],"inconsistent direct left distinct")
-                self.assertTrue(row[2]>=row[3][0][1],"inconsistent direct left number")
-                self.assertTrue(row[2]>=row[3][1][0],"inconsistent direct right distinct")
-                self.assertTrue(row[2]>=row[3][1][1],"inconsistent direct right number")
-                self.assertTrue(row[2]>=row[4][0],"inconsistent connected")
-                self.assertTrue(row[2]>=row[5][0],"inconsistent cycle")
-                self.assertTrue(row[2]>=row[6][0],"inconsistent reversal")
+                if row[1].decode()=="l" or row[1].decode()=="b":
+                    baseLeft = bases[row[3][0]]
+                    self.assertEqual(haplotyping.General.reverse_complement(row[0].decode())[:-1],baseLeft[0].decode(),
+                                     "wrong base left split")
+                if row[1].decode()=="r" or row[1].decode()=="b":
+                    baseRight = bases[row[3][1]]
+                    self.assertEqual(row[0].decode()[:-1],baseRight[0].decode(),
+                                     "wrong base right split")
+                self.assertTrue(row[2]>=row[4][0][0],"inconsistent direct left distinct")
+                self.assertTrue(row[2]>=row[4][0][1],"inconsistent direct left number")
+                self.assertTrue(row[2]>=row[4][1][0],"inconsistent direct right distinct")
+                self.assertTrue(row[2]>=row[4][1][1],"inconsistent direct right number")
+                self.assertTrue(row[2]>=row[5][0],"inconsistent connected")
+                self.assertTrue(row[2]>=row[6][0],"inconsistent cycle")
+                self.assertTrue(row[2]>=row[7][0],"inconsistent reversal")
             #test cycle
             for row in np.array(h5file["/split/cycle"]):
                 self.assertTrue(row[0]<ckmerTotal,"linking to non-existing entry")
@@ -104,6 +113,30 @@ class DatabaseTestCase(unittest.TestCase):
                 self.assertTrue(row[1]>0,"length should be positive")
                 self.assertTrue(row[2]>0,"number should be positive")
                 self.assertTrue(ckmers[row[0]][6][0]>0,"k-mer not labelled as reversal")
+                
+    def test_base(self):
+        with h5py.File(self.tmpIndexLocation,"r") as h5file:
+            ckmers = h5file.get("/split/ckmer")
+            bases = h5file.get("/split/base")
+            baseTotal = bases.shape[0]
+            #test for empty
+            self.assertTrue(baseTotal>0,"no bases")
+            previousBase = None
+            for row in np.array(bases):
+                if not previousBase == None:
+                    self.assertTrue(row[0]>previousBase,"bases not properly sorted")
+                previousBase = row[0]
+                self.assertTrue(row[1]>0,"base without k-mers")
+                letterTotal = 0
+                for i in range(len(haplotyping.index.Database.letters)):
+                    letter = haplotyping.index.Database.letters[i]
+                    if row[2][i][0]>0:
+                        ckmerRow = ckmers[row[2][i][1]]
+                        letterTotal += row[2][i][0]
+                        ckmer = haplotyping.General.canonical(row[0].decode()+letter)
+                        self.assertEqual(ckmer,ckmerRow[0].decode(),"branch should equal linked k-mer")
+                        self.assertEqual(row[2][i][0],ckmerRow[2],"branch number should equal number of linked k-mer")
+                self.assertEqual(row[1],letterTotal,"base number should equal sum of branch numbers")                    
             
     def test_direct(self):
         directList = []
@@ -134,7 +167,7 @@ class DatabaseTestCase(unittest.TestCase):
                 self.assertTrue(row[0]<ckmerTotal,"linking to non-existing entry")
             #test index
             for row in np.array(h5file["/relations/connectedIndex"]):
-                self.assertTrue(row[0]<=row[1],"size cannot exceed length")
+                self.assertTrue(row[0]<=row[1]+1,"size cannot exceed length+1")
                 self.assertTrue(row[0]>0,"size should be positive")
                 self.assertTrue(row[3]>0,"number should be positive")
                 self.assertTrue(row[2]+row[0]<=numberOfConnected,"linking to non-existing entries")
