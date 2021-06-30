@@ -61,6 +61,13 @@ class API:
             return config["settings"]["kmc_query_binary"]
         except:
             return None
+        
+    def get_data_location():
+        try:
+            config = current_app.config.get("config")
+            return config["settings"]["data_location"]
+        except:
+            return None
                                 
     def process_api_messages(self, doStart=True):    
         

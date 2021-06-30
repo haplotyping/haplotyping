@@ -33,7 +33,7 @@ class KmerSingle(Resource):
                             AND NOT `collection`.`location` IS NULL",(str(uid),))  
             data = cursor.fetchone()
             if data:
-                location_kmc = data["location"] + data["location_kmer"]
+                location_kmc = haplotyping.service.API.get_data_location() + data["location"] + data["location_kmer"]
                 kmc_query_library = haplotyping.service.API.get_kmc_query_library()
                 kmc_query_binary = haplotyping.service.API.get_kmc_query_binary()
                 if kmc_query_library:
@@ -80,7 +80,7 @@ class KmerMultiple(Resource):
                             AND NOT `collection`.`location` IS NULL",(str(uid),))  
             data = cursor.fetchone()
             if data:
-                location_kmc = data["location"] + data["location_kmer"]
+                location_kmc = haplotyping.service.API.get_data_location() + data["location"] + data["location_kmer"]
                 kmc_query_library = haplotyping.service.API.get_kmc_query_library()
                 kmc_query_binary = haplotyping.service.API.get_kmc_query_binary()
                 if kmc_query_library:
