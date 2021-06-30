@@ -1,4 +1,4 @@
-from flask import Response, request
+from flask import Response, request, abort
 from flask_restx import Namespace, Resource
 import json, haplotyping, sqlite3
 

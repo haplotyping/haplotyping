@@ -1,5 +1,5 @@
-from flask import Response, request
-from flask_restx import Namespace, Resource, abort, fields
+from flask import Response, request, abort
+from flask_restx import Namespace, Resource, fields
 import json, haplotyping, sqlite3, re
 
 namespace = Namespace("variety", description="All available varieties", path="/variety")

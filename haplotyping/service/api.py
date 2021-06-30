@@ -47,6 +47,20 @@ class API:
             location = current_app.config.get("location")
             db_connection = g._database = sqlite3.connect(os.path.join(location,config["settings"]["sqlite_db"]))
         return db_connection
+    
+    def get_kmc_query_library():
+        try:
+            config = current_app.config.get("config")
+            return config["settings"]["kmc_query_library"]
+        except:
+            return None
+    
+    def get_kmc_query_binary():
+        try:
+            config = current_app.config.get("config")
+            return config["settings"]["kmc_query_binary"]
+        except:
+            return None
                                 
     def process_api_messages(self, doStart=True):    
         

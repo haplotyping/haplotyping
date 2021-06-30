@@ -1,4 +1,4 @@
-from flask import Response, request
+from flask import Response, request, abort
 from flask_restx import Namespace, Resource, abort, fields
 import json, haplotyping, sqlite3
 
@@ -39,22 +39,24 @@ def adjust_dataset_response(item, db_connection):
     #finished
     return item
 
-dataset_list = parser.copy()
-dataset_list.add_argument("start", type=int, required=False, location="args", 
-                          help="paging")       
-dataset_list.add_argument("number", type=int, required=False, location="args", 
-                          help="paging")
-dataset_list.add_argument("collection", type=str, required=False, location="args", 
-                          help="variety has dataset from comma separated list of collections")
-dataset_list.add_argument("variety", type=bool, required=False, location="args", 
-                          help="linked to a variety")
-dataset_list.add_argument("kmer", type=bool, required=False, location="args", 
-                          help="kmer database available")
-dataset_list.add_argument("split", type=bool, required=False, location="args", 
-                          help="split kmer database available")
+
     
 @namespace.route("/")
 class DatasetList(Resource):
+
+    dataset_list = parser.copy()
+    dataset_list.add_argument("start", type=int, required=False, location="values", 
+                              help="paging")       
+    dataset_list.add_argument("number", type=int, required=False, location="values", 
+                              help="paging")
+    dataset_list.add_argument("collection", type=str, required=False, location="values", 
+                              help="variety has dataset from comma separated list of collections")
+    dataset_list.add_argument("variety", type=bool, required=False, location="values", 
+                              help="linked to a variety")
+    dataset_list.add_argument("kmer", type=bool, required=False, location="values", 
+                              help="kmer database available")
+    dataset_list.add_argument("split", type=bool, required=False, location="values", 
+                              help="split kmer database available")
     
     @namespace.doc(description="Get datasets")    
     @namespace.expect(dataset_list)
