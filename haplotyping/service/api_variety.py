@@ -16,8 +16,8 @@ def _make_bool(text):
 def get_variety_datasets(uid, db_connection):
     cursor = db_connection.cursor()
     cursor.execute("SELECT `dataset`.`uid`, \
-                        IIF(`dataset`.`location_kmer` IS NULL,0,1) AS `kmer`, \
-                        IIF(`dataset`.`location_split` IS NULL,0,1) AS `split`, \
+                        (CASE WHEN `dataset`.`location_kmer` IS NULL THEN 0 ELSE 1 END) AS `kmer`, \
+                        (CASE WHEN `dataset`.`location_split` IS NULL THEN 0 ELSE 1 END) AS `split`, \
                         `collection`.`name` AS `collection` \
                         FROM `dataset` \
                         LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
