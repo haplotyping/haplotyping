@@ -54,9 +54,9 @@ class DatasetList(Resource):
     dataset_list.add_argument("variety", type=bool, required=False, location="values", 
                               help="linked to a variety")
     dataset_list.add_argument("kmer", type=bool, required=False, location="values", 
-                              help="kmer database available")
+                              help="k-mer information available")
     dataset_list.add_argument("split", type=bool, required=False, location="values", 
-                              help="split kmer database available")
+                              help="splitting k-mer information available")
     
     @namespace.doc(description="Get datasets")    
     @namespace.expect(dataset_list)

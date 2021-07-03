@@ -12,6 +12,7 @@ from haplotyping.service.api_collection import namespace as ns_api_collection
 from haplotyping.service.api_variety import namespace as ns_api_variety
 from haplotyping.service.api_dataset import namespace as ns_api_dataset
 from haplotyping.service.api_kmer import namespace as ns_api_kmer
+from haplotyping.service.api_split import namespace as ns_api_split
 
 class API:
     
@@ -90,6 +91,7 @@ class API:
         api.add_namespace(ns_api_variety)
         api.add_namespace(ns_api_dataset)
         api.add_namespace(ns_api_kmer)
+        api.add_namespace(ns_api_split)
         
         app.register_blueprint(blueprint) 
         app.config.SWAGGER_UI_DOC_EXPANSION = "list"

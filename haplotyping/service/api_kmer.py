@@ -1,6 +1,6 @@
 from flask import Response, request, abort
 from flask_restx import Namespace, Resource, fields
-import json, haplotyping, sqlite3, subprocess
+import json, haplotyping, sqlite3
 
 from haplotyping.service.kmer_kmc import Kmer as KmerKMC
 
