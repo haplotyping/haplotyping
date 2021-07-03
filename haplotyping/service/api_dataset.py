@@ -101,8 +101,8 @@ class DatasetList(Resource):
             total = cursor.fetchone()[0]
             if start<total:
                 cursor.execute("SELECT `dataset`.`uid`, \
-                                IIF(`dataset`.`location_kmer` IS NULL,0,1) AS `kmer`, \
-                                IIF(`dataset`.`location_split` IS NULL,0,1) AS `split`, \
+                                (CASE WHEN `dataset`.`location_kmer` IS NULL THEN 0 ELSE 1 END) AS `kmer`, \
+                                (CASE WHEN `dataset`.`location_split` IS NULL THEN 0 ELSE 1 END) AS `split`, \
                                 `collection`.`name` AS `collection`, \
                                 `variety`.`uid` AS `variety_uid`, \
                                 `variety`.`name` AS `variety_name`, \
@@ -137,8 +137,8 @@ class DatasetId(Resource):
             db_connection.row_factory = sqlite3.Row
             cursor = db_connection.cursor()
             cursor.execute("SELECT `dataset`.`uid`, \
-                            IIF(`dataset`.`location_kmer` IS NULL,0,1) AS `kmer`, \
-                            IIF(`dataset`.`location_split` IS NULL,0,1) AS `split`, \
+                            (CASE WHEN `dataset`.`location_kmer` IS NULL THEN 0 ELSE 1 END) AS `kmer`, \
+                            (CASE WHEN `dataset`.`location_split` IS NULL THEN 0 ELSE 1 END) AS `split`, \
                             `collection`.`name` AS `collection`, \
                             `variety`.`uid` AS `variety_uid`, \
                             `variety`.`name` AS `variety_name`, \
