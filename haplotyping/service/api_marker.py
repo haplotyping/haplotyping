@@ -18,6 +18,7 @@ class MarkerData(Resource):
             db_connection.row_factory = sqlite3.Row
             cursor = db_connection.cursor()
             cursor.execute("SELECT `dataset`.`uid`, \
+                            `collection`.`name` AS `collection`, \
                             `dataset`.`location_marker`, \
                             `dataset`.`marker_id`, \
                             `collection`.`location` AS `location` \
@@ -31,7 +32,8 @@ class MarkerData(Resource):
             if data:
                 location_marker = haplotyping.service.API.get_data_location() + data["location"] + data["location_marker"]
                 marker_id = data["marker_id"]
-                response = Marker.getMarkerData(location_marker,marker_id)
+                markerList = Marker.getMarkerData(location_marker,marker_id)
+                response={"collection": data["collection"], "list": markerList}
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
                 abort(404, "no dataset with markers for uid "+str(uid))
