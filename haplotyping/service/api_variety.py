@@ -18,6 +18,8 @@ def get_variety_datasets(uid, db_connection):
     cursor.execute("SELECT `dataset`.`uid`, \
                         (CASE WHEN `dataset`.`location_kmer` IS NULL THEN 0 ELSE 1 END) AS `kmer`, \
                         (CASE WHEN `dataset`.`location_split` IS NULL THEN 0 ELSE 1 END) AS `split`, \
+                        (CASE WHEN `dataset`.`location_marker` IS NULL OR `dataset`.`marker_id` \
+                            IS NULL THEN 0 ELSE 1 END) AS `marker`, \
                         `collection`.`name` AS `collection` \
                         FROM `dataset` \
                         LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
@@ -123,7 +125,7 @@ variety_list.add_argument("year", type=str, required=False, location="args",
 variety_list.add_argument("collection", type=str, required=False, location="args", 
                           help="variety has dataset from comma separated list of collections")
 variety_list.add_argument("dataset", type=str, required=False, location="args", 
-                          help="variety has dataset (of specific type)", choices=["any","none","kmer","split"])
+                          help="variety has dataset (of specific type)", choices=["any","none","kmer","split","marker"])
 variety_list.add_argument("parents", type=bool, required=False, location="args", 
                           help="parent(s) known for this variety")
 variety_list.add_argument("offspring", type=bool, required=False, location="args", 
@@ -189,6 +191,9 @@ class VarietyList(Resource):
                     condition_sql = condition_sql + " AND NOT (`dataset`.`location_kmer` IS NULL)"  
                 elif dataset=="split":
                     condition_sql = condition_sql + " AND NOT (`dataset`.`location_split` IS NULL)"  
+                elif dataset=="marker":
+                    condition_sql = condition_sql + " AND NOT (`dataset`.`location_marker` IS NULL \
+                                                                OR `dataset`.`marker_id` IS NULL)"  
                 else:
                     abort(422, "incorrect dataset condition "+str(dataset))
             if not parents==None:

@@ -20,8 +20,7 @@ def year_description(year_min,year_max):
     else:
         return str(year_min)+"-"+str(year_max)
 
-def adjust_dataset_response(item, db_connection):
-    #origin
+def adjust_dataset_response(item):
     if item["variety_uid"]:
         item["variety"] = {
             "uid": item["variety_uid"], 
@@ -57,6 +56,8 @@ class DatasetList(Resource):
                               help="k-mer information available")
     dataset_list.add_argument("split", type=bool, required=False, location="values", 
                               help="splitting k-mer information available")
+    dataset_list.add_argument("marker", type=bool, required=False, location="values", 
+                              help="marker information available")
     
     @namespace.doc(description="Get datasets")    
     @namespace.expect(dataset_list)
@@ -69,6 +70,7 @@ class DatasetList(Resource):
             variety = request.args.get("variety",None)
             kmer = request.args.get("kmer",None)
             split = request.args.get("split",None)
+            marker = request.args.get("marker",None)
             condition_sql = "1"
             condition_variables = []
             if not collection==None:
@@ -90,6 +92,13 @@ class DatasetList(Resource):
                     condition_sql = condition_sql + " AND NOT (`dataset`.`location_split` IS NULL)"
                 else:
                     condition_sql = condition_sql + " AND (`dataset`.`location_split` IS NULL)"   
+            if not marker==None:
+                if _make_bool(marker):
+                    condition_sql = condition_sql + " AND NOT (`dataset`.`location_marker` IS NULL \
+                                                            OR `dataset`.`marker_id` IS NULL)"
+                else:
+                    condition_sql = condition_sql + " AND (`dataset`.`location_marker` IS NULL \
+                                                            OR `dataset`.`marker_id` IS NULL)"   
             db_connection = haplotyping.service.API.get_db_connection()
             db_connection.row_factory = sqlite3.Row
             cursor = db_connection.cursor()
@@ -103,6 +112,8 @@ class DatasetList(Resource):
                 cursor.execute("SELECT `dataset`.`uid`, \
                                 (CASE WHEN `dataset`.`location_kmer` IS NULL THEN 0 ELSE 1 END) AS `kmer`, \
                                 (CASE WHEN `dataset`.`location_split` IS NULL THEN 0 ELSE 1 END) AS `split`, \
+                                (CASE WHEN `dataset`.`location_marker` IS NULL OR \
+                                    `dataset`.`marker_id` IS NULL THEN 0 ELSE 1 END) AS `marker`, \
                                 `collection`.`name` AS `collection`, \
                                 `variety`.`uid` AS `variety_uid`, \
                                 `variety`.`name` AS `variety_name`, \
@@ -120,7 +131,7 @@ class DatasetList(Resource):
             else:
                 resultList = []
             for i in range(len(resultList)):
-                resultList[i] = adjust_dataset_response(resultList[i], db_connection)                
+                resultList[i] = adjust_dataset_response(resultList[i])                
             response = {"start": start, "number": number, "total": total, "list": resultList}
             return Response(json.dumps(response), mimetype="application/json") 
         except Exception as e:
@@ -139,6 +150,8 @@ class DatasetId(Resource):
             cursor.execute("SELECT `dataset`.`uid`, \
                             (CASE WHEN `dataset`.`location_kmer` IS NULL THEN 0 ELSE 1 END) AS `kmer`, \
                             (CASE WHEN `dataset`.`location_split` IS NULL THEN 0 ELSE 1 END) AS `split`, \
+                            (CASE WHEN `dataset`.`location_marker` IS NULL OR \
+                                    `dataset`.`marker_id` IS NULL THEN 0 ELSE 1 END) AS `marker`, \
                             `collection`.`name` AS `collection`, \
                             `variety`.`uid` AS `variety_uid`, \
                             `variety`.`name` AS `variety_name`, \
@@ -152,7 +165,7 @@ class DatasetId(Resource):
                             GROUP BY `dataset`.`id`",(uid,))  
             data = cursor.fetchone()
             if data:
-                response = adjust_dataset_response(dict(data), db_connection)
+                response = adjust_dataset_response(dict(data))
                 return Response(json.dumps(response), mimetype="application/json")
             else:
                 abort(404, "no dataset with uid "+str(uid))

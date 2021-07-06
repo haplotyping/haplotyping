@@ -12,7 +12,7 @@ class SplitKmer(Resource):
     
     @namespace.doc(description="Get splitting k-mer information from dataset defined by uid for specified k-mer")
     @namespace.doc(params={"uid": "unique identifier dataset","split": "splitting k-mer"})
-    def get(self,uid,split):
+    def get(self,uid,kmer):
         try:
             db_connection = haplotyping.service.API.get_db_connection()
             db_connection.row_factory = sqlite3.Row

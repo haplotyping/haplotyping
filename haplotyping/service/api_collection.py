@@ -4,6 +4,21 @@ import json, haplotyping, sqlite3
 
 namespace = Namespace("collection", description="Datasets all belong to a collection", path="/collection")
 
+def adjust_collection_response(item):
+    item["datasets"] = {
+        "total": item["datasets_total"], 
+        "kmer": item["datasets_kmer"],
+        "split": item["datasets_split"],
+        "marker": item["datasets_marker"]
+    }
+    del item["datasets_total"]
+    del item["datasets_kmer"]
+    del item["datasets_split"]
+    del item["datasets_marker"]
+    #finished
+    return item
+
+
 @namespace.route("/")
 class CollectionList(Resource):
     
@@ -20,10 +35,19 @@ class CollectionList(Resource):
             cursor.execute("SELECT COUNT(*) AS `number` FROM `collection`")  
             total = cursor.fetchone()[0]
             if start<total:
-                cursor.execute("SELECT `name`, COUNT(DISTINCT(`dataset`.`id`)) AS `datasets` FROM `collection` \
+                cursor.execute("SELECT `name`, \
+                                COUNT(DISTINCT(`dataset`.`id`)) AS `datasets_total`,\
+                                COUNT(DISTINCT(CASE WHEN `dataset`.`location_kmer` IS NULL \
+                                    THEN NULL ELSE `dataset`.`id` END)) AS `datasets_kmer`,\
+                                COUNT(DISTINCT(CASE WHEN `dataset`.`location_split` IS NULL \
+                                    THEN NULL ELSE `dataset`.`id` END)) AS `datasets_split`,\
+                                COUNT(DISTINCT(CASE WHEN `dataset`.`location_marker` IS NULL \
+                                    OR `dataset`.`marker_id` IS NULL \
+                                    THEN NULL ELSE `dataset`.`id` END)) AS `datasets_marker`\
+                                FROM `collection` \
                                 INNER JOIN `dataset` ON `collection`.`id` = `dataset`.`collection_id` \
                                 GROUP BY `collection`.`id` ORDER BY `name` LIMIT ?,?",(start,number,))  
-                resultList = [dict(row) for row in cursor.fetchall()]
+                resultList = [adjust_collection_response(dict(row)) for row in cursor.fetchall()]
             else:
                 resultList = []
             response = {"start": start, "number": number, "total": total, "list": resultList}
