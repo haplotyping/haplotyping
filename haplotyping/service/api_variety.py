@@ -32,7 +32,7 @@ def parents_tree(id,parentData):
     for item in parentData:
         if item["offspring"]==id:
             if item["ancestor"]==None:
-                parent = {"type": item["type"],
+                parent = {"relation": item["type"],
                           "parents": parents_tree(item["id"],parentData)}
                 parents.append(parent)
             else:
