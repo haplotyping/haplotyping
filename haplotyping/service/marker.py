@@ -1,33 +1,70 @@
-import h5py
+import h5py, numpy as np
 
 class Marker:
     
     def getMarkerData(filename: str, varietyId: int):
         with h5py.File(filename, mode="r") as h5file:
-            markerTable = h5file.get("/marker")
-            scoreTable = h5file.get("/value")
+            varietyTable = h5file.get("/variety")
             dataTable = h5file.get("/data")
-            mappingTable = h5file.get("/mapping")
-            mappingDataTable = h5file.get("/mappingData")
             if varietyId>=0 and varietyId<dataTable.shape[0]:
-                response = []
-                for i in range(dataTable.shape[1]):
-                    score = dataTable[varietyId][i]
-                    if score>=0:
-                        markerName = markerTable[i][0].decode("utf-8")
-                        scoreValue = scoreTable[score][0].decode("utf-8")
-                        entry = {"name": markerName, "score": scoreValue, "mappings": []}
-                        for j in range(mappingTable.shape[0]):
-                            mappingEntry = mappingDataTable[i,j]
-                            if mappingEntry[1]>=0:
-                                entry["mappings"].append({
-                                  "name": mappingTable[j][0].decode("utf-8"),
-                                  "type": ("genetic" if mappingTable[j][1]=="g" else "physical"),
-                                  "lg": mappingEntry[0].decode("utf-8"),
-                                  "pos": (mappingEntry[1] if mappingTable[j][1]=="g" else int(mappingEntry[1]))
-                                })
-                        response.append(entry)
-                return response
+                markerList = []
+                ploidy = int(varietyTable["ploidy"][varietyId])
+                values = dataTable[varietyId]
+                for i in range(len(values)):
+                    if values[i]>=0:
+                        markerList.append(int(values[i]))
+                    else:
+                        markerList.append(None)
+                return (ploidy,markerList,)
             else:
                 raise Exception("invalid identifier '"+str(varietyId)+"', data not available"+str(dataTable.shape))
+                
+    def getMarkerMapping(filename: str):
+        with h5py.File(filename, mode="r") as h5file:
+            markerTable = h5file.get("/marker")
+            mappingTable = h5file.get("/mapping")
+            lgTable = h5file.get("/lg")
+            markerMapping = [] 
+            markerNames = markerTable["name"]
+            lgNames = lgTable["name"]
+            mappings = {}
+            for mapping in mappingTable.dtype.fields.keys():
+                mappings[mapping] = [mappingTable[mapping]["lg"],mappingTable[mapping]["pos"]]
+            for i in range(len(markerNames)):
+                item = {
+                    "name": markerNames[i].decode("utf-8"),
+                    "mappings": {}
+                }
+                for mapping in mappings.keys():
+                    lg = lgNames[mappings[mapping][0][i]].decode("utf-8")
+                    pos = mappings[mapping][1][i]
+                    if isinstance(pos, np.integer):
+                        pos = int(pos)
+                    elif isinstance(pos, np.floating):
+                        pos = float(pos)
+                    else:
+                        pos = None
+                    item["mappings"][mapping] = {"lg": "test","pos": pos}
+                markerMapping.append(item)            
+            return markerMapping
+        
+    def getMarkerInfo(filename: str):
+        with h5py.File(filename, mode="r") as h5file:
+            markerTable = h5file.get("/marker")
+            markerInfo = [] 
+            infoData = {}
+            markerNames = markerTable["name"]
+            for key in markerTable.dtype.fields.keys():
+                if not key=="name":
+                    infoData[key] = markerTable[key]
+            for i in range(len(markerNames)):
+                item = {
+                    "name": markerNames[i].decode("utf-8"),
+                    "info": {}
+                }
+                for key in infoData.keys():
+                    item["info"][key] = infoData[key][i].decode("utf-8")
+                markerInfo.append(item)            
+            return markerInfo
+                
         
