@@ -130,6 +130,9 @@ variety_list.add_argument("parents", type=bool, required=False, location="args",
                           help="parent(s) known for this variety")
 variety_list.add_argument("offspring", type=bool, required=False, location="args", 
                           help="offspring known for this variety")
+
+variety_set = namespace.model("uid list to get varieties", {"uids": fields.List(fields.String, attribute="items", 
+                          required=True, description="list of uids")})
     
 @namespace.route("/")
 class VarietyList(Resource):
@@ -240,6 +243,45 @@ class VarietyList(Resource):
             for i in range(len(resultList)):
                 resultList[i] = adjust_variety_response(resultList[i], db_connection)                
             response = {"start": start, "number": number, "total": total, "list": resultList}
+            return Response(json.dumps(response), mimetype="application/json") 
+        except Exception as e:
+            abort(e.code if hasattr(e,"code") else 500, str(e))
+            
+    @namespace.doc(description="Get multiple varieties by uid")    
+    @namespace.expect(variety_set)
+    def post(self):
+        uids = namespace.payload.get("uids",[])
+        try:
+            if len(uids)>0:
+                condition_sql = "`variety`.`uid` IN ("+(",".join(["?"]*len(uids)))+")"
+                condition_variables = [] + uids;
+                db_connection = haplotyping.service.API.get_db_connection()
+                db_connection.row_factory = sqlite3.Row
+                cursor = db_connection.cursor()
+                cursor.execute("SELECT COUNT(DISTINCT `variety`.`id`) AS `number` \
+                                FROM `variety` \
+                                LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
+                                LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
+                                WHERE "+condition_sql, tuple(condition_variables))  
+                total = cursor.fetchone()[0]
+                cursor.execute("SELECT `variety`.`uid`, `variety`.`name`, `variety`.`origin`, \
+                                `country`.`name` AS `country`, `country`.`region`, \
+                                `country`.`sub-region`, `country`.`intermediate-region`, \
+                                NULL AS `year`, `variety`.`year_min`, `variety`.`year_max`, \
+                                COUNT(DISTINCT `dataset`.`id`) as `datasets` \
+                                FROM `variety` \
+                                LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
+                                LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
+                                WHERE "+condition_sql+" \
+                                GROUP BY `variety`.`id` \
+                                ORDER BY `variety`.`name`, `variety`.`uid`",tuple(condition_variables))  
+                resultList = [dict(row) for row in cursor.fetchall()]
+            else:
+                total = 0
+                resultList = []
+            for i in range(len(resultList)):
+                resultList[i] = adjust_variety_response(resultList[i], db_connection)                
+            response = {"total": total, "list": resultList}
             return Response(json.dumps(response), mimetype="application/json") 
         except Exception as e:
             abort(e.code if hasattr(e,"code") else 500, str(e))

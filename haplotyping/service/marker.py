@@ -44,7 +44,7 @@ class Marker:
                         pos = float(pos)
                     else:
                         pos = None
-                    item["mappings"][mapping] = {"lg": "test","pos": pos}
+                    item["mappings"][mapping] = {"lg": lg,"pos": pos}
                 markerMapping.append(item)            
             return markerMapping
         
