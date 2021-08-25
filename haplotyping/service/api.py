@@ -15,6 +15,9 @@ from haplotyping.service.api_kmer import namespace as ns_api_kmer
 from haplotyping.service.api_split import namespace as ns_api_split
 from haplotyping.service.api_marker import namespace as ns_api_marker
 
+from haplotyping.service.api_kmer import cache as cache_api_kmer
+from haplotyping.service.api_split import cache as cache_api_split
+
 class API:
     
     def __init__(self, location, doStart=True):
@@ -40,7 +43,7 @@ class API:
                 #wait until ends  
                 process_api.join()
             except Exception as e:  
-                logger_server.error("error: "+ str(e))   
+                logger_server.error("error: "+ str(e))  
                 
     def get_db_connection():
         db_connection = getattr(g, "_database", None)
@@ -57,10 +60,10 @@ class API:
         except:
             return None
     
-    def get_kmc_query_binary():
+    def get_kmc_query_binary_location():
         try:
             config = current_app.config.get("config")
-            return config["settings"]["kmc_query_binary"]
+            return config["settings"]["kmc_query_binary_location"]
         except:
             return None
         
@@ -80,11 +83,46 @@ class API:
                     template_folder=os.path.join(self.location,"templates"))  
         app.config["config"] = self.config
         app.config["location"] = self.location
-
+                
         #--- blueprint ---      
         blueprint = Blueprint("api", __name__, url_prefix="/api")
         api = Api(blueprint)
+        
+        #logger
+        logger_api = logging.getLogger(__name__)
 
+        #cache
+        cache_config = {
+            "CACHE_TYPE": "NullCache",
+            "CACHE_NO_NULL_WARNING": True
+        }
+        if ("cache" in app.config["config"]) and ("type" in app.config["config"]["cache"]):
+            if app.config["config"]["cache"]["type"]=="SimpleCache":
+                logger_api.debug("caching in memory")
+                cache_config = {
+                    "CACHE_TYPE": "SimpleCache"
+                }
+                if app.config["config"]["cache"]["timeout"]:
+                    cache_config["CACHE_DEFAULT_TIMEOUT"] = int(app.config["config"]["cache"]["timeout"])
+                if app.config["config"]["cache"]["threshold"]:
+                    cache_config["CACHE_THRESHOLD"] = int(app.config["config"]["cache"]["threshold"])               
+            elif (app.config["config"]["cache"]["type"]=="FileSystemCache") and ("dir" in app.config["config"]["cache"]):       
+                logger_api.debug("caching on disk: "+str(app.config["config"]["cache"]["dir"]))
+                cache_config = {
+                    "CACHE_TYPE": "FileSystemCache",
+                    "CACHE_DIR": app.config["config"]["cache"]["dir"]
+                }
+                if app.config["config"]["cache"]["timeout"]:
+                    cache_config["CACHE_DEFAULT_TIMEOUT"] = int(app.config["config"]["cache"]["timeout"])
+                if app.config["config"]["cache"]["threshold"]:
+                    cache_config["CACHE_THRESHOLD"] = int(app.config["config"]["cache"]["threshold"]) 
+            else:
+               logger_api.debug("caching disabled") 
+            
+        
+        cache_api_kmer.init_app(app, config=cache_config)
+        cache_api_split.init_app(app, config=cache_config)
+    
         #namespaces
         api.add_namespace(ns_api_tools)
         api.add_namespace(ns_api_country)
@@ -98,7 +136,6 @@ class API:
         app.register_blueprint(blueprint) 
         app.config.SWAGGER_UI_DOC_EXPANSION = "list"
 
-        logger_api = logging.getLogger(__name__)
         parser = api.parser()
         
         #--- database ---    

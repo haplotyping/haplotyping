@@ -1,39 +1,39 @@
-import ctypes, tempfile, subprocess
+import ctypes, tempfile, subprocess, re
 
 class Kmer:
     
     def kmc_library(library: str, filename: str, kmers: list = [], mm: int = 0):
         def get_status(status):
             response = {}
-            response["size_pre"] = status[0];
-            response["size_suf"] = status[1];
-            response["kmer_length"] = status[2];
-            response["mode"] = status[3];
-            response["suffix_counter_size"] = status[4];
-            response["prefix_length"] = status[5];
-            response["signature_length"] = status[6];
-            response["min_count"] = status[7];
-            response["max_count"] = status[8];
-            response["total_kmers"] = status[9];
-            response["both_strands"] = status[10];
-            response["kmc_version"] = status[11];
-            response["signature_map_size"] = status[12];
-            response["signature_map_position"] = status[13];
-            response["prefixes_list_size"] = status[14];
-            response["prefixes_size"] = status[15];
-            response["prefixes_position"] = status[16];
-            response["suffix_size"] = status[17];
-            response["suffix_record_size"] = status[18];
-            response["suffixes_position"] = status[19];
-            response["suffixes_size"] = status[20];
+            response["size_pre"] = status[0]
+            response["size_suf"] = status[1]
+            response["kmer_length"] = status[2]
+            response["mode"] = status[3]
+            response["suffix_counter_size"] = status[4]
+            response["prefix_length"] = status[5]
+            response["signature_length"] = status[6]
+            response["min_count"] = status[7]
+            response["max_count"] = status[8]
+            response["total_kmers"] = status[9]
+            response["both_strands"] = status[10]
+            response["kmc_version"] = status[11]
+            response["signature_map_size"] = status[12]
+            response["signature_map_position"] = status[13]
+            response["prefixes_list_size"] = status[14]
+            response["prefixes_size"] = status[15]
+            response["prefixes_position"] = status[16]
+            response["suffix_size"] = status[17]
+            response["suffix_record_size"] = status[18]
+            response["suffixes_position"] = status[19]
+            response["suffixes_size"] = status[20]
             return response
         
         def get_stats(stats):
             response = {}
-            response["checked"] = stats[0];
-            response["positive"] = stats[1];
-            response["minimum"] = stats[2];
-            response["maximum"] = stats[3];
+            response["checked"] = stats[0]
+            response["positive"] = stats[1]
+            response["minimum"] = stats[2]
+            response["maximum"] = stats[3]
             return response
         
         outputFile = None
@@ -73,17 +73,58 @@ class Kmer:
                 outputFile.close()
 
     
-    def kmc_binary(binary: str, filename: str, kmers: list = [], mm: int = 0):
+    def kmc_binary_info(binary_location: str, filename: str):
+        try:        
+            response = {}
+            args = [binary_location+"kmc_analysis", "info", filename]
+            p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            result = p.communicate()
+            if result[1]:
+                #raise Exception(result[1].decode("UTF-8").strip())
+                return None
+            else:
+                #kmers            
+                answers = result[0].decode("UTF-8").strip().split("\n")
+                status = []
+                for i in range(len(answers)):
+                    items = answers[i].strip().split(":")
+                    if len(items)>1:
+                        key = items[0].strip()
+                        value = items[1].strip()
+                        if key=="- prefix":
+                            response["size_pre"] = (
+                                re.sub(r"^.*\(([0-9]+) bytes\)$", 
+                                              "\\1", value))
+                        elif key=="- suffix":
+                            response["size_suf"] = int(
+                                re.sub(r"^.*\(([0-9]+) bytes\)$", 
+                                              "\\1", value))
+                        elif key=="- size k-mer":
+                            response["kmer_length"] = int(value)
+                        elif key=="- number of k-mers":
+                            response["total_kmers"] = int(value)  
+                        elif key=="- minimum value counter":
+                            response["min_count"] = int(value)  
+                        elif key=="- maximum value counter":
+                            response["max_count"] = int(value) 
+                        elif key=="- canonical form":
+                            response["mode"] = 1 if value=="yes" else 0
+            return response
+        except Exception as e:
+            return str(e)
+            return None
+    
+    def kmc_binary_frequencies(binary_location: str, filename: str, kmers: list = [], mm: int = 0):
         inputFile = None
         try:        
-            response = {"info":{}, "stats":{}, "kmers": {}}
+            response = {"stats":{}, "kmers": {}}
             if len(kmers)>0:
                 inputFile = tempfile.NamedTemporaryFile()
                 with open(inputFile.name, "wb") as file:
                     for kmer in kmers:
                         line = str(kmer).strip()+"\n"
-                        file.write(line.encode("utf-8"))               
-                args = [binary, filename, "-mm", str(mm), "-f", inputFile.name]
+                        file.write(line.encode("utf-8")) 
+                args = [binary_location+"kmc_query", filename, "-mm", str(mm), "-f", inputFile.name]
                 p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 result = p.communicate()
                 if result[1]:

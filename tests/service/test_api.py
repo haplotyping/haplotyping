@@ -292,6 +292,16 @@ class APITestCase(unittest.TestCase):
             self.assertEqual(response.status_code,200,"problem variety "+varieties[i]["uid"])
             data = json.loads(response.data)
             self.assertEqual(varieties[i]["uid"],data["uid"],"unexpected reponse variety "+varieties[i]["uid"])
+        #get multiple varieties by uids
+        uids = [item["uid"] for item in varieties]
+        response = self.client.post("/api/variety/", 
+                                       headers={"accept": "application/json"},json={"uids":uids})  
+        self.assertEqual(response.status_code,200,"problem getting multiple varieties by uids")
+        data = json.loads(response.data)
+        self.assertEqual(data["total"], len(uids),
+                            "unexpected total when getting multiple varieties by uid")
+        self.assertEqual(len(data["list"]), len(uids),
+                            "unexpected total when getting multiple varieties by uid")
         #check handling non-existing
         response = self.client.get("/api/variety/nonexistinguid", 
                                        headers={"accept": "application/json"})  
@@ -401,6 +411,16 @@ class APITestCase(unittest.TestCase):
             self.assertEqual(response.status_code,200,"problem dataset "+datasets[i]["uid"])
             data = json.loads(response.data)
             self.assertEqual(datasets[i]["uid"],data["uid"],"unexpected reponse dataset "+datasets[i]["uid"])
+        #get multiple datasets by uids
+        uids = [item["uid"] for item in datasets]
+        response = self.client.post("/api/dataset/", 
+                                       headers={"accept": "application/json"},json={"uids":uids})  
+        self.assertEqual(response.status_code,200,"problem getting multiple datasets by uids")
+        data = json.loads(response.data)
+        self.assertEqual(data["total"], len(uids),
+                            "unexpected total when getting multiple datasets by uid")
+        self.assertEqual(len(data["list"]), len(uids),
+                            "unexpected total when getting multiple datasets by uid")
         #check handling non-existing
         response = self.client.get("/api/dataset/nonexistinguid", 
                                        headers={"accept": "application/json"})  

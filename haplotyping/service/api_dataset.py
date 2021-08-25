@@ -59,6 +59,9 @@ class DatasetList(Resource):
     dataset_list.add_argument("marker", type=bool, required=False, location="values", 
                               help="marker information available")
     
+    dataset_set = namespace.model("uid list to get datasets", {"uids": fields.List(fields.String, attribute="items", 
+                          required=True, description="list of uids")})
+    
     @namespace.doc(description="Get datasets")    
     @namespace.expect(dataset_list)
     def get(self):
@@ -133,6 +136,51 @@ class DatasetList(Resource):
             for i in range(len(resultList)):
                 resultList[i] = adjust_dataset_response(resultList[i])                
             response = {"start": start, "number": number, "total": total, "list": resultList}
+            return Response(json.dumps(response), mimetype="application/json") 
+        except Exception as e:
+            abort(e.code if hasattr(e,"code") else 500, str(e))
+            
+    @namespace.doc(description="Get multiple datasets by uid")    
+    @namespace.expect(dataset_set)
+    def post(self):
+        uids = namespace.payload.get("uids",[])
+        try:
+            if len(uids)>0:
+                condition_sql = "`dataset`.`uid` IN ("+(",".join(["?"]*len(uids)))+")"
+                condition_variables = [] + uids;
+                db_connection = haplotyping.service.API.get_db_connection()
+                db_connection.row_factory = sqlite3.Row
+                cursor = db_connection.cursor()
+                cursor.execute("SELECT COUNT(DISTINCT `dataset`.`id`) AS `number` \
+                                FROM `dataset` \
+                                LEFT JOIN `variety` ON `dataset`.`variety` = `variety`.`uid` \
+                                LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
+                                WHERE "+condition_sql, tuple(condition_variables))  
+                total = cursor.fetchone()[0]
+                cursor.execute("SELECT `dataset`.`uid`, \
+                                (CASE WHEN `dataset`.`location_kmer` IS NULL THEN 0 ELSE 1 END) AS `kmer`, \
+                                (CASE WHEN `dataset`.`location_split` IS NULL THEN 0 ELSE 1 END) AS `split`, \
+                                (CASE WHEN `dataset`.`location_marker` IS NULL OR \
+                                    `dataset`.`marker_id` IS NULL THEN 0 ELSE 1 END) AS `marker`, \
+                                `collection`.`name` AS `collection`, \
+                                `variety`.`uid` AS `variety_uid`, \
+                                `variety`.`name` AS `variety_name`, \
+                                `variety`.`origin` AS `variety_origin`, \
+                                `variety`.`year_min` AS `variety_year_min`, \
+                                `variety`.`year_max` AS `variety_year_max` \
+                                FROM `dataset` \
+                                LEFT JOIN `variety` ON `dataset`.`variety` = `variety`.`uid` \
+                                LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
+                                WHERE "+condition_sql+" \
+                                GROUP BY `dataset`.`id` \
+                                ORDER BY `dataset`.`uid`",tuple(condition_variables))  
+                resultList = [dict(row) for row in cursor.fetchall()]
+            else:
+                total = 0
+                resultList = []
+            for i in range(len(resultList)):
+                resultList[i] = adjust_dataset_response(resultList[i])                
+            response = {"total": total, "list": resultList}
             return Response(json.dumps(response), mimetype="application/json") 
         except Exception as e:
             abort(e.code if hasattr(e,"code") else 500, str(e))

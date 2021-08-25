@@ -109,34 +109,33 @@ def adjust_variety_response(item, db_connection):
     item["offspring"] = get_variety_offspring(item["uid"], db_connection)
     #finished
     return item
-    
-
-variety_list = parser.copy()
-variety_list.add_argument("start", type=int, required=False, location="args", 
-                          help="paging")       
-variety_list.add_argument("number", type=int, required=False, location="args", 
-                          help="paging")
-variety_list.add_argument("name", type=str, required=False, location="args", 
-                          help="name of variety")
-variety_list.add_argument("origin", type=str, required=False, location="args", 
-                          help="comma separated list of country codes")
-variety_list.add_argument("year", type=str, required=False, location="args", 
-                          help="year of variety (e.g. '1995', '<1995', '>1995', '1990-1995')")
-variety_list.add_argument("collection", type=str, required=False, location="args", 
-                          help="variety has dataset from comma separated list of collections")
-variety_list.add_argument("dataset", type=str, required=False, location="args", 
-                          help="variety has dataset (of specific type)", choices=["any","none","kmer","split","marker"])
-variety_list.add_argument("parents", type=bool, required=False, location="args", 
-                          help="parent(s) known for this variety")
-variety_list.add_argument("offspring", type=bool, required=False, location="args", 
-                          help="offspring known for this variety")
-
-variety_set = namespace.model("uid list to get varieties", {"uids": fields.List(fields.String, attribute="items", 
-                          required=True, description="list of uids")})
-    
+        
 @namespace.route("/")
 class VarietyList(Resource):
     
+    variety_list = parser.copy()
+    variety_list.add_argument("start", type=int, required=False, location="args", 
+                              help="paging")       
+    variety_list.add_argument("number", type=int, required=False, location="args", 
+                              help="paging")
+    variety_list.add_argument("name", type=str, required=False, location="args", 
+                              help="name of variety")
+    variety_list.add_argument("origin", type=str, required=False, location="args", 
+                              help="comma separated list of country codes")
+    variety_list.add_argument("year", type=str, required=False, location="args", 
+                              help="year of variety (e.g. '1995', '<1995', '>1995', '1990-1995')")
+    variety_list.add_argument("collection", type=str, required=False, location="args", 
+                              help="variety has dataset from comma separated list of collections")
+    variety_list.add_argument("dataset", type=str, required=False, location="args", 
+                              help="variety has dataset (of specific type)", choices=["any","none","kmer","split","marker"])
+    variety_list.add_argument("parents", type=bool, required=False, location="args", 
+                              help="parent(s) known for this variety")
+    variety_list.add_argument("offspring", type=bool, required=False, location="args", 
+                              help="offspring known for this variety")
+
+    variety_set = namespace.model("uid list to get varieties", {"uids": fields.List(fields.String, attribute="items", 
+                              required=True, description="list of uids")})
+
     @namespace.doc(description="Get varieties")    
     @namespace.expect(variety_list)
     def get(self):
