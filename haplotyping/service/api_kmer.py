@@ -47,7 +47,7 @@ class KmerSingle(Resource):
                 kmc_query_library = haplotyping.service.API.get_kmc_query_library()
                 kmc_query_binary_location = haplotyping.service.API.get_kmc_query_binary_location()
                 if kmc_query_library:
-                    response = KmerKMC.kmc_library(kmc_query_library_location,location_kmc,[kmer],mm)
+                    response = KmerKMC.kmc_library(kmc_query_library,location_kmc,[kmer],mm)
                     if not response:
                         abort(500,"no response using kmc query library for "+str(kmer))
                 elif kmc_query_binary_location:
