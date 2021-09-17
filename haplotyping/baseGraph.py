@@ -46,7 +46,8 @@ class Graph:
                 if not linkedBase in baseContainers.keys():
                     setBaseContainer(linkedBase, container)
         #try to sort bases
-        maxBaseOrder = max([self._bases[base]._order or 0 for base in self._bases.keys()])
+        maxBaseOrder = max([max(self._bases[base]._order["forward"] or 0, 
+                                self._bases[base]._order["backward"] or 0) for base in self._bases.keys()])
         sortedBaseList = sorted(self._bases.keys(), 
                                 key=lambda base: maxBaseOrder+1 if self._bases[base]._order==None 
                                 else self._bases[base]._order)

@@ -2,7 +2,6 @@ import os,logging,configparser
 from multiprocessing import Process
 from flask import Flask, Blueprint, Response, render_template, current_app, g
 from flask_restx import Api, Resource
-from werkzeug.middleware.proxy_fix import ProxyFix
 import json, sqlite3
 
 import haplotyping
@@ -83,8 +82,6 @@ class API:
         app = Flask(__name__, static_url_path="/static", 
                     static_folder=os.path.join(self.location,"static"), 
                     template_folder=os.path.join(self.location,"templates")) 
-        if self.config.getboolean("api","proxy_prefix"):
-            app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
         app.config["config"] = self.config
         app.config["location"] = self.location
                 
