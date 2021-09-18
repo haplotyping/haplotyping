@@ -36,7 +36,7 @@ class API:
             logger_server.info("run in debug mode") 
             logger_server.setLevel(logging.DEBUG)
         else:
-            logger_server.setLevel(logging.WARNING)
+            logger_server.setLevel(logging.INFO)
         
         #restart on errors
         while doStart:
@@ -101,7 +101,7 @@ class API:
         if self.config.getboolean("api","debug"):
             logger_api.setLevel(logging.DEBUG)
         else:
-            logger_api.setLevel(logging.WARNING)
+            logger_api.setLevel(logging.INFO)
 
         #cache
         cache_config = {
