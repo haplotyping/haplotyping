@@ -28,11 +28,15 @@ class API:
         #set logging
         logger_server = logging.getLogger(__name__+".server")
         
+        
         self.config = configparser.ConfigParser()
         self.config.read(os.path.join(self.location,"server.ini")) 
         logger_server.info("read configuration file") 
         if self.config.getboolean("api","debug"):
             logger_server.info("run in debug mode") 
+            logger_server.setLevel(logging.DEBUG)
+        else:
+            logger_server.setLevel(logging.WARNING)
         
         #restart on errors
         while doStart:
@@ -94,6 +98,10 @@ class API:
         
         #logger
         logger_api = logging.getLogger(__name__)
+        if self.config.getboolean("api","debug"):
+            logger_api.setLevel(logging.DEBUG)
+        else:
+            logger_api.setLevel(logging.WARNING)
 
         #cache
         cache_config = {
@@ -142,9 +150,7 @@ class API:
 
         @app.before_request
         def before_request_func():
-            #app.logger.debug('Headers: %s', request.headers)
-            #app.logger.debug('Body: %s', request.get_data())
-            #update basePath because of proxy configuration
+            app.logger.info("Request to "+str(request.endpoint)+" ("+str(request.content_length)+")")
             if self.config.getboolean("api","proxy_prefix"):
                 if api._schema:
                     api._schema["basePath"] = api.base_path
