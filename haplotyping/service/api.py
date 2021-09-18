@@ -1,7 +1,8 @@
 import os,logging,configparser
 from multiprocessing import Process
-from flask import Flask, Blueprint, Response, render_template, current_app, g
+from flask import Flask, Blueprint, Response, render_template, current_app, g, request
 from flask_restx import Api, Resource
+from werkzeug.middleware.proxy_fix import ProxyFix
 import json, sqlite3
 
 import haplotyping
@@ -82,6 +83,8 @@ class API:
         app = Flask(__name__, static_url_path="/static", 
                     static_folder=os.path.join(self.location,"static"), 
                     template_folder=os.path.join(self.location,"templates")) 
+        if self.config.getboolean("api","proxy_prefix"):
+            app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
         app.config["config"] = self.config
         app.config["location"] = self.location
                 
@@ -137,8 +140,18 @@ class API:
         app.register_blueprint(blueprint) 
         app.config.SWAGGER_UI_DOC_EXPANSION = "list"
 
+        @app.before_request
+        def before_request_func():
+            #app.logger.debug('Headers: %s', request.headers)
+            #app.logger.debug('Body: %s', request.get_data())
+            #update basePath because of proxy configuration
+            if self.config.getboolean("api","proxy_prefix"):
+                if api._schema:
+                    api._schema["basePath"] = api.base_path
+                    api.__schema__["basePath"] = api.base_path
+
         parser = api.parser()
-        
+
         #--- database ---    
         @app.teardown_appcontext
         def close_connection(exception):
