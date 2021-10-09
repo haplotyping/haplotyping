@@ -40,7 +40,7 @@ class APIGraph(haplotyping.baseGraph.Graph):
                     self._api_logger.error("dataset "+self._uid+" has no split k-mer database")   
                 if dataset["variety"]:
                     self._variety = str(dataset["variety"]["name"])
-                    self._api_logger.debug("set variety to '%s'" % (self._name))
+                    self._api_logger.debug("set variety to '%s'" % (self._variety))
                 if dataset["collection"]:
                     self._collection = str(dataset["collection"])
                     self._api_logger.debug("set collection to '%s'" % (self._collection))
@@ -56,7 +56,51 @@ class APIGraph(haplotyping.baseGraph.Graph):
                 self._api_logger.error("dataset "+self._uid+" not found")   
         else:
             self._api_logger.error("request to "+self._baseUrl+" didn't succeed")
+            
+    def getRightNeighbours(self, kmer: str):
+        kmerList = []
+        for b in ["A","C","G","T"]:
+            kmerList.append(kmer[1:]+b)
+        response = requests.post(self._baseUrl+"kmer/"+self._uid, 
+                                 json = {"kmers": sorted(kmerList)})
+        if response.ok:
+            data = response.json()
+            return data
+        else:
+            self._logger.error("request to "+self.baseUrl+" didn't succeed")
+            
+    def findRightConnection(self, kmer: str, maximumDistance: int = 100, minimumFrequency: int = 2):
+        newKmer = kmer
+        for i in range(maximumDistance):
+            rightNeighbours = set()
+            leftSplitters = set()
+            for rb in ["A","C","G","T"]:
+                rightNeighbours.add(newKmer[1:]+rb)
+            if i>0:
+                for lb in ["A","C","G","T"]:
+                    if not lb==newKmer[0]:
+                        leftSplitters.add(lb+newKmer[1:])
+            kmerList = list(rightNeighbours.union(leftSplitters))
+            response = requests.post(self._baseUrl+"kmer/"+self._uid, 
+                                 json = {"kmers": sorted(kmerList)})
+            if response.ok:
+                data = response.json()
+                kmerFound = [k for k in data["kmers"] if data["kmers"][k]>=minimumFrequency]
+                if len(leftSplitters.intersection(kmerFound))>0:
+                    print("LEFTSPLITTERS")
+                    return [newKmer]
+                else:
+                    rightSplitters = list(rightNeighbours.intersection(kmerFound))
+                    if len(rightSplitters)>1:
+                        print("RIGHTSPLITTERS")
+                        return sorted(rightSplitters)
+                    elif len(rightSplitters)==0:
+                        print("DEAD")
+                        return None
+                    else:
+                        newKmer = rightSplitters[0]   
+                        print(kmerFound)
+            else:
+                self._logger.error("request to "+self.baseUrl+" didn't succeed")
         
-        
-    
-    
+      

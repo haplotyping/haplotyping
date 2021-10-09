@@ -124,9 +124,9 @@ class API:
                     "CACHE_TYPE": "FileSystemCache",
                     "CACHE_DIR": app.config["config"]["cache"]["dir"]
                 }
-                if app.config["config"]["cache"]["timeout"]:
+                if ("timeout" in app.config["config"]["cache"]) and app.config["config"]["cache"]["timeout"]:
                     cache_config["CACHE_DEFAULT_TIMEOUT"] = int(app.config["config"]["cache"]["timeout"])
-                if app.config["config"]["cache"]["threshold"]:
+                if ("threshold" in app.config["config"]["cache"]) and app.config["config"]["cache"]["threshold"]:
                     cache_config["CACHE_THRESHOLD"] = int(app.config["config"]["cache"]["threshold"]) 
             else:
                logger_api.debug("caching disabled") 

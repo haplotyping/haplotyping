@@ -6,8 +6,9 @@ import json, haplotyping, sqlite3
 from haplotyping.service.kmer_kmc import Kmer as KmerKMC
 
 def _make_cache_key(*args, **kwargs):
-    return "%s_%s_%s_%s" % (args[0].__class__.__name__, str(request.path), str(request.args), str(namespace.payload))
-
+    cacheKey = "%s_%s_%s_%s" % (args[0].__class__.__name__, str(request.path), str(request.args), str(namespace.payload))
+    return cacheKey
+    
 namespace = Namespace("kmer", description="K-mer frequencies for a dataset", path="/kmer")
 cache = Cache()
 parser = namespace.parser()
@@ -37,7 +38,7 @@ class KmerSingle(Resource):
     @namespace.doc(description="Get k-mer frequencies from dataset defined by uid")
     @namespace.expect(dataset_kmers)
     @namespace.doc(params={"uid": "unique identifier dataset","kmer": "k-mer"})
-    @cache.cached(make_cache_key=_make_cache_key)
+    @cache.cached(key_prefix="kmer_", make_cache_key=_make_cache_key)
     def get(self,uid,kmer):
         mm = min(2,max(0,int(request.args.get("mismatches",0))))
         try:
@@ -74,7 +75,7 @@ class KmerMultiple(Resource):
     @namespace.doc(description="Get k-mer frequencies from dataset defined by uid")
     @namespace.expect(dataset_kmers)
     @namespace.doc(params={"uid": "unique identifier dataset"})
-    @cache.cached(make_cache_key=_make_cache_key)
+    @cache.cached(key_prefix="kmer_", make_cache_key=_make_cache_key)
     def post(self,uid):
         mm = min(2,max(0,namespace.payload.get("mismatches",0)))
         kmers = namespace.payload.get("kmers",[])
@@ -113,7 +114,7 @@ class KmerSequence(Resource):
     @namespace.doc(description="Get k-mer frequencies for a sequence from dataset defined by uid")
     @namespace.doc(params={"uid": "unique identifier dataset"})
     @namespace.expect(sequence_data)
-    @cache.cached(make_cache_key=_make_cache_key)
+    @cache.cached(key_prefix="kmer_", make_cache_key=_make_cache_key)
     def post(self,uid):  
         mm = min(2,max(0,namespace.payload.get("mismatches",0)))
         sequence = namespace.payload.get("sequence","")
