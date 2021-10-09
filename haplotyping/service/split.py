@@ -328,7 +328,7 @@ class Split:
                 start = id+1
             else:
                 start = id 
-        return response
+        return list(filter(None, response))
     
     def _kmer_connected(h5file: h5py.File, kmer: str):
         ckmer = haplotyping.General.canonical(kmer)
