@@ -113,8 +113,8 @@ class Split:
                 "number": int(row[1])
             }
             branches = row.dtype[2].names
+            ckmerTable = h5file.get("/split/ckmer")
             if expandCkmer:
-                ckmerTable = h5file.get("/split/ckmer")
                 response["ckmers"] = []
                 for i in range(len(branches)):
                     if row[2][i][0]>0:
