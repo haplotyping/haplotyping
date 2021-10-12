@@ -126,7 +126,11 @@ class Split:
                     if row[2][i][0]>0:
                         kmer = response["base"]+branches[i]
                         ckmer = haplotyping.General.canonical(kmer)
-                        response["ckmers"][ckmer] = int(row[2][i][0])
+                        ckmerRow = ckmerTable[row[2][i][1]]
+                        response["ckmers"][ckmer] = {
+                            "number": int(ckmerRow[2]), 
+                            "split": Split._translate_type(ckmerRow[1].decode("ascii"))
+                        }
         else:
             response = None
         return response
