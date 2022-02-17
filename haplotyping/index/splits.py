@@ -1,6 +1,6 @@
 import logging, h5py, tables, gzip, csv
-import os, sys, tempfile, numpy as np
-import re, haplotyping
+import os, sys, tempfile, numpy as np, pandas as pd
+import re, haplotyping, ahocorasick, pickle
 
 class Splits:
     
@@ -23,10 +23,13 @@ class Splits:
         
         #set variables
         self.k = h5file["/config"].attrs["k"]
+        self.automatonKmerSize = h5file["/config"].attrs["automatonKmerSize"]
         self.minimumFrequency = h5file["/config"].attrs["minimumFrequency"]
         self.h5file = h5file
         self.maxNumber = 0
         self.debug = debug
+        self.automatonFile = filenameBase+".automaton.splits"
+        self.indexFile = filenameBase+".index.splits"
         
         #check existence group
         if not "/split" in h5file:
@@ -50,21 +53,25 @@ class Splits:
             
                 #create datasets
                 with tables.open_file(pytablesFile, mode="w", title="Temporary storage") as self.pytables_storage:
-                    
-
                     #get k-mers
                     self._parseIndex(sortedIndexFile)
                     self._sort()
-                    self._store()
+                    self._store()                    
                     #flush
                     self.h5file.flush()
-            #except:
-            #    self._logger.error("problem occurred while constructing splits")
+                    #create automaton and index
+                    self._automaton_and_index(self.automatonKmerSize)
+            except Exception as e:
+                self._logger.error("problem occurred while constructing splits: "+str(e))
             finally:
                 if not self.debug:
                     self.tmpDirectory.cleanup()
+                else:
+                    try:
+                        os.remove(pytablesFile)
+                    except:
+                        self._logger.error("problem removing "+pytablesFile)    
 
-    
     def _parseIndex(self, filename: str):
         
         #create temporary storage
@@ -160,10 +167,14 @@ class Splits:
                                         (rightSplitBases,rightSplitKmers) = saveToDumpStorage(previousBase,stored,
                                                                                               rightSplitBases,rightSplitKmers)
                                         stored={}
+                                        if (rightSplitBases%1000000)==0:
+                                            self._logger.debug("processed "+str(rightSplitBases)
+                                                               +" bases and "+str(rightSplitKmers)+" k-mers")
                                 previousBase = currentBase
                                 previousBranch = currentBranch
                                 previousKmer = currentKmer
                                 previousNumber = currentNumber
+                        
                 if len(stored)>0:
                     (rightSplitBases,rightSplitKmers) = saveToDumpStorage(previousBase,stored,
                                                                           rightSplitBases,rightSplitKmers)  
@@ -243,7 +254,8 @@ class Splits:
             }
             self.tableSortedKmers = self.pytables_storage.create_table(self.pytables_storage.root,
                                                                        "sortedCkmer",tableCkmerDef, 
-                                                    "Temporary to store sorted canonical k-mers")  
+                                                    "Temporary to store sorted canonical k-mers",
+                                                                      expectedrows=numberOfSplittingKmers)  
             
             #create dump table for bases
             tableDumpBaseDef = {
@@ -254,7 +266,8 @@ class Splits:
             }
             self.tableDumpRightSplitBases = self.pytables_storage.create_table(self.pytables_storage.root,
                                                                    "dumpRightSplitBase",tableDumpBaseDef, 
-                                                                   "Temporary to store dump bases")
+                                                                   "Temporary to store dump bases",
+                                                                       expectedrows=numberOfSplittingKmers)
             
             #store sorted k-mers
             self._logger.debug("sort and group "+str(numberOfSplittingKmers)+" splitting k-mers")
@@ -303,7 +316,8 @@ class Splits:
                 }
             self.tableSortedBases = self.pytables_storage.create_table(self.pytables_storage.root,
                                                                    "sortedBase",tableBaseDef, 
-                                                                   "Temporary to store dump bases")
+                                                                   "Temporary to store dump bases",
+                                                                       expectedrows=numberOfKmers)
             
             #store sorted bases
             self._logger.debug("sort and group "+str(numberOfBases)+" bases")
@@ -398,6 +412,45 @@ class Splits:
         self.h5file["/config/"].attrs["canonicalSplitKmersLeft"]=canonicalSplitKmersLeft
         self.h5file["/config/"].attrs["canonicalSplitKmersBoth"]=canonicalSplitKmersBoth
         self.h5file["/config/"].attrs["canonicalSplitKmersRight"]=canonicalSplitKmersRight 
+        
+    def _automaton_and_index(self, k):
+        k = min(self.k,k)
+        self._logger.info("create automaton with k' = "+str(k))
+        automatonSplits = ahocorasick.Automaton()
+        numberOfKmers = self.h5file["/split/ckmer"].shape[0]
+        kmers = self.h5file["/split/ckmer"]
+        with open(self.indexFile, "w") as f:
+            for i in range(0,numberOfKmers,self.stepSizeStorage):
+                kmerSubset = kmers[i:i+self.stepSizeStorage]
+                for j in range(len(kmerSubset)):
+                    id = i + j
+                    row = kmerSubset[j]                
+                    kmer = row[0].decode()
+                    #store in index
+                    f.write(kmer)
+                    f.write(row[1].decode())
+                    #build automaton
+                    rkmer = haplotyping.General.reverse_complement(kmer[-k:])
+                    kmer = kmer[:k]
+                    if (not automatonSplits.exists(kmer)):
+                        automatonSplits.add_word(kmer,(1,id))
+                    else:
+                        value=list(automatonSplits.get(kmer))
+                        if value[0]==0:
+                            value[1]=id
+                            value[0]=1
+                        else:
+                            value[0]=id-value[1]+1
+                        automatonSplits.add_word(kmer,tuple(value))
+                    if not kmer==rkmer:
+                        if (not automatonSplits.exists(rkmer)):
+                            automatonSplits.add_word(rkmer,(0,id))
+        #create and store automaton
+        automatonSplits.make_automaton()
+        stats = automatonSplits.get_stats()
+        self._logger.debug("automaton with "+str(stats["words_count"])+" words, size "+str(stats["total_size"]))
+        with open(self.automatonFile, "wb") as f:
+            pickle.dump(automatonSplits, f)
         
     def _getTablesUint(self, maximumValue, position):
         if maximumValue<=np.iinfo(np.uint8).max:

@@ -27,9 +27,12 @@ class Relations:
         self.stepSizeStorage=10000
         self.debug = debug
         self.filenameBase = filenameBase
+        self.automatonFile = filenameBase+".automaton.splits"
+        self.indexFile = filenameBase+".index.splits"
         
         #set variables
         self.k = h5file["/config"].attrs["k"]
+        self.automatonKmerSize = h5file["/config"].attrs["automatonKmerSize"]
         self.h5file = h5file
         self.unpairedReadFiles = unpairedReadFiles
         self.pairedReadFiles = pairedReadFiles
@@ -166,8 +169,8 @@ class Relations:
                                 "dumpReversal", tableDumpReversalDef, 
                                 "Temporary for dumped reversals")
         
-        #get automaton
-        automatonSplits = self._getAutomatonSplits()
+        #get automaton and index
+        (automatonSplits, indexSplits) = self._getAutomatonAndIndexSplits()
         
         #process and register unpaired read files
         dtypeList = [("file","S255"),("readLength","uint64"),
@@ -175,7 +178,8 @@ class Relations:
         ds = self.h5file["/config/"].create_dataset("unpairedReads",(len(self.unpairedReadFiles),),
                                           dtype=np.dtype(dtypeList),chunks=None)
         for i in range(len(self.unpairedReadFiles)):
-            (readLength,readNumber,processTime) = self._processReadFile(self.unpairedReadFiles[i],automatonSplits)
+            (readLength,readNumber,processTime) = self._processReadFile(self.unpairedReadFiles[i],
+                                                                        automatonSplits,indexSplits)
             ds[i] = (self.unpairedReadFiles[i],
                      readLength,readNumber,int(processTime))
 
@@ -187,7 +191,8 @@ class Relations:
                                           dtype=np.dtype(dtypeList),chunks=None)
         for i in range(len(self.pairedReadFiles)):
             (readLength,readNumber,processTime) = self._processPairedReadFiles(self.pairedReadFiles[i][0],
-                                                                         self.pairedReadFiles[i][1],automatonSplits)
+                                                                         self.pairedReadFiles[i][1],
+                                                                         automatonSplits,indexSplits)
             ds[i] = (self.pairedReadFiles[i][0],self.pairedReadFiles[i][1],
                      readLength,readNumber,int(processTime))
             
@@ -198,7 +203,7 @@ class Relations:
         self.tableDumpCycle.flush()
         self.tableDumpReversal.flush()
                 
-    def _processReadFile(self, filename: str, automatonSplits):
+    def _processReadFile(self, filename: str, automatonSplits, indexSplits):
         startTime = time.time()
         with gzip.open(filename, "rt") as f:
             readLengthMinimum=None
@@ -215,7 +220,7 @@ class Relations:
                     readLengthMaximum=(len(sequence) if readLengthMaximum==None 
                                        else max(readLengthMaximum,len(sequence)))
                     readNumber+=1
-                    matchesList=self._computeMatchesList(sequence, automatonSplits)
+                    matchesList=self._computeMatchesList(sequence, automatonSplits, indexSplits)
                     for matches in matchesList:
                         self._processMatches(matches)
                     self._processConnected(sum(matchesList,[]),False)
@@ -232,7 +237,7 @@ class Relations:
             self.processReadsTime+=endTime-startTime
             return (readLengthMaximum,readNumber,endTime-startTime)
 
-    def _processPairedReadFiles(self, filename0: str, filename1: str, automatonSplits):
+    def _processPairedReadFiles(self, filename0: str, filename1: str, automatonSplits, indexSplits):
         startTime = time.time()
         
         def storePairedConnected(link0,link1):
@@ -267,8 +272,8 @@ class Relations:
                     readLengthMaximum=(max(len(sequence0),len(sequence1)) if readLengthMaximum==None 
                                        else max(readLengthMaximum,len(sequence0),len(sequence1)))
                     readNumber+=2      
-                    matchesList0=self._computeMatchesList(sequence0, automatonSplits)
-                    matchesList1=self._computeMatchesList(sequence1, automatonSplits)
+                    matchesList0=self._computeMatchesList(sequence0, automatonSplits, indexSplits)
+                    matchesList1=self._computeMatchesList(sequence1, automatonSplits, indexSplits)
                     connectedHashKeys0=set()
                     connectedHashKeys1=set()
                     for matches0 in matchesList0:
@@ -1191,7 +1196,7 @@ class Relations:
             problemStartPositions.append(m.span()[0]+1)
         return problemStartPositions
     
-    def _computeMatchesList(self,sequence,automatonSplits):
+    def _computeMatchesList(self,sequence,automatonSplits,indexSplits):
         def saveDumpCycle(link,length): 
             #save data
             cycleRow = self.tableDumpCycle.row    
@@ -1211,8 +1216,54 @@ class Relations:
         problems = self._computeProblemStartPositions(sequence)
         relevantProblem = None if len(problems)==0 else problems[0]
         matches = []
-        for end_index, (link,orientation,splitLocation) in automatonSplits.iter(sequence):
-            pos=1+end_index-self.k
+        for end_index, (number,startLinks) in automatonSplits.iter(sequence):
+            pos=1+end_index-self.automatonKmerSize            
+            #should contain at least k positions
+            if pos>(len(sequence)-self.k):
+                break
+            #check if really match
+            kmer = sequence[pos:pos+self.k]
+            if number==0:  
+                #only possible if is reversed
+                rkmer = haplotyping.General.reverse_complement(kmer)
+                indexLink = startLinks*(self.k+1)
+                if not rkmer==indexSplits[indexLink:indexLink+self.k]:
+                    continue
+                else:
+                    link = startLinks
+                    orientation = "r"                        
+                    kmerSplitLocation = indexSplits[indexLink+self.k]
+                    splitLocation = "l" if kmerSplitLocation=="r" else ("r" if kmerSplitLocation=="l" else "b")
+            else:
+                rkmer = haplotyping.General.reverse_complement(kmer)
+                if not automatonSplits.exists(rkmer[:self.automatonKmerSize]):
+                    continue
+                elif kmer<=rkmer:
+                    foundMatch = False
+                    for i in range(number):
+                        indexLink = (startLinks+i)*(self.k+1)
+                        if kmer==indexSplits[indexLink:indexLink+self.k]:
+                            link = startLinks+i
+                            orientation = "c"
+                            splitLocation = indexSplits[indexLink+self.k]
+                            foundMatch = True
+                            break
+                    if not foundMatch:
+                        continue
+                else:
+                    (numberReverse,startLinksReverse) = automatonSplits.get(rkmer[:self.automatonKmerSize])
+                    foundMatch = False
+                    for i in range(numberReverse):
+                        indexLink = (startLinksReverse+i)*(self.k+1)
+                        if rkmer==indexSplits[indexLink:indexLink+self.k]:
+                            link = startLinksReverse+i
+                            orientation = "r"
+                            kmerSplitLocation = indexSplits[indexLink+self.k]
+                            splitLocation = "l" if kmerSplitLocation=="r" else ("r" if kmerSplitLocation=="l" else "b")
+                            foundMatch = True
+                            break
+                    if not foundMatch:
+                        continue
             if link in history.keys():
                 if history[link][0]==orientation:
                     saveDumpCycle(link,1+pos-history[link][1])
@@ -1230,7 +1281,7 @@ class Relations:
                 for problem in problems:
                     if problem>pos:
                         relevantProblem=problem
-                        break                
+                        break                   
         if len(matches)>0:
             matchesList.append(matches)
         return matchesList
@@ -1290,34 +1341,12 @@ class Relations:
                     saveDumpDirect(link2,direction2,link1,direction1,pos2-pos1)
 
 
-    def _getAutomatonSplits(self):        
-        if self.debug:
-            filenameAutomaton = self.filenameBase+"_tmp_automaton_splits.data"
-            if os.path.exists(filenameAutomaton):
-                with open(filenameAutomaton, "rb") as f:
-                    automatonSplits = pickle.load(f)
-                    self._logger.warning("automaton loaded from previous run")
-                    return automatonSplits
-        else:
-            filenameAutomaton = None
-        
-        self._logger.debug("create automaton for "+str(self.numberOfKmers)+" k-mers")
-        automatonSplits = ahocorasick.Automaton()
-        kmers = self.h5file["/split/ckmer"]
-        for i in range(self.numberOfKmers):
-            kmer = kmers[i][0].decode()
-            kmerType = kmers[i][1].decode()
-            rkmer = haplotyping.General.reverse_complement(kmer)
-            rkmerType = "l" if kmerType=="r" else ("r" if kmerType=="l" else "b")
-            automatonSplits.add_word(kmer,(i,"c",kmerType))
-            #if canonical k-mer equals reverse complement, don't insert for rc
-            if not kmer==rkmer:
-                automatonSplits.add_word(rkmer,(i,"r",rkmerType))
-        automatonSplits.make_automaton()
-        if self.debug:
-            with open(filenameAutomaton, "wb") as f:
-                pickle.dump(automatonSplits, f)
-        return automatonSplits
+    def _getAutomatonAndIndexSplits(self):        
+        with open(self.automatonFile, "rb") as f:
+            automatonSplits = pickle.load(f)
+        with open(self.indexFile, "r") as f:
+            indexSplits = f.read()
+        return (automatonSplits, indexSplits)
     
     def _getAutomatonDirectHash(self,link0,link1):
         return str(link0)+"-"+str(link1)

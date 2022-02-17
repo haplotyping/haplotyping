@@ -1,4 +1,4 @@
-import logging, h5py, os, glob, re
+import logging, h5py, os, glob, re, math
 
 import haplotyping
 import haplotyping.index.splits
@@ -49,6 +49,7 @@ class Database:
                  sortedIndexFile: str,
                  readFiles=[],pairedReadFiles=[],
                  minimumFrequency: int = 2,
+                 automatonKmerSize: int = None,
                  debug: bool = False):     
         
         """
@@ -61,6 +62,7 @@ class Database:
         
         #store variables
         self.k=k
+        self.automatonKmerSize=math.ceil((self.k+1)/2) if automatonKmerSize==None else math.min(self.k,automatonKmerSize)
         self.name=name
         self.minimumFrequency = minimumFrequency
         self.debug = debug
@@ -80,19 +82,26 @@ class Database:
             #use tables for temporary file, and h5py for final
             with h5py.File(filename,"a") as h5file:
 
-                #config
+                #set or check config
                 if not "/config" in h5file:
                     h5file.create_group("/config")
-                h5file["/config"].attrs["k"] = self.k
-                h5file["/config"].attrs["name"] = self.name
-                h5file["/config"].attrs["debug"] = self.debug
-                h5file["/config"].attrs["minimumFrequency"] = self.minimumFrequency
-                h5file.flush()
-
-                #get splitting k-mers from index
+                    h5file["/config"].attrs["k"] = self.k
+                    h5file["/config"].attrs["automatonKmerSize"] = self.automatonKmerSize
+                    h5file["/config"].attrs["name"] = self.name
+                    h5file["/config"].attrs["debug"] = self.debug
+                    h5file["/config"].attrs["minimumFrequency"] = self.minimumFrequency
+                    h5file.flush()
+                else:
+                    assert h5file["/config"].attrs["k"] == self.k
+                    assert h5file["/config"].attrs["automatonKmerSize"] == self.automatonKmerSize
+                    assert h5file["/config"].attrs["name"] == self.name
+                    assert h5file["/config"].attrs["debug"] == self.debug
+                    assert h5file["/config"].attrs["minimumFrequency"] == self.minimumFrequency         
+                    
+                #get splitting k-mers from index                
                 self._logger.debug("get splitting k-mers from the provided index")
-                haplotyping.index.splits.Splits(sortedIndexFile, h5file, self.filenameBase, self.debug)   
-
+                haplotyping.index.splits.Splits(sortedIndexFile, h5file, self.filenameBase, self.debug)                         
+                                                
                 #parse read files if splitting k-mers were found
                 if h5file["/config/"].attrs["canonicalSplitKmersBoth"]>0:
                     self._logger.debug("parse read files and store results in database")
