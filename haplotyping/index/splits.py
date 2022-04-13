@@ -1,6 +1,7 @@
 import logging, h5py, tables, gzip, csv
 import os, sys, tempfile, numpy as np, pandas as pd
 import re, haplotyping, ahocorasick, pickle
+import haplotyping.index.database
 
 class Splits:
     
@@ -52,7 +53,8 @@ class Splits:
                     pytablesFile = self.tmpDirectory.name+"/kmer.data_tmp_split.h5"
             
                 #create datasets
-                with tables.open_file(pytablesFile, mode="w", title="Temporary storage") as self.pytables_storage:
+                with tables.open_file(pytablesFile, mode="w", 
+                                      title="Temporary storage") as self.pytables_storage:
                     #get k-mers
                     self._parseIndex(sortedIndexFile)
                     self._sort()
@@ -68,7 +70,8 @@ class Splits:
                     self.tmpDirectory.cleanup()
                 else:
                     try:
-                        os.remove(pytablesFile)
+                        #os.remove(pytablesFile)
+                        pass
                     except:
                         self._logger.error("problem removing "+pytablesFile)    
 
@@ -247,8 +250,8 @@ class Splits:
                 "ckmer": tables.StringCol(self.k,pos=0),
                 "type": tables.StringCol(1,pos=1),
                 "rightSplitBaseLink": {
-                    "leftSplit": self._getTablesUint(numberOfSplittingKmers,0),
-                    "rightSplit": self._getTablesUint(numberOfSplittingKmers,1),
+                    "leftSplit": haplotyping.index.Database.getTablesUint(numberOfSplittingKmers,0),
+                    "rightSplit": haplotyping.index.Database.getTablesUint(numberOfSplittingKmers,1),
                 },
                 "number": tables.UInt32Col(pos=3,dflt=0),
             }
@@ -262,7 +265,7 @@ class Splits:
                 "base": tables.StringCol(self.k-1,pos=0),
                 "branch": tables.StringCol(1,pos=1),
                 "number": tables.UInt32Col(pos=2,dflt=0),
-                "ckmerLink": self._getTablesUint(numberOfSplittingKmers,3),
+                "ckmerLink": haplotyping.index.Database.getTablesUint(numberOfSplittingKmers,3),
             }
             self.tableDumpRightSplitBases = self.pytables_storage.create_table(self.pytables_storage.root,
                                                                    "dumpRightSplitBase",tableDumpBaseDef, 
@@ -312,7 +315,7 @@ class Splits:
             for letter in haplotyping.index.Database.letters:
                 tableBaseDef["branches"][letter] = {
                     "number": tables.UInt32Col(pos=0,dflt=0),
-                    "ckmerLink": self._getTablesUint(numberOfKmers,1),
+                    "ckmerLink": haplotyping.index.Database.getTablesUint(numberOfKmers,1),
                 }
             self.tableSortedBases = self.pytables_storage.create_table(self.pytables_storage.root,
                                                                    "sortedBase",tableBaseDef, 
@@ -361,19 +364,19 @@ class Splits:
         #don't make the structure unnecessary big
         dtypeCkmerList=[("ckmer","S"+str(self.k)),
                    ("type","S1"),
-                   ("number",self._getUint(self.maxNumber)),
-                   ("rightSplitBaseLink",[("leftSplit",self._getUint(numberOfBases)),
-                                          ("rightSplit",self._getUint(numberOfBases))]),
+                   ("number",haplotyping.index.Database.getUint(self.maxNumber)),
+                   ("rightSplitBaseLink",[("leftSplit",haplotyping.index.Database.getUint(numberOfBases)),
+                                          ("rightSplit",haplotyping.index.Database.getUint(numberOfBases))]),
                    ("direct",[("left",
                                [("distinct","uint8"),
-                                ("number",self._getUint(self.maxNumber))]),
+                                ("number",haplotyping.index.Database.getUint(self.maxNumber))]),
                               ("right",
                                [("distinct","uint8"),
-                                ("number",self._getUint(self.maxNumber))])
+                                ("number",haplotyping.index.Database.getUint(self.maxNumber))])
                              ]),
-                   ("connected",[("distinct",self._getUint(self.maxNumber))]),
-                   ("cycle",[("number",self._getUint(self.maxNumber))]),
-                   ("reversal",[("number",self._getUint(self.maxNumber))])]
+                   ("connected",[("distinct",haplotyping.index.Database.getUint(self.maxNumber))]),
+                   ("cycle",[("number",haplotyping.index.Database.getUint(self.maxNumber))]),
+                   ("reversal",[("number",haplotyping.index.Database.getUint(self.maxNumber))])]
         dtCkmer=np.dtype(dtypeCkmerList)
         dsCkmer=self.h5file["/split/"].create_dataset("ckmer",(numberOfKmers,), dtype=dtCkmer, chunks=None)
         self._logger.info("store "+str(numberOfKmers)+" splitting k-mers")
@@ -391,11 +394,11 @@ class Splits:
                     canonicalSplitKmersRight+=1
         #don't make the structure unnecessary big
         dtypeBaseList=[("base","S"+str(self.k-1)),
-                   ("number",self._getUint(self.maxNumber)),
+                   ("number",haplotyping.index.Database.getUint(self.maxNumber)),
                    ("branches",[])]
         for i in range(len(haplotyping.index.Database.letters)):
             letter = haplotyping.index.Database.letters[i]
-            dtypeBaseList[2][1].append((letter,[("number",self._getUint(self.maxNumber)),
+            dtypeBaseList[2][1].append((letter,[("number",haplotyping.index.Database.getUint(self.maxNumber)),
                                                 ("ckmerLink",numberOfKmers)]))
         dtBase=np.dtype(dtypeBaseList)
         dsBase=self.h5file["/split/"].create_dataset("base",(numberOfBases,), dtype=dtBase, chunks=None)
@@ -408,6 +411,7 @@ class Splits:
         self._logger.debug("found "+str(canonicalSplitKmersLeft)+" canonicalSplitKmersLeft")
         self._logger.debug("found "+str(canonicalSplitKmersRight)+" canonicalSplitKmersRight")
         self._logger.debug("found "+str(canonicalSplitKmersBoth)+" canonicalSplitKmersBoth")
+        self.h5file["/config/"].attrs["maxFrequency"]=self.maxNumber
         self.h5file["/config/"].attrs["canonicalSplitKmers"]=canonicalSplitKmers
         self.h5file["/config/"].attrs["canonicalSplitKmersLeft"]=canonicalSplitKmersLeft
         self.h5file["/config/"].attrs["canonicalSplitKmersBoth"]=canonicalSplitKmersBoth
@@ -428,8 +432,9 @@ class Splits:
                     kmer = row[0].decode()
                     #store in index
                     f.write(kmer)
-                    f.write(row[1].decode())
-                    #build automaton
+                    #build automaton for k'-mers with k'<=k describing:
+                    #- number of canonical k-mers to check starting from the provided index-location
+                    #- index-location of the first matching canonical k-mer
                     rkmer = haplotyping.General.reverse_complement(kmer[-k:])
                     kmer = kmer[:k]
                     if (not automatonSplits.exists(kmer)):
@@ -452,24 +457,6 @@ class Splits:
         with open(self.automatonFile, "wb") as f:
             pickle.dump(automatonSplits, f)
         
-    def _getTablesUint(self, maximumValue, position):
-        if maximumValue<=np.iinfo(np.uint8).max:
-            return tables.UInt8Col(pos=position)
-        elif maximumValue<=np.iinfo(np.uint16).max:
-            return tables.UInt16Col(pos=position)
-        elif maximumValue<=np.iinfo(np.uint32).max:
-            return tables.UInt32Col(pos=position)
-        else:
-            return tables.UInt64Col(pos=position)
-        
-    def _getUint(self, maximumValue):
-        if maximumValue<=np.iinfo(np.uint8).max:
-            return "uint8"
-        elif maximumValue<=np.iinfo(np.uint16).max:
-            return "uint16"
-        elif maximumValue<=np.iinfo(np.uint32).max:
-            return "uint32"
-        else:
-            return "uint64"
+   
 
     

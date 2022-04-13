@@ -1,8 +1,9 @@
-import logging, h5py, os, glob, re, math
+import logging, h5py, os, glob, re, math, shutil
+import numpy as np, tables
 
 import haplotyping
 import haplotyping.index.splits
-import haplotyping.index.relations
+import haplotyping.index.reads
 
 class Database:
     
@@ -37,6 +38,26 @@ class Database:
         Adjusting this number will change the amount of read error based results but 
         can also introduce gaps; With higher read depth or lower error rate, this number can possibly be increased
         
+    maxProcesses: int, optional, default is 4
+        The maximum number of processes including main process, should be at least 4
+        
+    maxProcessesAutomaton: int, optional, default is 1
+        The maximum number of processes used for direct parsing of reads using the automaton
+        Because shared memory can't be used, multiple copies of the automaton have to be in memory
+        Be carefull if available memory is limited
+    
+    maxProcessesIndex: int, optional, default is maximum allowed
+        The maximum number of processes used for creating a (partial) index from the matches
+        Making use of shared memory to load index
+        
+    maxProcessesMatches: int, optional, default is 1
+        The maximum number of processes used for creating a (partial) index from the matches
+        Collecting and organising data is done mostly in memory
+        Be carefull if available memory is limited
+    
+    automatonKmerSize: int optional, default is None
+        The used reduced k-mer size, if undefined automatically set to just above half the k-mer size
+    
     debug: bool, optional, default is False
         Only use this when debugging or extending the code.
         Running in debug mode will create temporary files using the location defined by filenameBase.
@@ -49,6 +70,10 @@ class Database:
                  sortedIndexFile: str,
                  readFiles=[],pairedReadFiles=[],
                  minimumFrequency: int = 2,
+                 maxProcesses: int = 4,
+                 maxProcessesAutomaton: int = 1,
+                 maxProcessesIndex: int = None,
+                 maxProcessesMatches: int = 1,
                  automatonKmerSize: int = None,
                  debug: bool = False):     
         
@@ -67,6 +92,19 @@ class Database:
         self.minimumFrequency = minimumFrequency
         self.debug = debug
         self.filenameBase = filenameBase
+        self.maxProcesses = maxProcesses
+        self.maxProcessesAutomaton = maxProcessesAutomaton
+        self.maxProcessesIndex = maxProcessesIndex
+        self.maxProcessesMatches = maxProcessesMatches
+        
+        #check boundaries number of processes
+        assert self.maxProcesses>=4
+        assert self.maxProcessesAutomaton>=1
+        assert self.maxProcessesMatches>=1
+        if not self.maxProcessesIndex==None:
+            assert self.maxProcessesIndex>=1
+        else:
+            self.maxProcessesIndex = 0
         
         if len(readFiles)==0 and len(pairedReadFiles)==0:
             self._logger.error("no read files provided")
@@ -75,9 +113,18 @@ class Database:
         else:                
             #define filename
             filename = filenameBase+".h5"
+            
+            filename_splits = filenameBase+".splits.h5"
+            filename_distances = filenameBase+".distances.h5"
 
-            if os.path.exists(filename):
-                os.remove(filename)
+            #skip finished steps
+            if os.path.exists(filename_distances):
+                shutil.copyfile(filename_distances, filename)
+            elif os.path.exists(filename_splits):
+                shutil.copyfile(filename_splits, filename)
+            
+            #if os.path.exists(filename):
+            #    os.remove(filename)
 
             #use tables for temporary file, and h5py for final
             with h5py.File(filename,"a") as h5file:
@@ -96,19 +143,35 @@ class Database:
                     assert h5file["/config"].attrs["automatonKmerSize"] == self.automatonKmerSize
                     assert h5file["/config"].attrs["name"] == self.name
                     assert h5file["/config"].attrs["debug"] == self.debug
-                    assert h5file["/config"].attrs["minimumFrequency"] == self.minimumFrequency         
+                    assert h5file["/config"].attrs["minimumFrequency"] == self.minimumFrequency
                     
-                #get splitting k-mers from index                
-                self._logger.debug("get splitting k-mers from the provided index")
-                haplotyping.index.splits.Splits(sortedIndexFile, h5file, self.filenameBase, self.debug)                         
-                                                
-                #parse read files if splitting k-mers were found
-                if h5file["/config/"].attrs["canonicalSplitKmersBoth"]>0:
-                    self._logger.debug("parse read files and store results in database")
-                    haplotyping.index.relations.Relations(readFiles,pairedReadFiles, h5file, self.filenameBase, self.debug)  
+                #these settings are allowed to change in secondary runs
+                h5file["/config"].attrs["maxProcesses"] = self.maxProcesses
+                h5file["/config"].attrs["maxProcessesAutomaton"] = self.maxProcessesAutomaton
+                h5file["/config"].attrs["maxProcessesIndex"] = self.maxProcessesIndex
+                h5file["/config"].attrs["maxProcessesMatches"] = self.maxProcessesMatches
+               
+                #get splitting k-mers from index   
+                if not "/split" in h5file:
+                    self._logger.debug("get splitting k-mers from the provided index")
+                    haplotyping.index.splits.Splits(sortedIndexFile, h5file, self.filenameBase, self.debug)    
+                    h5file.flush()
+                    #backup
+                    shutil.copyfile(filename, filename_splits)
                 else:
-                    self._logger.error("no splitting k-mers were found")
-                
+                    self._logger.debug("detected splitting k-mers from previous run")
+                    
+                #parse read files and store distances
+                if not ("/relations" in h5file and "/relations/direct" in h5file):
+                    self._logger.debug("parse read files and store distances in database")
+                    haplotyping.index.reads.Reads(readFiles,pairedReadFiles, h5file, 
+                                                  self.filenameBase, self.debug)
+                    h5file.flush()
+                    #backup
+                    shutil.copyfile(filename, filename_distances)
+                else:
+                    self._logger.debug("detected distances from previous run")
+
                 #finished
                 h5file.flush()
                 
@@ -152,4 +215,34 @@ class Database:
                     unpairedReadFiles.append(filename)
 
         return (unpairedReadFiles, pairedReadFiles, allReadFiles)
+    
+    def getTablesUint(maximumValue, position):
+        if maximumValue<=np.iinfo(np.uint8).max:
+            return tables.UInt8Col(pos=position)
+        elif maximumValue<=np.iinfo(np.uint16).max:
+            return tables.UInt16Col(pos=position)
+        elif maximumValue<=np.iinfo(np.uint32).max:
+            return tables.UInt32Col(pos=position)
+        else:
+            return tables.UInt64Col(pos=position)
+        
+    def getTablesUintAtom(maximumValue):
+        if maximumValue<=np.iinfo(np.uint8).max:
+            return tables.UInt8Atom()
+        elif maximumValue<=np.iinfo(np.uint16).max:
+            return tables.UInt16Atom()
+        elif maximumValue<=np.iinfo(np.uint32).max:
+            return tables.UInt32Atom()
+        else:
+            return tables.UInt64Atom()
+        
+    def getUint(maximumValue):
+        if maximumValue<=np.iinfo(np.uint8).max:
+            return "uint8"
+        elif maximumValue<=np.iinfo(np.uint16).max:
+            return "uint16"
+        elif maximumValue<=np.iinfo(np.uint32).max:
+            return "uint32"
+        else:
+            return "uint64"
 

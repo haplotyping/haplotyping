@@ -26,15 +26,14 @@ class General:
         try:
             rckmer = ""
             do_check=True
-            for base in kmer:
-                rcbase = General.map[base]
+            for (base,rcbase) in zip(kmer,kmer[::-1]):
+                rcbase = General.map[rcbase]
                 if do_check:
                     if base<rcbase:
                         return kmer
                     elif rcbase<base:
                         do_check = False
                 rckmer += rcbase
-            rckmer = rckmer[::-1]
             return rckmer[:]
         except Exception as e:
             raise Exception("invalid k-mer: "+str(kmer))
@@ -42,10 +41,11 @@ class General:
     def is_canonical(kmer: str) -> str:
         """Test if provided k-mer is canonical"""
         try:
-            for base in kmer:                
-                if base<map[base]:
+            for (base,rcbase) in zip(kmer,kmer[::-1]):              
+                rcbase = General.map[rcbase]
+                if base<rcbase:
                     return True
-                elif map[base]<base:
+                elif rcbase<base:
                     return False
             return True
         except Exception as e:
