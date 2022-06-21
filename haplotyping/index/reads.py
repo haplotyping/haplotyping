@@ -50,9 +50,6 @@ class Reads:
         self.unpairedReadFiles = unpairedReadFiles
         self.pairedReadFiles = pairedReadFiles
         self.numberOfKmers = self.h5file["/split/ckmer"].shape[0]
-        self.numberOfDirectRelations = 0
-        self.numberOfCycles = 0
-        self.numberOfReversals = 0
         
         self.readLengthMinimum=None
         self.readLengthMaximum=None
@@ -61,16 +58,10 @@ class Reads:
         self.readTotal=0
         self.processReadsTime=0
         
-        self.maxDirectDistance = 0
-        self.maxDirectNumber = 0  
         self.maxConnectedIndexSize = 0
         self.maxConnectedIndexLength = 0
         self.maxConnectedIndexNumber = 0
-        self.maxConnectedPairNumber = 0
-        self.maxCycleLength = 0
-        self.maxCycleNumber = 0
-        self.maxReversalLength = 0
-        self.maxReversalNumber = 0
+        self.maxConnectedPairNumber = 0        
         
         self.dumpDirect = {}
         
@@ -79,30 +70,29 @@ class Reads:
         self.arrayNumber = 2*len(haplotyping.index.Database.letters)
         
         #get config
-        self.minimumFrequency = self.h5file["/config"].attrs["minimumFrequency"]
+        self.minimumFrequency = h5file["/config"].attrs["minimumFrequency"]
         
         #check existence group
         if not "/relations" in h5file:
             h5file.create_group("/relations")
+        if not "/connections" in h5file:
+            h5file.create_group("/connections")    
         
-        #create direct relations dataset
+        #create relations and connections datasets
         if "/relations/direct" in h5file:
             self._logger.warning("direct relation dataset already exists in hdf5 storage")
+        elif "/relations/cycle" in h5file:
+            self._logger.warning("cycle relation dataset already exists in hdf5 storage")
+        elif "/relations/reversal" in h5file:
+            self._logger.warning("reversal relation dataset already exists in hdf5 storage")
+        elif "/connections/list" in h5file:
+            self._logger.warning("connections list dataset already exists in hdf5 storage")
         else:
-            
-            #try:
-            
             #process
             self._processReadFiles()
-            #self._group()
-            #self._store()
-
+            self._store()
             #flush
-            self.h5file.flush()
-               
-            #except:
-            #    self._logger.error("problem occurred while constructing relations")
-            
+            self.h5file.flush()                                       
                 
               
     def _processReadFiles(self):
@@ -178,7 +168,8 @@ class Reads:
             nWorkersIndex = min(self.maxProcessesIndex,math.floor((nWorkers-nWorkersAutomaton)/2))
         else:
             nWorkersIndex = nWorkers - nWorkersAutomaton - nWorkersMatches
-        nWorkersConnections = 1
+        nWorkersConnections = 2
+        
         
         self._logger.debug("start {} processes to parse reads with reduced automaton".format(nWorkersAutomaton))
         self._logger.debug("start {} processes to check matches with index".format(nWorkersIndex))
@@ -202,30 +193,38 @@ class Reads:
         
         try:
             #process and register unpaired read files
-            dtypeList = [("file","S255"),("readLength","uint64"),
+            if not "unpairedReads" in self.h5file["/config/"].keys():
+                dtypeList = [("file","S255"),("readLength","uint64"),
                      ("readNumber","uint64"),("processTime","uint32")]
-            ds = self.h5file["/config/"].create_dataset("unpairedReads",(len(self.unpairedReadFiles),),
-                                              dtype=np.dtype(dtypeList),chunks=None)
-            for i in range(len(self.unpairedReadFiles)):
-                (readLength,readNumber,processTime) = self._processReadFile(self.unpairedReadFiles[i], 
-                                                               queue_automaton, queue_index, queue_matches)
-                ds[i] = (self.unpairedReadFiles[i],
-                         readLength,readNumber,int(processTime))
+            
+                ds = self.h5file["/config/"].create_dataset("unpairedReads",(len(self.unpairedReadFiles),),
+                                                  dtype=np.dtype(dtypeList),chunks=None)
+                for i in range(len(self.unpairedReadFiles)):
+                    (readLength,readNumber,processTime) = self._processReadFile(self.unpairedReadFiles[i], 
+                                                                   queue_automaton, queue_index, queue_matches)
+                    ds[i] = (self.unpairedReadFiles[i],
+                             readLength,readNumber,int(processTime))
+            else:
+                self._logger.error("unpairedReads already (partly) processed")
 
             #process and register paired read files
-            dtypeList = [("file0","S255"),("file1","S255"),("readLength","uint64"),
+            if not "pairedReads" in self.h5file["/config/"].keys():
+                dtypeList = [("file0","S255"),("file1","S255"),("readLength","uint64"),
                          ("readNumber","uint64"),("processTime","uint32")]
-            ds = self.h5file["/config/"].create_dataset("pairedReads",(len(self.pairedReadFiles),),
-                                              dtype=np.dtype(dtypeList),chunks=None)
-            for i in range(len(self.pairedReadFiles)):
-                (readLength,readNumber,processTime) = self._processPairedReadFiles(self.pairedReadFiles[i][0],
-                                                                 self.pairedReadFiles[i][1], 
-                                                                 queue_automaton, queue_index, queue_matches)
-                ds[i] = (self.pairedReadFiles[i][0],self.pairedReadFiles[i][1],
-                         readLength,readNumber,int(processTime))
+                ds = self.h5file["/config/"].create_dataset("pairedReads",(len(self.pairedReadFiles),),
+                                                  dtype=np.dtype(dtypeList),chunks=None)
+                for i in range(len(self.pairedReadFiles)):
+                    (readLength,readNumber,processTime) = self._processPairedReadFiles(self.pairedReadFiles[i][0],
+                                                                     self.pairedReadFiles[i][1], 
+                                                                     queue_automaton, queue_index, queue_matches)
+                    ds[i] = (self.pairedReadFiles[i][0],self.pairedReadFiles[i][1],
+                             readLength,readNumber,int(processTime))
+            else:
+                self._logger.error("pairedReads already (partly) processed")        
 
             #now wait until queues are empty
-            while not (queue_automaton.empty() and queue_index.empty() and queue_matches.empty() and queue_connections.empty()):
+            while not (queue_automaton.empty() and queue_index.empty() and queue_matches.empty() 
+                       and queue_connections.empty()):
                 time.sleep(1)
                 
             #then trigger stopping by sending enough Nones
@@ -307,7 +306,8 @@ class Reads:
         original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
         pool_merges = Pool(nWorkersMerges, haplotyping.index.storage.Storage.worker_merges, 
                                (shutdown_event,queue_ranges,queue_merges,storageDirectFiles,
-                                self.filenameBase,self.numberOfKmers,self.arrayNumber,self.maxFrequency,shm_kmer.name))
+                                self.filenameBase,self.numberOfKmers,self.arrayNumber,
+                                self.maxFrequency,self.minimumFrequency,shm_kmer.name))
         signal.signal(signal.SIGINT, original_sigint_handler)
         
         try:
@@ -327,6 +327,8 @@ class Reads:
                 
             #clean
             for item in storageDirectFiles:
+                os.remove(item)
+            for item in storageConnectionsFiles:
                 os.remove(item)
                 
             #collect created merges
@@ -375,8 +377,6 @@ class Reads:
             shm_kmer.unlink()
             
         self._logger.debug("created merged file")
-
-      
             
     def _processReadFile(self, filename: str, queue_automaton, queue_index, queue_matches):
         startTime = time.time()
@@ -473,20 +473,11 @@ class Reads:
         self.h5file["/config/"].attrs["readPairedTotal"]=self.readPairedTotal
         self.h5file["/config/"].attrs["readUnpairedTotal"]=self.readUnpairedTotal
         self.h5file["/config/"].attrs["readTotal"]=self.readTotal
-        self.h5file["/config/"].attrs["processReadsTime"]=int(np.ceil(self.processReadsTime))
-        self.h5file["/config/"].attrs["maxDirectDistance"]=self.maxDirectDistance
-        self.h5file["/config/"].attrs["maxDirectNumber"]=self.maxDirectNumber
-        self.h5file["/config/"].attrs["maxConnectedIndexSize"]=self.maxConnectedIndexSize
-        self.h5file["/config/"].attrs["maxConnectedIndexLength"]=self.maxConnectedIndexLength
-        self.h5file["/config/"].attrs["maxConnectedIndexNumber"]=self.maxConnectedIndexNumber
-        self.h5file["/config/"].attrs["maxConnectedPairNumber"]=self.maxConnectedPairNumber  
-        self.h5file["/config/"].attrs["numberOfCycles"]=self.numberOfCycles
-        self.h5file["/config/"].attrs["maxCycleLength"]=self.maxCycleLength
-        self.h5file["/config/"].attrs["maxCycleNumber"]=self.maxCycleNumber
-        self.h5file["/config/"].attrs["numberOfCycles"]=self.numberOfCycles
-        self.h5file["/config/"].attrs["numberOfReversals"]=self.numberOfReversals
-        self.h5file["/config/"].attrs["maxReversalLength"]=self.maxReversalLength
-        self.h5file["/config/"].attrs["maxReversalNumber"]=self.maxReversalNumber
+        self.h5file["/config/"].attrs["processReadsTime"]=int(np.ceil(self.processReadsTime))        
+        
+        #store merged direct data
+        haplotyping.index.storage.Storage.store_merged_direct(self.h5file, self.filenameBase, self.numberOfKmers, 
+                                                       self.minimumFrequency)
 
     
     
