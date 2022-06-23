@@ -3,7 +3,7 @@ import os, sys, math, signal
 import re, haplotyping
 import numpy as np
 import haplotyping.index.storage
-from multiprocessing import shared_memory, Pool, Queue, Event, current_process
+import multiprocessing as mp
 from queue import Empty
 
 class Reads:
@@ -46,6 +46,8 @@ class Reads:
         self.maxProcessesAutomaton = h5file["/config"].attrs["maxProcessesAutomaton"]
         self.maxProcessesIndex = h5file["/config"].attrs["maxProcessesIndex"]
         self.maxProcessesMatches = h5file["/config"].attrs["maxProcessesMatches"]
+        self.maxProcessesConnections = h5file["/config"].attrs["maxProcessesConnections"]
+        self.maxProcessesMerges = h5file["/config"].attrs["maxProcessesMerges"]
         self.h5file = h5file
         self.unpairedReadFiles = unpairedReadFiles
         self.pairedReadFiles = pairedReadFiles
@@ -67,7 +69,8 @@ class Reads:
         
         #theoretical maximum is 2 * #letters, however read-errors will introduce additional connections
         #partly they will be pre-filtered, but a buffer seems sensible (?)
-        self.arrayNumber = 2*len(haplotyping.index.Database.letters)
+        self.arrayNumberDirect = 2*len(haplotyping.index.Database.letters)
+        self.arrayNumberConnection = 10
         
         #get config
         self.minimumFrequency = h5file["/config"].attrs["minimumFrequency"]
@@ -126,9 +129,11 @@ class Reads:
             close_queue(queue_entry)
             return entries
             
+        mp.set_start_method("fork")
+        
         #create shared memory k-mer index (to confirm results from automaton)
         shm_index_size = os.path.getsize(self.indexFile)
-        shm_index = shared_memory.SharedMemory(create=True, size=shm_index_size)
+        shm_index = mp.shared_memory.SharedMemory(create=True, size=shm_index_size)
         with open(self.indexFile, "r") as f:
             shm_index.buf[0:shm_index_size] = bytes(f.read(),"utf-8")
         self._logger.debug("created shared memory {} bytes k-mer index".format(shm_index_size))
@@ -137,7 +142,7 @@ class Reads:
         shm_kmer_link = np.dtype(haplotyping.index.Database.getUint(self.numberOfKmers)).type
         shm_kmer_number = np.dtype(haplotyping.index.Database.getUint(self.maxFrequency)).type
         shm_kmer_size = self.numberOfKmers*(1+shm_kmer_number(0).nbytes+(2*shm_kmer_link(0).nbytes))
-        shm_kmer = shared_memory.SharedMemory(create=True, size=shm_kmer_size)
+        shm_kmer = mp.shared_memory.SharedMemory(create=True, size=shm_kmer_size)
         kmer_properties = np.ndarray((self.numberOfKmers,), dtype=[("type","S1"),("number",shm_kmer_number),
                            ("left",shm_kmer_link),("right",shm_kmer_link)], buffer=shm_kmer.buf)
         ckmerLink = 0
@@ -149,27 +154,29 @@ class Reads:
                 ckmerLink+=1
         self._logger.debug("created shared memory {} bytes k-mer properties".format(shm_kmer_size))
 
-        shutdown_event = Event()
+        shutdown_event = mp.Event()
         
         qsize = 10000
-        queue_automaton = Queue(qsize)
-        queue_index = Queue(qsize)
-        queue_matches = Queue(qsize)
-        queue_connections = Queue(qsize)
-        queue_finished = Queue()
-        queue_storageDirect = Queue()
-        queue_storageConnections = Queue()
+        queue_automaton = mp.Queue(qsize)
+        queue_index = mp.Queue(qsize)
+        queue_matches = mp.Queue(qsize)
+        queue_connections = mp.Queue(qsize)
+        queue_finished = mp.Queue()
+        queue_storageDirect = mp.Queue()
+        queue_storageConnections = mp.Queue()
         
-        #todo: better auto distribute
+        #auto distribute within limits
         nWorkers = self.maxProcesses - 1
-        nWorkersAutomaton = min(self.maxProcessesAutomaton,nWorkers-2, math.floor(nWorkers/3))
-        nWorkersMatches = min(self.maxProcessesMatches,nWorkers - nWorkersAutomaton - 1)
-        if self.maxProcessesIndex>0:
-            nWorkersIndex = min(self.maxProcessesIndex,math.floor((nWorkers-nWorkersAutomaton)/2))
-        else:
-            nWorkersIndex = nWorkers - nWorkersAutomaton - nWorkersMatches
-        nWorkersConnections = 2
+        nWorkersAutomaton = min(self.maxProcessesAutomaton,math.floor(nWorkers/4))
+        nWorkersMatches = min(self.maxProcessesMatches,math.floor((nWorkers - nWorkersAutomaton)/3))
+        nWorkersIndex = min(self.maxProcessesIndex,math.floor((nWorkers - nWorkersAutomaton - nWorkersMatches)/2))
+        nWorkersConnections = min(self.maxProcessesConnections,
+                                  (nWorkers - nWorkersAutomaton - nWorkersMatches - nWorkersIndex))
         
+        nWorkersLeft = nWorkers - nWorkersAutomaton - nWorkersMatches - nWorkersIndex - nWorkersConnections
+        while(nWorkersLeft>0):
+            print("change")
+            break
         
         self._logger.debug("start {} processes to parse reads with reduced automaton".format(nWorkersAutomaton))
         self._logger.debug("start {} processes to check matches with index".format(nWorkersIndex))
@@ -177,18 +184,19 @@ class Reads:
         self._logger.debug("start {} processes to process connections".format(nWorkersConnections))
         
         original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
-        pool_automaton = Pool(nWorkersAutomaton, haplotyping.index.storage.Storage.worker_automaton, 
+        pool_automaton = mp.Pool(nWorkersAutomaton, haplotyping.index.storage.Storage.worker_automaton, 
                              (shutdown_event,queue_automaton,queue_index,queue_finished,
                               self.k,self.automatonKmerSize,self.automatonFile,))
-        pool_index = Pool(nWorkersIndex, haplotyping.index.storage.Storage.worker_index, 
+        pool_index = mp.Pool(nWorkersIndex, haplotyping.index.storage.Storage.worker_index, 
                              (shutdown_event,queue_index,queue_matches,queue_finished,
                               self.k,shm_index.name))
-        pool_matches = Pool(nWorkersMatches, haplotyping.index.storage.Storage.worker_matches, 
+        pool_matches = mp.Pool(nWorkersMatches, haplotyping.index.storage.Storage.worker_matches, 
                                (shutdown_event,queue_matches,queue_connections,queue_storageDirect,queue_finished,
-                                self.filenameBase,self.numberOfKmers,self.arrayNumber))
-        pool_connections = Pool(nWorkersConnections, haplotyping.index.storage.Storage.worker_connections, 
+                                self.filenameBase,self.numberOfKmers,self.arrayNumberDirect))
+        pool_connections = mp.Pool(nWorkersConnections, haplotyping.index.storage.Storage.worker_connections, 
                                (shutdown_event,queue_connections,queue_storageConnections,queue_finished,
-                                self.filenameBase,self.numberOfKmers,self.maxFrequency,shm_kmer.name))
+                                self.filenameBase,self.numberOfKmers,
+                                self.arrayNumberConnection,self.maxFrequency,shm_kmer.name))
         signal.signal(signal.SIGINT, original_sigint_handler)
         
         try:
@@ -294,19 +302,18 @@ class Reads:
         self._logger.debug("merge {} files with direct connections".format(len(storageDirectFiles)))
         self._logger.debug("merge {} files with additional connections".format(len(storageConnectionsFiles)))
             
-        
         #reset shutdown event
         shutdown_event.clear()
         
-        nWorkersMerges = self.maxProcesses - 1
+        nWorkersMerges = min(self.maxProcessesMerges,self.maxProcesses - 1)
         self._logger.debug("start {} processes to merge stored data".format(nWorkersMerges))
         
-        queue_ranges = Queue(nWorkersMerges)
-        queue_merges = Queue(nWorkersMerges)
+        queue_ranges = mp.Queue(nWorkersMerges)
+        queue_merges = mp.Queue(nWorkersMerges)
         original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
-        pool_merges = Pool(nWorkersMerges, haplotyping.index.storage.Storage.worker_merges, 
+        pool_merges = mp.Pool(nWorkersMerges, haplotyping.index.storage.Storage.worker_merges, 
                                (shutdown_event,queue_ranges,queue_merges,storageDirectFiles,
-                                self.filenameBase,self.numberOfKmers,self.arrayNumber,
+                                self.filenameBase,self.numberOfKmers,self.arrayNumberDirect,
                                 self.maxFrequency,self.minimumFrequency,shm_kmer.name))
         signal.signal(signal.SIGINT, original_sigint_handler)
         
@@ -322,14 +329,13 @@ class Reads:
                 
             #now wait    
             while not (queue_ranges.empty()):
-                #print("Queues {}".format(queue_ranges.qsize()))
                 time.sleep(1)
                 
             #clean
             for item in storageDirectFiles:
                 os.remove(item)
-            for item in storageConnectionsFiles:
-                os.remove(item)
+            #for item in storageConnectionsFiles:
+            #    os.remove(item)
                 
             #collect created merges
             mergeFiles = []
@@ -409,7 +415,7 @@ class Reads:
             self.readUnpairedTotal+=readNumber
             self.readTotal+=readNumber
             self.processReadsTime+=endTime-startTime
-        self._logger.debug("processed {} reads".format(readNumber)) 
+        self._logger.info("processed {} reads".format(readNumber)) 
         return (readLengthMaximum,readNumber,endTime-startTime)
 
     def _processPairedReadFiles(self, filename0: str, filename1: str, queue_automaton, queue_index, queue_matches):
@@ -451,8 +457,7 @@ class Reads:
                     else:
                         queue_automaton.put((sequence0,sequence1,))
                     if readNumber%10000==0:
-                        self._logger.debug("- processed {} paired reads, {} - {} - {}".format(readNumber,
-                                              queue_automaton.qsize(),queue_index.qsize(),queue_matches.qsize())) 
+                        self._logger.debug("- processed {} paired reads".format(readNumber)) 
                 else:
                     break
             endTime = time.time()
@@ -463,7 +468,7 @@ class Reads:
                                     else max(self.readLengthMaximum,readLengthMaximum))
             self.readPairedTotal+=readNumber
             self.readTotal+=readNumber
-            self._logger.debug("processed {} paired reads".format(readNumber)) 
+            self._logger.info("processed {} paired reads".format(readNumber)) 
             self.processReadsTime+=endTime-startTime
         return (readLengthMaximum,readNumber,endTime-startTime)
         

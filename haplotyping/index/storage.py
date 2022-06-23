@@ -476,7 +476,7 @@ class Storage:
             
             
     def worker_connections(shutdown_event,queue_connections,queue_storage,queue_finished,
-                       filenameBase,numberOfKmers,maxFrequency,shm_name):
+                       filenameBase,numberOfKmers,arrayNumber,maxFrequency,shm_name):
         
         logger = logging.getLogger(__name__)
         
@@ -493,30 +493,21 @@ class Storage:
                 
                 logger.debug("connections: store additional connections")
 
+                dtype = [("number", haplotyping.index.Database.getUint(arrayNumber+1),
+                         ("connections", [("c"+str(i),[
+                                            ("length","uint16"),
+                                            ("direct","uint8"),
+                                            ("link",haplotyping.index.Database.getUint(numberOfKmers)),
+                                            ("hash","int64")]) 
+                                          for i in range(arrayNumber)]),]
+                connections = np.ndarray((numberOfKmers,), dtype=dtype, order="C")
+                connections.fill((0,tuple((0,0,0,0,) for i in range(arrayNumber))))
+                
+                logger.debug("created memory storage for additional connections: {} bytes".format(connections.nbytes))
+                
                 tableConnectionsData = pytables_storage.create_vlarray(pytables_storage.root, "data", 
                                haplotyping.index.Database.getTablesUintAtom(numberOfKmers), "Data")
-                tableConnectionsIndex = pytables_storage.create_table(pytables_storage.root, 
-                            "index",{
-                            "id": tables.UInt8Col(pos=0),
-                            "referenceLink": haplotyping.index.Database.getTablesUint(numberOfKmers,1),
-                            "length": tables.UInt16Col(pos=2),
-                            "number": tables.UInt8Col(pos=3),
-                            "type": tables.UInt8Col(pos=4),
-                            "paired": haplotyping.index.Database.getTablesUint(numberOfKmers,5),
-                        }, "Index")
-                
-                def old_store_connections(connectionNumber,connectionsList,length,direct,paired=False,pairLink=0):
-                    ckmerLink = min(connectionsList)
-                    if connectionsList[0]<connectionsList[-1]:
-                        tableConnectionsData.append(connectionsList)
-                    else:
-                        tableConnectionsData.append(connectionsList[::-1])
-                    connectionType = (1 if direct else 0)  
-                    connectionType+= (2 if paired else 0)
-                    tableConnectionsIndex.append([(connectionNumber,ckmerLink,length,len(connectionsList),
-                                                   connectionType,pairLink,)])
-                    return connectionNumber+1
-                
+
                 mapSplitDirection = [{b"l":"l", b"r":"r", b"b":"b"},{b"l":"r", b"r":"l", b"b":"b"}]
                 
                 def store_connections(connectionNumber,connectionsList,length,direct,paired=False,pairLink=0):
@@ -579,7 +570,7 @@ class Storage:
                         if item==None:
                             break
                         elif isinstance(item,tuple):
-                            if 1==2:
+                            if 1==1:
                                 #for now, just ignore
                                 pass
                             elif len(item)==1:
@@ -604,9 +595,12 @@ class Storage:
                                                          item[1][0],item[1][1],item[1][2],True,pairedLink0)
                     except Empty:
                         continue   
+                
                 pytables_storage.flush()
-                logger.debug("connections: index {} entries".format(tableConnectionsIndex.shape[0]))
-                tableConnectionsIndex.cols.referenceLink.create_csindex()
+                
+                tableConnection = pytables_storage.create_table(pytables_storage.root, 
+                                              name="direct", obj=connections, expectedrows=numberOfKmers)
+                logger.debug("matches: memory storage connections saved".format(pytablesFile))
                 pytables_storage.flush()
                 
             #now the file can be released for merge

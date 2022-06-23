@@ -38,22 +38,30 @@ class Database:
         Adjusting this number will change the amount of read error based results but 
         can also introduce gaps; With higher read depth or lower error rate, this number can possibly be increased
         
-    maxProcesses: int, optional, default is 4
-        The maximum number of processes including main process, should be at least 4
+    maxProcesses: int, optional, default is 5
+        The maximum number of processes including main process, should be at least 5
         
     maxProcessesAutomaton: int, optional, default is 1
         The maximum number of processes used for direct parsing of reads using the automaton
         Because shared memory can't be used, multiple copies of the automaton have to be in memory
         Be carefull if available memory is limited
     
-    maxProcessesIndex: int, optional, default is maximum allowed
+    maxProcessesIndex: int, optional
         The maximum number of processes used for creating a (partial) index from the matches
         Making use of shared memory to load index
         
-    maxProcessesMatches: int, optional, default is 1
+    maxProcessesMatches: int, optional
         The maximum number of processes used for creating a (partial) index from the matches
         Collecting and organising data is done mostly in memory
         Be carefull if available memory is limited
+    
+    maxProcessesConnections: int, optional
+        The maximum number of processes used for creating a (partial) index from the matches
+        Collecting and organising data is done mostly in memory
+        Be carefull if available memory is limited
+    
+    maxProcessesMerges: int, optional
+        The maximum number of processes used for merging operations
     
     automatonKmerSize: int optional, default is None
         The used reduced k-mer size, if undefined automatically set to just above half the k-mer size
@@ -64,18 +72,26 @@ class Database:
         These temporary files can be used for further inspection and will not be deleted afterwards.         
         
     """
+    
+    version = "20220621"
         
-    def __init__(self, k: int, name: str, 
+    def __init__(self,
+                 k: int, 
+                 name: str, 
                  filenameBase: str,
                  sortedIndexFile: str,
-                 readFiles=[],pairedReadFiles=[],
+                 readFiles=[], pairedReadFiles=[],
                  minimumFrequency: int = 2,
-                 maxProcesses: int = 4,
+                 maxProcesses: int = 5,
                  maxProcessesAutomaton: int = 1,
                  maxProcessesIndex: int = None,
-                 maxProcessesMatches: int = 1,
+                 maxProcessesMatches: int = None,
+                 maxProcessesConnections: int = None,
+                 maxProcessesMerges: int = None,
                  automatonKmerSize: int = None,
-                 debug: bool = False):     
+                 debug: bool = False):  
+        
+        
         
         """
         Internal use only: initialize
@@ -93,18 +109,19 @@ class Database:
         self.debug = debug
         self.filenameBase = filenameBase
         self.maxProcesses = maxProcesses
-        self.maxProcessesAutomaton = maxProcessesAutomaton
-        self.maxProcessesIndex = maxProcessesIndex
-        self.maxProcessesMatches = maxProcessesMatches
+        self.maxProcessesAutomaton = maxProcesses if maxProcessesAutomaton==None else maxProcessesAutomaton
+        self.maxProcessesIndex = maxProcesses if maxProcessesIndex==None else maxProcessesIndex
+        self.maxProcessesMatches = maxProcesses if maxProcessesMatches==None else maxProcessesMatches
+        self.maxProcessesConnections = maxProcesses if maxProcessesConnections==None else maxProcessesConnections
+        self.maxProcessesMerges = maxProcesses if maxProcessesMerges==None else maxProcessesMerges
         
         #check boundaries number of processes
-        assert self.maxProcesses>=4
+        assert self.maxProcesses>=5
         assert self.maxProcessesAutomaton>=1
         assert self.maxProcessesMatches>=1
-        if not self.maxProcessesIndex==None:
-            assert self.maxProcessesIndex>=1
-        else:
-            self.maxProcessesIndex = 0
+        assert self.maxProcessesIndex>=1
+        assert self.maxProcessesConnections>=1
+        assert self.maxProcessesMerges>=1
         
         if len(readFiles)==0 and len(pairedReadFiles)==0:
             self._logger.error("no read files provided")
@@ -133,6 +150,7 @@ class Database:
                 if not "/config" in h5file:
                     h5file.create_group("/config")
                     h5file["/config"].attrs["k"] = self.k
+                    h5file["/config"].attrs["version"] = self.version
                     h5file["/config"].attrs["automatonKmerSize"] = self.automatonKmerSize
                     h5file["/config"].attrs["name"] = self.name
                     h5file["/config"].attrs["debug"] = self.debug
@@ -140,6 +158,7 @@ class Database:
                     h5file.flush()
                 else:
                     assert h5file["/config"].attrs["k"] == self.k
+                    assert h5file["/config"].attrs["version"] == self.version
                     assert h5file["/config"].attrs["automatonKmerSize"] == self.automatonKmerSize
                     assert h5file["/config"].attrs["name"] == self.name
                     assert h5file["/config"].attrs["debug"] == self.debug
@@ -150,7 +169,10 @@ class Database:
                 h5file["/config"].attrs["maxProcessesAutomaton"] = self.maxProcessesAutomaton
                 h5file["/config"].attrs["maxProcessesIndex"] = self.maxProcessesIndex
                 h5file["/config"].attrs["maxProcessesMatches"] = self.maxProcessesMatches
+                h5file["/config"].attrs["maxProcessesConnections"] = self.maxProcessesConnections
+                h5file["/config"].attrs["maxProcessesMerges"] = self.maxProcessesMerges
                
+            
                 #get splitting k-mers from index   
                 if not "/split" in h5file:
                     self._logger.debug("get splitting k-mers from the provided index")
