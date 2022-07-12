@@ -11,41 +11,66 @@ class Storage:
     Internal use, storage and processing
     """
     
-    def create_merge_storage(pytables_storage, numberOfKmers, nCycle=None, nReversal=None, nDirect=None, deleteDirect=True):
-        tableCycle = pytables_storage.create_table(pytables_storage.root, 
-                            "cycle",{
-                            "ckmerLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
-                            "minimumLength": tables.UInt8Col(pos=1),
-                            "number": tables.UInt8Col(pos=2),
-                        }, "Cycles", expectedrows=nCycle)
-        tableReversal = pytables_storage.create_table(pytables_storage.root, 
-                            "reversal",{
-                            "ckmerLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
-                            "minimumLength": tables.UInt8Col(pos=1),
-                            "number": tables.UInt8Col(pos=2),
-                        }, "Reversals", expectedrows=nReversal)
-        tableDirect = pytables_storage.create_table(pytables_storage.root, 
-                            "direct",{
-                            "fromLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
-                            "fromDirection": tables.StringCol(itemsize=1,pos=1),
-                            "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,2),
-                            "toDirection": tables.StringCol(itemsize=1,pos=3),
-                            "number": tables.UInt16Col(pos=4),
-                            "distance": tables.UInt16Col(pos=5),
-                            "splitDirection": tables.StringCol(itemsize=1,pos=6),
-                            "reverseBase": haplotyping.index.Database.getTablesUint(numberOfKmers,7),
-                            "forwardBase": haplotyping.index.Database.getTablesUint(numberOfKmers,8),
-                            "problematic": tables.UInt8Col(pos=9),
-                        }, "Direct relations", expectedrows=nDirect)
+    def create_merge_storage(pytablesStorage, numberOfKmers, maximumFrequency, maximumConnectionLength,
+                             nCycle=None, nReversal=None, nDirect=None, 
+                             nConnections=None, nPaired=None, deleteDirect=True, deletePaired=True):
+        pytablesStorage.create_table(pytablesStorage.root, 
+            "cycle",{
+            "ckmerLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
+            "minimumLength": tables.UInt16Col(pos=1),
+            "number": haplotyping.index.Database.getTablesUint(maximumFrequency,2),
+        }, "Cycles", expectedrows=nCycle)
+        pytablesStorage.create_table(pytablesStorage.root, 
+            "reversal",{
+            "ckmerLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
+            "minimumLength": tables.UInt16Col(pos=1),
+            "number": haplotyping.index.Database.getTablesUint(maximumFrequency,2),
+        }, "Reversals", expectedrows=nReversal)
+        pytablesStorage.create_table(pytablesStorage.root, 
+            "direct",{
+            "fromLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
+            "fromDirection": tables.StringCol(itemsize=1,pos=1),
+            "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,2),
+            "toDirection": tables.StringCol(itemsize=1,pos=3),
+            "number": haplotyping.index.Database.getTablesUint(maximumFrequency,4),
+            "distance": tables.UInt16Col(pos=5),
+            "splitDirection": tables.StringCol(itemsize=1,pos=6),
+            "reverseBase": haplotyping.index.Database.getTablesUint(numberOfKmers,7),
+            "forwardBase": haplotyping.index.Database.getTablesUint(numberOfKmers,8),
+            "problematic": tables.UInt8Col(pos=9),
+        }, "Direct relations", expectedrows=nDirect)
         if deleteDirect:
-            tableDeleteDirect = pytables_storage.create_table(pytables_storage.root, 
-                            "deleteDirect",{
-                            "fromLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
-                            "fromDirection": tables.StringCol(itemsize=1,pos=1),
-                            "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,2),
-                            "toDirection": tables.StringCol(itemsize=1,pos=3),
-                        }, "Incorrect direct relations", expectedrows=nDirect)
-    
+            pytablesStorage.create_table(pytablesStorage.root, 
+                "deleteDirect",{
+                "fromLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
+                "fromDirection": tables.StringCol(itemsize=1,pos=1),
+                "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,2),
+                "toDirection": tables.StringCol(itemsize=1,pos=3),
+            }, "Incorrect direct relations", expectedrows=nDirect)
+        pytablesStorage.create_table(pytablesStorage.root, 
+            "connections",{
+            "ckmerLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
+            "dataLink": haplotyping.index.Database.getTablesUint(numberOfKmers,1),
+            "length": haplotyping.index.Database.getTablesUint(maximumConnectionLength,2),
+            "number": haplotyping.index.Database.getTablesUint(maximumFrequency,3),
+            "direct": tables.UInt8Col(pos=4),
+        }, "Indirect relations", expectedrows=nConnections)
+        pytablesStorage.create_earray(pytablesStorage.root, 
+            "data",haplotyping.index.Database.getTablesUintAtom(numberOfKmers),(0,), 
+            "Data", expectedrows=nConnections)
+        pytablesStorage.create_table(pytablesStorage.root, 
+            "paired",{
+            "fromLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
+            "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,1),
+            "number": haplotyping.index.Database.getTablesUint(maximumFrequency,2),
+        }, "Paired relations", expectedrows=nPaired)
+        if deleteDirect:
+            pytablesStorage.create_table(pytablesStorage.root, 
+                "deletePaired",{
+                "fromLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
+                "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,1),
+            }, "Incorrect paired relations", expectedrows=nPaired)
+        
     def worker_automaton(shutdown_event,queue_automaton,queue_index,queue_finished,k,automatonKmerSize,automatonFile):
         
         logger = logging.getLogger(__name__)
@@ -75,7 +100,7 @@ class Storage:
         #load automaton into memory
         with open(automatonFile, "rb") as f:
             automatonSplits = pickle.load(f)
-        logger.debug("automaton: fsm loaded from {} bytes".format(os.stat(automatonFile).st_size))
+        logger.debug("automaton: fsm loaded from {} MB".format(round(os.stat(automatonFile).st_size/1048576)))
             
         while not shutdown_event.is_set():
             try:
@@ -215,10 +240,10 @@ class Storage:
                             break                   
             if len(matches)>0:
                 matchesList.append(matches)
-            return matchesList
+            return (matchesList, len(matchesList)==1)
         
         shm = shared_memory.SharedMemory(shm_name)
-        logger.debug("index: shared memory of {} bytes used".format(shm.size))
+        logger.debug("index: shared memory of {} MB used".format(round(shm.size/1048576)))
         try:
             while not shutdown_event.is_set():
                 try:
@@ -227,30 +252,31 @@ class Storage:
                         break
                     elif isinstance(item,tuple):
                         if len(item)==1:
-                            matches = compute_matches(item[0][0],item[0][1])
+                            (matches, direct, ) = compute_matches(item[0][0],item[0][1])
                             if len(matches)==0 or (len(matches)==1 and len(matches[0])==1):
                                 pass
                             else:
-                                queue_matches.put((matches,))
+                                queue_matches.put((matches, direct))
                         elif len(item)==2:
                             sequence0 = item[0][0]
                             sequence1 = item[1][0]
-                            matches0 = compute_matches(item[0][0],item[0][1])
-                            matches1 = compute_matches(item[1][0],item[1][1])
+                            (matches0, direct0, ) = compute_matches(item[0][0],item[0][1])
+                            (matches1, direct1, ) = compute_matches(item[1][0],item[1][1])
                             if len(matches0)==0 and len(matches1)==0:
                                 pass
                             elif len(matches0)==0:
                                 if len(matches1)==1 and len(matches1[0])==1:
                                     pass
                                 else:
-                                    queue_matches.put((matches1,))
+                                    queue_matches.put(((matches1, direct1,),))
                             elif len(matches1)==0:
                                 if len(matches0)==1 and len(matches0[0])==1:
                                     pass
                                 else:
-                                    queue_matches.put((matches0,))
+                                    queue_matches.put(((matches0, direct0, ), ))
                             else:
-                                queue_matches.put((matches0,matches1,))
+                                queue_matches.put(((matches0, direct0, ),
+                                                   (matches1, direct1, )))
                 except Empty:
                     continue
         finally:
@@ -258,40 +284,51 @@ class Storage:
         logger.debug("index: shared memory released")
         queue_finished.put("index")
             
+    
+    """
+    Process matches into direct connections and queue full list of matches for indirect connections
+    """
     def worker_matches(shutdown_event,queue_matches,queue_connections,queue_storage,queue_finished,
-                       filenameBase,numberOfKmers,arrayNumber):
+                       filenameBase,numberOfKmers,maximumFrequency,estimatedMaximumReadLength,arrayNumberDirect):
         
         logger = logging.getLogger(__name__)
         try:
             curr_proc = current_process()
-            pytablesFile = filenameBase+"_tmp_direct_"+str(curr_proc.name)+".process.h5"
-            if os.path.exists(pytablesFile):
-                os.remove(pytablesFile)
+            pytablesFileWorker = filenameBase+"_tmp_direct_{}.process.h5".format(curr_proc.name)
+            if os.path.exists(pytablesFileWorker):
+                os.remove(pytablesFileWorker)
 
-            with tables.open_file(pytablesFile, mode="a") as pytables_storage:
+            with tables.open_file(pytablesFileWorker, mode="a") as pytablesStorageWorker:
                 
-                logger.debug("matches: store direct connections")
-
-                dtype = [("cycle", [("number", np.uint16),("minimum", "uint16")]),
-                         ("reversal", [("number", np.uint16),("minimum", "uint16")]),
+                logger.debug("matches: store direct connections (dimension: {})".format(arrayNumberDirect))
+                
+                #define correct maxValues based on previous results             
+                dtype = [("cycle", [("number", haplotyping.index.Database.getUint(maximumFrequency)),
+                                    ("minimum", haplotyping.index.Database.getUint(
+                                                      2*estimatedMaximumReadLength))]),
+                         ("reversal", [("number", haplotyping.index.Database.getUint(maximumFrequency)),
+                                       ("minimum", haplotyping.index.Database.getUint(
+                                                      2*estimatedMaximumReadLength))]),
                          ("direct", [("d"+str(i),[("type","uint8"),
                                                   ("link",haplotyping.index.Database.getUint(numberOfKmers)),
-                                                  ("distance","uint16"),
-                                                  ("number","uint16")]) 
-                                     for i in range(arrayNumber)]),]
+                                                  ("distance",haplotyping.index.Database.getUint(
+                                                      2*estimatedMaximumReadLength)),
+                                                  ("number",haplotyping.index.Database.getUint(maximumFrequency))]) 
+                                     for i in range(arrayNumberDirect)]),]
                 connections = np.ndarray((numberOfKmers,), dtype=dtype, order="C")
-                connections.fill(((0,0,),(0,0,),tuple((0,0,0,0,) for i in range(arrayNumber))))
+                connections.fill(((0,0,),(0,0,),tuple((0,0,0,0,) for i in range(arrayNumberDirect))))
                 
-                logger.debug("created memory storage for direct connections: {} bytes".format(connections.nbytes))
+                logger.debug("created memory storage for direct connections: {} MB".format(round(connections.nbytes/1048576)))
                 
-                tableDirectOther = pytables_storage.create_table(pytables_storage.root, 
+                #define correct maxValues based on previous results
+                tableDirectOther = pytablesStorageWorker.create_table(pytablesStorageWorker.root, 
                     "directOther",{
                     "fromLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
                     "fromDirection": tables.UInt8Col(pos=1),
                     "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,2),
                     "toDirection": tables.UInt8Col(pos=3),
-                    "number": tables.UInt16Col(pos=4),
-                    "distance": tables.UInt16Col(pos=5),
+                    "number": haplotyping.index.Database.getTablesUint(maximumFrequency,4),
+                    "distance": haplotyping.index.Database.getTablesUint(2*estimatedMaximumReadLength,5),
                 }, "Temporary to dump other direct relations", track_times=False)
 
                 def store_cycle(fromLink, distance):
@@ -309,10 +346,10 @@ class Storage:
                         connections[fromLink][1] = (previousNumber+1,previousDistance,)
 
                 def store_direct(fromLink, fromDirection, toLink, toDirection, distance):
-                    numberFilled = arrayNumber
+                    numberFilled = arrayNumberDirect
                     connectionType = 1 + fromDirection + (2*toDirection)
                     directRow = connections[fromLink][2]
-                    for i in range(arrayNumber):
+                    for i in range(arrayNumberDirect):
                         if directRow[i][0]==0:
                             numberFilled = i
                             break
@@ -320,7 +357,7 @@ class Storage:
                               and directRow[i][2]==distance):
                             directRow[i][3]+=1 
                             return
-                    if numberFilled<arrayNumber:
+                    if numberFilled<arrayNumberDirect:
                         directRow[numberFilled] = (connectionType,toLink,distance,1,)
                     else:
                         #try to smartly swap with other direct link
@@ -343,7 +380,7 @@ class Storage:
                             else:
                                 break
                         #too much in same direction
-                        if 2*len(sameFromDirectionDistances)>=arrayNumber:
+                        if 2*len(sameFromDirectionDistances)>=arrayNumberDirect:
                             sameFromDirectionDistance = sorted(statistics.multimode(sameFromDirectionDistances))[0]
                             if distance==sameFromDirectionDistance:
                                 candidates=[]
@@ -357,7 +394,7 @@ class Storage:
                                             swapEntry = i
                                             break
                         #too much in other direction
-                        elif 2*len(otherFromDirectionDistances)>arrayNumber:
+                        elif 2*len(otherFromDirectionDistances)>arrayNumberDirect:
                             otherFromDirectionDistance = sorted(statistics.multimode(otherFromDirectionDistances))[0]
                             candidates=[]
                             for i,d in zip(otherFromDirectionEntries,otherFromDirectionDistances):
@@ -429,7 +466,7 @@ class Storage:
                                     else:
                                         store_reversal(currentLink,currentPos-history[currentLink][1])
                                 history[previousLink]=(previousDirection,previousPos,)
-                    return (links,max(0,endPos-startPos),len(matches)==1,)
+                    return (links,max(0,endPos-startPos),)
 
                 while not shutdown_event.is_set():
                     try:
@@ -438,15 +475,18 @@ class Storage:
                             break
                         elif isinstance(item,tuple):
                             if len(item)==1:
-                                matchesList = item[0]
-                                (links,length,directConnected,) = process_matches(matchesList)
+                                matchesList = item[0][0]
+                                directConnected = item[0][1]
+                                (links,length,) = process_matches(matchesList)
                                 if len(links)>2:
                                     queue_connections.put(((links,length,directConnected,)))
                             elif len(item)==2:
-                                matchesList0 = item[0]
-                                matchesList1 = item[1]
-                                (links0,length0,directConnected0,) = process_matches(matchesList0)
-                                (links1,length1,directConnected1,) = process_matches(matchesList1)
+                                matchesList0 = item[0][0]
+                                directConnected0 = item[0][1]
+                                matchesList1 = item[1][0]
+                                directConnected1 = item[1][1]
+                                (links0,length0,) = process_matches(matchesList0)
+                                (links1,length1,) = process_matches(matchesList1)
                                 if len(links0)==0:
                                     if len(links1)>2:
                                         queue_connections.put(((links1,length1,directConnected1,)))
@@ -460,184 +500,360 @@ class Storage:
                                     ))
                     except Empty:
                         continue   
-                pytables_storage.flush()
+                pytablesStorageWorker.flush()
                 tableDirectOther.cols.fromLink.create_csindex()
-                pytables_storage.flush()
-                tableDirect = pytables_storage.create_table(pytables_storage.root, 
+                pytablesStorageWorker.flush()
+                pytablesStorageWorker.create_table(pytablesStorageWorker.root, 
                                               name="direct", obj=connections, expectedrows=numberOfKmers)
-                logger.debug("matches: memory storage saved, other connections indexed".format(pytablesFile))
-                pytables_storage.flush()
+                logger.debug("matches: memory storage saved, other connections indexed")
+                pytablesStorageWorker.flush()
                 
             #now the file can be released for merge
-            queue_storage.put(pytablesFile) 
+            queue_storage.put(pytablesFileWorker) 
         finally:
             pass
         queue_finished.put("matches")
             
-            
+    """
+    Process indirect connections: filtering and efficient storage
+    """
     def worker_connections(shutdown_event,queue_connections,queue_storage,queue_finished,
-                       filenameBase,numberOfKmers,arrayNumber,maxFrequency,shm_name):
+                       filenameBase,numberOfKmers,arrayNumberConnection,maximumFrequency,shm_name):
         
         logger = logging.getLogger(__name__)
         
         shm = shared_memory.SharedMemory(shm_name)
-        logger.debug("connections: shared memory of {} bytes used".format(shm.size))
+        logger.debug("connections: shared memory of {} MB used".format(round(shm.size/1048576)))
             
         try:
             curr_proc = current_process()
-            pytablesFile = filenameBase+"_tmp_connections_"+str(curr_proc.name)+".process.h5"
-            if os.path.exists(pytablesFile):
-                os.remove(pytablesFile)
+            pytablesFileWorker = filenameBase+"_tmp_connections_"+str(curr_proc.name)+".process.h5"
+            if os.path.exists(pytablesFileWorker):
+                os.remove(pytablesFileWorker)
 
-            with tables.open_file(pytablesFile, mode="a") as pytables_storage:
+            with tables.open_file(pytablesFileWorker, mode="a") as pytablesStorageWorker:
                 
-                logger.debug("connections: store additional connections")
+                logger.debug("connections: store additional connections (dimension: {})".format(arrayNumberConnection))
 
-                dtype = [("number", haplotyping.index.Database.getUint(arrayNumber+1),
+                #connections - define correct maxValues based on previous results             
+                dtype = [("number", haplotyping.index.Database.getUint(arrayNumberConnection+1)),
                          ("connections", [("c"+str(i),[
-                                            ("length","uint16"),
-                                            ("direct","uint8"),
-                                            ("link",haplotyping.index.Database.getUint(numberOfKmers)),
-                                            ("hash","int64")]) 
-                                          for i in range(arrayNumber)]),]
+                                                        ("link",haplotyping.index.Database.getUint(numberOfKmers)),
+                                                        ("length",haplotyping.index.Database.getUint(arrayNumberConnection)),
+                                                        ("direct","uint8"),
+                                                        ("hash","int64"),
+                                                        ("number",haplotyping.index.Database.getUint(maximumFrequency))
+                                                      ]) 
+                                                      for i in range(arrayNumberConnection)])]
                 connections = np.ndarray((numberOfKmers,), dtype=dtype, order="C")
-                connections.fill((0,tuple((0,0,0,0,) for i in range(arrayNumber))))
+                connections.fill((0,tuple((0,0,0,0,0,) for i in range(arrayNumberConnection))))
                 
-                logger.debug("created memory storage for additional connections: {} bytes".format(connections.nbytes))
+                #paired entries - define correct maxValues based on previous results   
+                #can't however really estimate the required size because this depends 
+                #on the (unknown) distance between paired reads
+                dtype = [("number", haplotyping.index.Database.getUint(arrayNumberConnection+1)),
+                         ("paired", [("p"+str(i),[("link",haplotyping.index.Database.getUint(numberOfKmers)),
+                                                  ("number",haplotyping.index.Database.getUint(maximumFrequency))]) 
+                                     for i in range(arrayNumberConnection)]),]
+                paired = np.ndarray((numberOfKmers,), dtype=dtype, order="C")
+                paired.fill((0,tuple((0,0,) for i in range(arrayNumberConnection))))
                 
-                tableConnectionsData = pytables_storage.create_vlarray(pytables_storage.root, "data", 
-                               haplotyping.index.Database.getTablesUintAtom(numberOfKmers), "Data")
-
+                logger.debug("created memory storage for additional connections: {} MB".format(
+                    round(connections.nbytes/1048576)))
+                logger.debug("created memory storage for paired entries: {} MB".format(
+                    round(paired.nbytes/1048576)))
+                
+                #define correct maxValues based on previous results
+                tablePairedOther = pytablesStorageWorker.create_table(pytablesStorageWorker.root, 
+                    "pairedOther",{
+                    "fromLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
+                    "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,1)
+                }, "Temporary to dump other paired relations", track_times=False)
+                
                 mapSplitDirection = [{b"l":"l", b"r":"r", b"b":"b"},{b"l":"r", b"r":"l", b"b":"b"}]
                 
-                def store_connections(connectionNumber,connectionsList,length,direct,paired=False,pairLink=0):
-                    fullConnectionsList = []
-                    for (link,direction) in connectionsList:
+                def store_connections(connectionsList,direct,tableConnectionsData,tableConnectionsDataNumber):
+                    
+                    def recompute_linking_entry(linkingEntry,compactedSelectionMinimum,potentialNumber,potentialId):
+                        if compactedSelectionMinimum==None or (potentialNumber<=compactedSelectionMinimum):
+                            entry = compactedConnectionsList[potentialId]
+                            if compactedSelectionMinimum==potentialNumber:
+                                if len(entry)==2:
+                                    if entry[0][-2]==potentialNumber and entry[0][-1]<linkingEntry:
+                                        linkingEntry = entry[0][-1]
+                                    if entry[1][-2]==potentialNumber and entry[1][-1]<linkingEntry:
+                                        linkingEntry = entry[1][-1]                                           
+                                else:
+                                    assert compactedSelectionMinimum == entry[-2]
+                                    if entry[-1]<linkingEntry:
+                                        linkingEntry=entry[-1]
+                            else:
+                                compactedSelectionMinimum = potentialNumber
+                                if len(entry)==2:
+                                    if entry[0][-2]>entry[1][-2]:
+                                        linkingEntry = entry[0][-1] 
+                                    elif entry[0][-2]<entry[1][-2]:
+                                        linkingEntry = entry[1][-1] 
+                                    elif entry[0][-1]<entry[1][-1]:
+                                        linkingEntry = entry[0][-1] 
+                                    else:
+                                        linkingEntry = entry[1][-1]
+                                else:
+                                    linkingEntry = entry[-1]           
+                        return (linkingEntry,compactedSelectionMinimum)
+                    
+                    #compact pairs with equal dosage
+                    compactedConnectionsList = []
+                    for id, (link,direction) in enumerate(connectionsList):
                         props = kmer_properties[link] 
-                        newEntry = (link,mapSplitDirection[direction][props[0]],props[1],)
-                        #contract pairs with equal dosage (rightsplitter -> leftsplitter)
-                        if newEntry[1]=="l" and (len(fullConnectionsList)>0) and fullConnectionsList[-1][1]=="r":
-                            fullConnectionsList[-1] = (fullConnectionsList[-1],newEntry,)
+                        newEntry = (link,mapSplitDirection[direction][props[0]],props[1],id,)
+                        #contract pairs with equal dosage (rightsplitter -> leftsplitter)                        
+                        if (newEntry[1]=="l" and (len(compactedConnectionsList)>0) and 
+                            compactedConnectionsList[-1][1]=="r"):
+                            compactedConnectionsList[-1] = (compactedConnectionsList[-1],newEntry,)
                         else:
-                            fullConnectionsList.append(newEntry)
+                            compactedConnectionsList.append(newEntry)
                     #select entries with (potential) minimal dosage
-                    potentialMinimum = None
+                    potentialNumber = None
                     potentialDirection = None
-                    finalConnectionsList = []       
-                    for entry in fullConnectionsList:
+                    potentialId = None
+                    compactedSelection = [] 
+                    compactedSelectionMinimum = None
+                    linkingEntry = None
+                    for id,entry in enumerate(compactedConnectionsList):
                         newDirection = entry[0][1] if len(entry)==2 else entry[1]
-                        if potentialMinimum==None:
-                            potentialMinimum = entry
+                        if potentialId==None:
+                            potentialNumber = max(entry[0][-2],entry[1][-2]) if len(entry)==2 else entry[-2]
                             potentialDirection = entry[-1][1] if len(entry)==2 else entry[1]
+                            potentialId = id
                         else:
                             if potentialDirection=="l":
                                 if newDirection=="l":
                                     pass
                                 else:
-                                    finalConnectionsList.append(entry)
-                                    potentialMinimum = entry
+                                    compactedSelection.append(potentialId)
+                                    (linkingEntry,compactedSelectionMinimum) = recompute_linking_entry(
+                                        linkingEntry,compactedSelectionMinimum,
+                                        potentialNumber,potentialId)
+                                    potentialNumber = max(entry[0][-2],entry[1][-2]) if len(entry)==2 else entry[-2]
                                     potentialDirection = entry[-1][1] if len(entry)==2 else entry[1]
+                                    potentialId = id
                             elif potentialDirection=="r":
                                 if newDirection=="l":
                                     raise Exception("can't happen")
                                 else:
-                                    potentialMinimum = entry
+                                    potentialNumber = max(entry[0][-2],entry[1][-2]) if len(entry)==2 else entry[-2]
                                     potentialDirection = entry[-1][1] if len(entry)==2 else entry[1]
+                                    potentialId = id
                             else:
                                 if newDirection=="l":
                                     pass
                                 else:
-                                    finalConnectionsList.append(entry)
-                                    potentialMinimum = entry
+                                    compactedSelection.append(potentialId)
+                                    (linkingEntry,compactedSelectionMinimum) = recompute_linking_entry(
+                                        linkingEntry,compactedSelectionMinimum,
+                                        potentialNumber,potentialId)
+                                    potentialNumber = max(entry[0][-2],entry[1][-2]) if len(entry)==2 else entry[-2]
                                     potentialDirection = entry[-1][1] if len(entry)==2 else entry[1]
+                                    potentialId = id
+                    if not potentialId==None:
+                        compactedSelection.append(potentialId)
+                        (linkingEntry,compactedSelectionMinimum) = recompute_linking_entry(
+                            linkingEntry,compactedSelectionMinimum,
+                            potentialNumber,potentialId)
+                    finalSelection = []
+                    #single entry not informative
+                    if len(compactedSelection)<=1:
+                        pass
+                    #directly neighhbouring entries not informative
+                    elif len(compactedSelection)==2 and (compactedSelection[1]-compactedSelection[0])==1:
+                        pass
+                    else:
+                        for id in compactedSelection:
+                            if len(compactedConnectionsList[id])==2:
+                                if id==0:
+                                    finalSelection.append(compactedConnectionsList[id][1][-1])
+                                elif id==len(compactedConnectionsList)-1:
+                                    finalSelection.append(compactedConnectionsList[id][0][-1])
+                                else:
+                                    if compactedConnectionsList[id][0][2]>compactedConnectionsList[id][1][2]:
+                                        finalSelection.append(compactedConnectionsList[id][0][-1])
+                                    elif compactedConnectionsList[id][1][2]>compactedConnectionsList[id][0][2]:
+                                        finalSelection.append(compactedConnectionsList[id][1][-1])
+                                    elif compactedConnectionsList[id][0][0]>compactedConnectionsList[id][1][0]:
+                                        finalSelection.append(compactedConnectionsList[id][0][-1])
+                                    else:
+                                        finalSelection.append(compactedConnectionsList[id][1][-1])
+                            else:
+                                finalSelection.append(compactedConnectionsList[id][-1])
+
+                    if len(finalSelection)>0:
+                        #get final list of connected k-mers
+                        connectedKmers = [connectionsList[id][0] for id in finalSelection]
+                        #remove neighbouring duplicates
+                        connectedKmers = sorted(set(connectedKmers), key=connectedKmers.index)
+                        #remove neighbouring duplicates
+                        if connectedKmers[0]>connectedKmers[-1]:
+                            connectedKmers = tuple(connectedKmers[::-1])
+                        else:
+                            connectedKmers = tuple(connectedKmers)
+                        connectionsRow = connections[connectionsList[linkingEntry][0]]
+                        if connectionsRow[0]>arrayNumberConnection or len(connectedKmers)<=1:
+                            pass
+                        else:
+                            lengthValue = len(connectedKmers)
+                            directValue = 1 if direct else 0
+                            hashValue = hash(connectedKmers)
+                            stored = False
+                            for i in range(connectionsRow[0]):
+                                if connectionsRow[1][i][3] == hashValue:                                    
+                                    if connectionsRow[1][i][1] == lengthValue:                                        
+                                        connectionsRow[1][i][2] == max(directValue,connectionsRow[1][i][2])
+                                        connectionsRow[1][i][4] += 1    
+                                        stored = True
+                                    else:
+                                        #conflict
+                                        connectionsRow[0] = arrayNumberConnection+1
+                                        for j in range(connectionsRow[0]):
+                                            connectionsRow[1][j] = (0,0,0,0,0,)
+                                    break
+                            if not stored and connectionsRow[0]<=arrayNumberConnection:
+                                if connectionsRow[0]<arrayNumberConnection:
+                                    linkValue = tableConnectionsDataNumber
+                                    tableConnectionsData.append(connectedKmers)
+                                    tableConnectionsDataNumber+=len(connectedKmers)
+                                    connectionsRow[1][connectionsRow[0]] = (linkValue,lengthValue,
+                                                                            directValue,hashValue,1,)
+                                    connectionsRow[0]+=1
+                                    stored = True
+                                else:
+                                    #no space to store, reset all
+                                    for j in range(connectionsRow[0]):
+                                        connectionsRow[1][j] = (0,0,0,0,0,)
+                                    connectionsRow[0] = arrayNumberConnection+1
+                                    
+                            #store (in memory)
+                            connections[connectionsList[linkingEntry][0]] = connectionsRow
                             
-                    if not potentialMinimum==None:
-                        finalConnectionsList.append(entry)
-                    print("{}\t{}\t{}%".format(len(connectionsList),len(finalConnectionsList),
-                                              int(100*len(finalConnectionsList)/len(connectionsList))))
-                    return connectionNumber+1
+                    if linkingEntry==None:
+                        ckmerLink = None
+                    else:
+                        ckmerLink = connectionsList[linkingEntry][0]
+                    return (tableConnectionsData,tableConnectionsDataNumber,ckmerLink)
+                
+                def store_paired(linkedCkmer0,linkedCkmer1):
+                    #only store if potentially necessary
+                    if connections[linkedCkmer0][0]>arrayNumberConnection:
+                        pass
+                    elif connections[linkedCkmer1][0]>arrayNumberConnection:
+                        pass
+                    else:
+                        pairedRow = paired[linkedCkmer0]
+                        stored = False
+                        for i in range(pairedRow[0]):
+                            if pairedRow[1][i][0] == linkedCkmer1:                                    
+                                pairedRow[1][i][0] += 1    
+                                stored = True                                
+                        if not stored:
+                            if pairedRow[0]<arrayNumberConnection:
+                                pairedRow[1][pairedRow[0]] = (linkedCkmer1,1,)
+                                pairedRow[0]+=1                                
+                            else:
+                                dumpPairedRow = tablePairedOther.row
+                                dumpPairedRow["fromLink"] = linkedCkmer0
+                                dumpPairedRow["toLink"] = linkedCkmer1
+                                dumpPairedRow.append()
+                        #store (in memory)
+                        paired[linkedCkmer0] = pairedRow
                     
                 #get shared memory
                 shm_kmer_link = np.dtype(haplotyping.index.Database.getUint(numberOfKmers)).type
-                shm_kmer_number = np.dtype(haplotyping.index.Database.getUint(maxFrequency)).type
+                shm_kmer_number = np.dtype(haplotyping.index.Database.getUint(maximumFrequency)).type
                 kmer_properties = np.ndarray((numberOfKmers,), dtype=[("type","S1"),("number",shm_kmer_number),
                                    ("left",shm_kmer_link),("right",shm_kmer_link)], buffer=shm.buf)
             
-                connectionNumber = 0
+                tableConnectionsData = pytablesStorageWorker.create_earray(pytablesStorageWorker.root, "data", 
+                               haplotyping.index.Database.getTablesUintAtom(numberOfKmers), (0,), "Data")
+                tableConnectionsDataNumber = 0
+
                 while not shutdown_event.is_set():
                     try:
                         item = queue_connections.get(block=True, timeout=1)
                         if item==None:
                             break
                         elif isinstance(item,tuple):
-                            if 1==1:
-                                #for now, just ignore
-                                pass
-                            elif len(item)==1:
+                            if len(item)==1:
                                 if len(item[0][0])>2:
-                                    connectionNumber = store_connections(connectionNumber,
-                                                         item[0][0],item[0][1],item[0][2])
+                                    tableConnectionsData,tableConnectionsDataNumber = store_connections(
+                                                      item[0][0],item[0][2],
+                                                      tableConnectionsData,tableConnectionsDataNumber)[0:2]
                             elif len(item)==2:
                                 if len(item[0][0])==0:
                                     if len(item[1][0])>0:
-                                        connectionNumber = store_connections(connectionNumber,
-                                                         item[1][0],item[1][1],item[1][2])
+                                        tableConnectionsData,tableConnectionsDataNumber = store_connections(
+                                                      item[1][0],item[1][2],
+                                                      tableConnectionsData,tableConnectionsDataNumber)[0:2]
                                 elif len(item[1][0])==0:
                                     if len(item[0][0])>0:
-                                        connectionNumber = store_connections(connectionNumber,
-                                                         item[0][0],item[0][1],item[0][2])
+                                        tableConnectionsData,tableConnectionsDataNumber = store_connections(
+                                                      item[0][0],item[0][2],
+                                                      tableConnectionsData,tableConnectionsDataNumber)[0:2]
                                 else:
-                                    pairedLink0 = connectionNumber
-                                    pairedLink1 = connectionNumber + 1
-                                    connectionNumber = store_connections(connectionNumber,
-                                                         item[0][0],item[0][1],item[0][2],True,pairedLink1)
-                                    connectionNumber = store_connections(connectionNumber,
-                                                         item[1][0],item[1][1],item[1][2],True,pairedLink0)
+                                    (tableConnectionsData,tableConnectionsDataNumber,linkedCkmer0) = store_connections(
+                                                      item[0][0],item[0][2],
+                                                      tableConnectionsData,tableConnectionsDataNumber)
+                                    (tableConnectionsData,tableConnectionsDataNumber,linkedCkmer1) = store_connections(
+                                                      item[1][0],item[1][2],
+                                                      tableConnectionsData,tableConnectionsDataNumber)
+                                    #store paired connections
+                                    if not (linkedCkmer0==None or linkedCkmer1==None):
+                                        store_paired(linkedCkmer0,linkedCkmer1)
+                                        store_paired(linkedCkmer1,linkedCkmer0)
                     except Empty:
                         continue   
                 
-                pytables_storage.flush()
-                
-                tableConnection = pytables_storage.create_table(pytables_storage.root, 
-                                              name="direct", obj=connections, expectedrows=numberOfKmers)
-                logger.debug("matches: memory storage connections saved".format(pytablesFile))
-                pytables_storage.flush()
+                pytablesStorageWorker.flush()                
+                tablePairedOther.cols.fromLink.create_csindex()
+                pytablesStorageWorker.flush()                
+                pytablesStorageWorker.create_table(pytablesStorageWorker.root, 
+                    name="connections", obj=connections, expectedrows=numberOfKmers)
+                logger.debug("matches: memory storage connections saved")
+                pytablesStorageWorker.flush()
+                pytablesStorageWorker.create_table(pytablesStorageWorker.root, 
+                    name="paired", obj=paired, expectedrows=numberOfKmers)
+                logger.debug("matches: memory storage paired saved")
+                pytablesStorageWorker.flush()
                 
             #now the file can be released for merge
-            queue_storage.put(pytablesFile) 
+            queue_storage.put(pytablesFileWorker) 
         finally:
             shm.close()
             logger.debug("index: shared memory released")
 
         queue_finished.put("connections")
                 
-                
-    def worker_merges(shutdown_event,queue_ranges,queue_merges,storageFiles,
-                      filenameBase,numberOfKmers,arrayNumber,maxFrequency,minFrequency,shm_name):
+            
+    """
+    Merge stored direct and indirect connections
+    """                
+    def worker_merges(shutdown_event,queue_ranges,queue_merges,storageDirectFiles,storageConnectionFiles,
+                      filenameBase,numberOfKmers,maximumFrequency,minimumFrequency,maximumConnectionLength,shm_name):
         
         logger = logging.getLogger(__name__)
-        
-        def merge_storage(filenameBase, storageFiles, mergeStart, mergeNumber, numberOfKmers, arrayNumber, kmer_properties):
-            
-            numberLength = len(str(numberOfKmers))
-            mergeEnd = min(numberOfKmers,mergeStart+mergeNumber)-1
-            pytablesFile = (filenameBase+"_tmp_direct_merge_"+str(mergeStart).zfill(numberLength)+"_"+
-                            str(mergeEnd).zfill(numberLength)+".process.h5")
-            if os.path.exists(pytablesFile):
-                os.remove(pytablesFile)
-                
-            with tables.open_file(pytablesFile, mode="a") as pytables_storage:
-                #create temporary storage
-                Storage.create_merge_storage(pytables_storage, numberOfKmers)
-                tableCycle = pytables_storage.root.cycle
-                tableReversal = pytables_storage.root.reversal
-                tableDirect = pytables_storage.root.direct
-                tableDeleteDirect = pytables_storage.root.deleteDirect
+
+        def merge_direct_storage(pytablesFileWorker, storageDirectFiles, mergeStart, mergeNumber, 
+                                 numberOfKmers, kmer_properties):
+
+            with tables.open_file(pytablesFileWorker, mode="a") as pytablesStorageWorker:
+                tableCycle = pytablesStorageWorker.root.cycle
+                tableReversal = pytablesStorageWorker.root.reversal
+                tableDirect = pytablesStorageWorker.root.direct
+                tableDeleteDirect = pytablesStorageWorker.root.deleteDirect                
 
                 with ExitStack() as stack:
                     #get handlers
                     storageHandlers = [{"handler": stack.enter_context(tables.open_file(fname, mode="r"))} 
-                                               for fname in storageFiles]
+                                               for fname in storageDirectFiles]
                     
                     #get and position sorted iterators for other entries
                     for i in range(len(storageHandlers)):
@@ -686,7 +902,9 @@ class Storage:
                                          "direction": direction, "forwardBase": forwardBase, 
                                          "reverseBase": reverseBase, "problematic": 0}
                         else:
-                            directDataEntry[fromDirection][distance][toLink][toDirection]["number"] += number
+                            directDataEntry[fromDirection][distance][toLink][toDirection]["number"] = (
+                                min(maximumFrequency,
+                                    directDataEntry[fromDirection][distance][toLink][toDirection]["number"]+number))
                         return directDataEntry
                     
                     #delete probably wrong direct connections
@@ -708,7 +926,7 @@ class Storage:
                             for toLink in dataEntry.keys():
                                 for toDirection in dataEntry[toLink].keys():
                                     number = dataEntry[toLink][toDirection]["number"]
-                                    if number>=minFrequency:
+                                    if number>=minimumFrequency:
                                         distanceNumber+=number
                                     
                             if distanceNumber==0:
@@ -737,7 +955,7 @@ class Storage:
                             for toLink in dataEntry.keys():
                                 for toDirection in dataEntry[toLink].keys():
                                     number = dataEntry[toLink][toDirection]["number"]
-                                    if number>=minFrequency:
+                                    if number>=minimumFrequency:
                                         distances[distance] = distances.get(distance,0) + number
                                         relevantConnectionNumber+=number
                                         direction = dataEntry[toLink][toDirection]["direction"]
@@ -764,8 +982,8 @@ class Storage:
                             #try fixing multiple distances if this is potential problematic
                             if len(possibleReverseBases)+len(possibleForwardBases)==0:
                                 if len(distances)>1:
-                                    maxDistanceFrequency = max(max(distances.values()),minFrequency)
-                                    boundary = math.floor(math.sqrt(maxDistanceFrequency/minFrequency))
+                                    maximumDistanceFrequency = max(max(distances.values()),minimumFrequency)
+                                    boundary = math.floor(math.sqrt(maximumDistanceFrequency/minimumFrequency))
                                     incorrectDistances = [d for d in distances.keys() if distances[d]<=boundary]
                                     if len(incorrectDistances)>0:
                                         #remove incorrect distances
@@ -790,7 +1008,7 @@ class Storage:
                                             for toLink in dataEntry.keys():
                                                 for toDirection in dataEntry[toLink].keys():
                                                     number = dataEntry[toLink][toDirection]["number"]
-                                                    if number>=minFrequency:
+                                                    if number>=minimumFrequency:
                                                         distances[distance] = distances.get(distance,0) + number
                                                         relevantConnectionNumber+=number
                                                         direction = dataEntry[toLink][toDirection]["direction"]
@@ -816,8 +1034,8 @@ class Storage:
                                 forwardBase = possibleForwardBases[0]  
                                 #try to reduce distances
                                 if len(distances)>1:
-                                    maxDistanceFrequency = max(max(distances.values()),maxFrequency)
-                                    boundary = math.floor(math.sqrt(maxDistanceFrequency/minFrequency))
+                                    maximumDistanceFrequency = max(max(distances.values()),maximumFrequency)
+                                    boundary = math.floor(math.sqrt(maximumDistanceFrequency/minimumFrequency))
                                     incorrectDistances = [d for d in distances.keys() if distances[d]<=boundary]
                                 else:
                                     incorrectDistances = []
@@ -856,8 +1074,8 @@ class Storage:
                                 reverseBase = possibleReverseBases[0]  
                                 #try to reduce distances
                                 if len(distances)>1:
-                                    maxDistanceFrequency = max(distances.values())
-                                    boundary = math.floor(math.sqrt(maxDistanceFrequency/minFrequency))
+                                    maximumDistanceFrequency = max(distances.values())
+                                    boundary = math.floor(math.sqrt(maximumDistanceFrequency/minimumFrequency))
                                     incorrectDistances = [d for d in distances.keys() if distances[d]<=boundary]
                                 else:
                                     incorrectDistances = []
@@ -882,7 +1100,7 @@ class Storage:
                                                     #expect single connection, therefore also restriction number
                                                     if ((direction in ["r","b"]) and 
                                                         (dataEntry[toLink][toDirection]["reverseBase"] == reverseBase) and
-                                                        number>=minFrequency):
+                                                        number>=minimumFrequency):
                                                         distanceDataEntry[toLink] = distanceDataEntry.get(toLink,{})
                                                         distanceDataEntry[toLink][toDirection] = dataEntry[toLink].get(
                                                             toDirection)
@@ -925,7 +1143,7 @@ class Storage:
                                         fromDirection = (item[2][k][0] - 1) & 1
                                         toDirection = int(((item[2][k][0] - 1) & 2)/2)
                                         toLink = item[2][k][1]
-                                        number = item[2][k][3]
+                                        number = int(item[2][k][3])
                                         distance = item[2][k][2]
                                         directData[index] = add_directData(directData[index],
                                                                        fromDirection,toLink,toDirection,distance,number)
@@ -943,7 +1161,7 @@ class Storage:
                                         fromDirection = storageHandler["otherRow"]["fromDirection"]
                                         toDirection = storageHandler["otherRow"]["toDirection"]
                                         toLink = storageHandler["otherRow"]["toLink"]
-                                        number = storageHandler["otherRow"]["number"]
+                                        number = int(storageHandler["otherRow"]["number"])
                                         distance = storageHandler["otherRow"]["distance"]
                                         directData[index] = add_directData(directData[index],
                                                                        fromDirection,toLink,toDirection,distance,number)
@@ -953,7 +1171,7 @@ class Storage:
                                                 fromDirection = storageHandler["otherRow"]["fromDirection"]
                                                 toDirection = storageHandler["otherRow"]["toDirection"]
                                                 toLink = storageHandler["otherRow"]["toLink"]
-                                                number = storageHandler["otherRow"]["number"]
+                                                number = int(storageHandler["otherRow"]["number"])
                                                 distance = storageHandler["otherRow"]["distance"]
                                                 directData[index] = add_directData(directData[index],
                                                                fromDirection,toLink,toDirection,distance,number)
@@ -968,42 +1186,30 @@ class Storage:
                             for index, item in enumerate(rowData):
                                 if item[0][1]>0:
                                     if index in cycleEntries.keys():
-                                        cycleEntries[index] = (cycleEntries[index][0]+item[0][0],
+                                        cycleEntries[index] = (cycleEntries[index][0]+int(item[0][0]),
                                                                min(cycleEntries[index][1],item[0][1]),)
                                     else:
-                                        cycleEntries[index] = (item[0][0],item[0][1],)
+                                        cycleEntries[index] = (int(item[0][0]),item[0][1],)
                             for index, item in enumerate(rowData):
                                 if item[1][1]>0:
                                     if index in reversalEntries.keys():
-                                        reversalEntries[index] = (reversalEntries[index][0]+item[1][0],
+                                        reversalEntries[index] = (reversalEntries[index][0]+int(item[1][0]),
                                                                min(reversalEntries[index][1],item[1][1]),)
                                     else:
-                                        reversalEntries[index] = (item[1][0],item[1][1],)
+                                        reversalEntries[index] = (int(item[1][0]),item[1][1],)
                         for ce in cycleEntries.keys():
-                            minimumLength = 0
                             tableCycleRow = tableCycle.row
                             tableCycleRow["ckmerLink"] = i+ce
-                            tableCycleRow["number"] = cycleEntries[ce][0]
+                            tableCycleRow["number"] = min(maximumFrequency,cycleEntries[ce][0])
                             tableCycleRow["minimumLength"] = cycleEntries[ce][1]
                             tableCycleRow.append()
                         for ce in reversalEntries.keys():
-                            minimumLength = 0
                             tableReversalRow = tableReversal.row
                             tableReversalRow["ckmerLink"] = i+ce
-                            tableReversalRow["number"] = reversalEntries[ce][0]
+                            tableReversalRow["number"] = min(maximumFrequency,reversalEntries[ce][0])
                             tableReversalRow["minimumLength"] = reversalEntries[ce][1]
                             tableReversalRow.append()
                         
-                        #TODO: apply some filtering, combining and detection of problematic entries
-                        # problematic if
-                        # - different distances in single direction
-                        # - too much connections
-                        # then try to filter by (using data available in kmer_properties array from shared memory)
-                        # - check shared bases for each direction
-                        # - check split direction
-                        # otherwise classify problem
-                        # Filtering has to be symmetric!
-
                         for j in range(len(directData)):
                             fromLink = i + j
                             for fromDirection in directData[j].keys():
@@ -1031,29 +1237,170 @@ class Storage:
                                             tableDirectRow["fromDirection"] = "l" if fromDirection==0 else "r"
                                             tableDirectRow["toLink"] = toLink
                                             tableDirectRow["toDirection"] = "l" if toDirection==0 else "r"
-                                            tableDirectRow["number"] = number
+                                            tableDirectRow["number"] = min(maximumFrequency,number)
                                             tableDirectRow["distance"] = distance
                                             tableDirectRow["splitDirection"] = direction
                                             tableDirectRow["reverseBase"] = reverseBase
                                             tableDirectRow["forwardBase"] = forwardBase
                                             tableDirectRow["problematic"] = multipleDistances + (problematic<<1)
                                             tableDirectRow.append()
-                                            
-                        
-                
+
                 #finished
-                pytables_storage.flush()
+                pytablesStorageWorker.flush()
                 tableDeleteDirect.cols.fromLink.create_csindex()
-                pytables_storage.flush()
-                return pytablesFile
+                pytablesStorageWorker.flush()
+                
+                
+        def merge_connection_storage(pytablesFileWorker, storageConnectionFiles, mergeStart, mergeNumber, 
+                                 numberOfKmers, maximumConnectionLength):
+
+            with tables.open_file(pytablesFileWorker, mode="a") as pytablesStorageWorker:
+                tableConnections = pytablesStorageWorker.root.connections
+                tableData = pytablesStorageWorker.root.data
+                tablePaired = pytablesStorageWorker.root.paired
+                tableDeletePaired = pytablesStorageWorker.root.deletePaired
+                tableDataCounter = 0
+                
+                with ExitStack() as stack:
+                    #get handlers
+                    storageHandlers = [{"handler": stack.enter_context(tables.open_file(fname, mode="r"))} 
+                                               for fname in storageConnectionFiles]
+                    
+                    #get and position sorted iterators for other entries
+                    for i in range(len(storageHandlers)):
+                        storageHandlers[i]["otherRow"] = None
+                        if storageHandlers[i]["handler"].root.pairedOther.shape[0]>0:
+                            storageHandlers[i]["otherIterator"] = storageHandlers[i]["handler"].root.pairedOther.itersorted(
+                                "fromLink",checkCSI=True)
+                            for row in storageHandlers[i]["otherIterator"]:
+                                if row["fromLink"]>=mergeStart:
+                                    if row["fromLink"]<=mergeEnd:
+                                        storageHandlers[i]["otherRow"] = row
+                                    break
+                        else:
+                            storageHandlers[i]["otherIterator"] = None
+                    
+                    #add connections
+                    def add_connectionData(connectionDataEntry,length,direct,hashValue,number):
+                        if not hashValue in connectionDataEntry[1].keys():
+                            connectionDataEntry[1][hashValue] = {"status": True, "length": length, 
+                                                                 "direct": direct, "number": number}
+                            connectionDataEntry[0]+=1
+                            storeData = True
+                        elif not connectionDataEntry[1][hashValue]["length"]==length:
+                            connectionDataEntry[1][hashValue]["status"] = False
+                            storeData = False
+                        else:
+                            connectionDataEntry[1][hashValue]["number"] += number  
+                            connectionDataEntry[1][hashValue]["direct"] = max(direct,
+                                                      connectionDataEntry[1][hashValue]["direct"])
+                            storeData = False
+                        return (connectionDataEntry,storeData,)
+                    
+                    stepSizeStorage = 10000
+                    for i in range(mergeStart,mergeEnd+1,stepSizeStorage):
+                        #initialise
+                        connectionData = [[0,{}] for j in range(min(mergeEnd+1-i,stepSizeStorage,(numberOfKmers-i)))]
+                        for storageHandler in storageHandlers:
+                            rowData = storageHandler["handler"].root.connections[i:min(mergeEnd+1,i+stepSizeStorage)]
+                            for index, item in enumerate(rowData):
+                                fromLink = i + index
+                                if item[0]>maximumConnectionLength:
+                                    break
+                                else:
+                                    for k in range(min(item[0],len(item[1]))):
+                                        lengthValue = item[1][k][1]
+                                        directValue = item[1][k][2]
+                                        hashValue = item[1][k][3]
+                                        numberValue = item[1][k][4]
+                                        (connectionData[index],storeData) = add_connectionData(connectionData[index],
+                                                                            lengthValue,directValue,
+                                                                            hashValue,numberValue)
+                                        if storeData:
+                                            linkValue = item[1][k][0]
+                                            linkData = storageHandler["handler"].root.data[linkValue:linkValue+lengthValue]
+                                            connectionData[index][1][hashValue]["data"] = linkData
+                        for j in range(len(connectionData)):
+                            fromLink = i + j
+                            if connectionData[j][0]<=maximumConnectionLength:
+                                for hashValue in connectionData[j][1].keys():
+                                    entry = connectionData[j][1][hashValue]
+                                    if entry["status"]:
+                                        tableConnectionsRow = tableConnections.row
+                                        tableConnectionsRow["ckmerLink"] = fromLink
+                                        tableConnectionsRow["dataLink"] = tableDataCounter
+                                        tableConnectionsRow["length"] = entry["length"]
+                                        tableConnectionsRow["number"] = entry["number"]
+                                        tableConnectionsRow["direct"] = entry["direct"]
+                                        tableConnectionsRow.append()
+                                        tableData.append(entry["data"])
+                                        tableDataCounter+=len(entry["data"])
+                                        
+                        #initialise
+                        pairedData = [{} for j in range(min(mergeEnd+1-i,stepSizeStorage,(numberOfKmers-i)))]
+                        for storageHandler in storageHandlers:
+                            rowData = storageHandler["handler"].root.paired[i:min(mergeEnd+1,i+stepSizeStorage)]
+                            for index, item in enumerate(rowData):
+                                fromLink = i + index
+                                for j in range(item[0]):
+                                    toLink = item[1][j][0]
+                                    number = item[1][j][1]
+                                    pairedData[index][toLink] = pairedData[index].get(toLink,0)+number
+                                    
+                                #now check other data
+                                if storageHandler["otherRow"]:
+                                    if storageHandler["otherRow"]["fromLink"]<fromLink:
+                                        storageHandler["otherRow"] = None
+                                        for row in storageHandler["otherIterator"]:
+                                            if row["fromLink"]>=fromLink:
+                                                if row["fromLink"]<=mergeEnd:
+                                                    storageHandler["otherRow"] = row
+                                                break
+                                    if storageHandler["otherRow"] and storageHandler["otherRow"]["fromLink"]==fromLink:
+                                        toLink = storageHandler["otherRow"]["toLink"]
+                                        pairedData[index][toLink] = pairedData[index].get(toLink,0)+1
+                                        for row in storageHandler["otherIterator"]:
+                                            if row["fromLink"]==fromLink:
+                                                storageHandler["otherRow"] = row
+                                                toLink = storageHandler["otherRow"]["toLink"]
+                                                pairedData[index][toLink] = pairedData[index].get(toLink,0)+1
+                                            elif row["fromLink"]<=mergeEnd:
+                                                storageHandler["otherRow"] = row
+                                                break
+                                            else:
+                                                storageHandler["otherRow"] = None
+                                                break
+                                
+                        for j in range(len(pairedData)):
+                            fromLink = i + j
+                            if len(pairedData[j])>maximumConnectionLength:
+                                for toLink in pairedData[j].keys():
+                                    tableDeletePairedRow = tableDeletePaired.row
+                                    tableDeletePairedRow["fromLink"] = toLink
+                                    tableDeletePairedRow["toLink"] = fromLink
+                                    tableDeletePairedRow.append()
+                            else:
+                                for toLink in pairedData[j].keys():
+                                    number = pairedData[j][toLink]
+                                    tablePairedRow = tablePaired.row
+                                    tablePairedRow["fromLink"] = fromLink
+                                    tablePairedRow["toLink"] = toLink
+                                    tablePairedRow["number"] = number
+                                    tablePairedRow.append()          
+                                    
+                #finished
+                pytablesStorageWorker.flush()
+                tablePaired.cols.fromLink.create_csindex()
+                pytablesStorageWorker.flush()
+                                
                 
                 
         shm = shared_memory.SharedMemory(shm_name)
-        logger.debug("merges: shared memory of {} bytes used".format(shm.size))
+        logger.debug("merges: shared memory of {} MB used".format(round(shm.size/1048576)))
         try:
             #get shared memory
             shm_kmer_link = np.dtype(haplotyping.index.Database.getUint(numberOfKmers)).type
-            shm_kmer_number = np.dtype(haplotyping.index.Database.getUint(maxFrequency)).type
+            shm_kmer_number = np.dtype(haplotyping.index.Database.getUint(maximumFrequency)).type
             kmer_properties = np.ndarray((numberOfKmers,), dtype=[("type","S1"),("number",shm_kmer_number),
                                ("left",shm_kmer_link),("right",shm_kmer_link)], buffer=shm.buf)
             #handle queue
@@ -1065,10 +1412,24 @@ class Storage:
                     elif isinstance(item,tuple):
                         mergeStart = item[0]
                         mergeNumber = item[1]
-                        pytablesFile = merge_storage(filenameBase, storageFiles, mergeStart, 
-                                                     mergeNumber, numberOfKmers, arrayNumber, kmer_properties)
+                        #create storage
+                        numberLength = len(str(numberOfKmers))
+                        mergeEnd = min(numberOfKmers,mergeStart+mergeNumber)-1
+                        pytablesFileRange = (filenameBase+"_tmp_direct_connections_merge_"+
+                                             str(mergeStart).zfill(numberLength)+"_"+
+                                        str(mergeEnd).zfill(numberLength)+".process.h5")
+                        if os.path.exists(pytablesFileRange):
+                            os.remove(pytablesFileRange)
+                        with tables.open_file(pytablesFileRange, mode="a") as pytablesStorageRange:
+                            Storage.create_merge_storage(pytablesStorageRange, numberOfKmers, 
+                                                         maximumFrequency, maximumConnectionLength)
+                        #merge
+                        merge_direct_storage(pytablesFileRange, storageDirectFiles, mergeStart, 
+                                             mergeNumber, numberOfKmers, kmer_properties)
+                        merge_connection_storage(pytablesFileRange, storageConnectionFiles, mergeStart, 
+                                             mergeNumber, numberOfKmers, maximumConnectionLength)
                         #now the file can be released for final merge
-                        queue_merges.put(pytablesFile) 
+                        queue_merges.put(pytablesFileRange) 
                 except Empty:
                     continue
         finally:
@@ -1077,80 +1438,120 @@ class Storage:
             
 
     
-    def combine_merges(mergeFiles,filenameBase,numberOfKmers):
-        pytablesFile = (filenameBase+"_tmp_direct_merge.h5")
-        if os.path.exists(pytablesFile):
-            os.remove(pytablesFile)
+    """
+    Combine merged files: this should be relatively easy, handled by single process
+    """
+    def combine_merges(mergeFiles,pytablesStorage,numberOfKmers,maximumFrequency,maximumConnectionLength):
+        
+        nCycle = 0
+        nReversal = 0
+        nDirect = 0
+        nConnections = 0
+        nData = 0
+        nPaired = 0
+
+        #get dimensions
+        sortedMergeFiles = [{"filename": mergeFile} for mergeFile in sorted(mergeFiles)]
+        for i in range(len(sortedMergeFiles)):
+            with tables.open_file(sortedMergeFiles[i]["filename"], mode="r") as pytables_merge:
+                sortedMergeFiles[i]["ncycle"] = pytables_merge.root.cycle.shape[0]
+                sortedMergeFiles[i]["nreversal"] = pytables_merge.root.reversal.shape[0]
+                sortedMergeFiles[i]["ndirect"] = pytables_merge.root.direct.shape[0]
+                sortedMergeFiles[i]["ndeleteDirect"] = pytables_merge.root.deleteDirect.shape[0]
+                sortedMergeFiles[i]["nconnections"] = pytables_merge.root.connections.shape[0]
+                sortedMergeFiles[i]["ndata"] = pytables_merge.root.data.shape[0]
+                sortedMergeFiles[i]["npaired"] = pytables_merge.root.paired.shape[0]
+                sortedMergeFiles[i]["ndeletePaired"] = pytables_merge.root.deletePaired.shape[0]
+                nCycle += sortedMergeFiles[i]["ncycle"]
+                nReversal += sortedMergeFiles[i]["nreversal"]
+                nDirect += sortedMergeFiles[i]["ndirect"]
+                nConnections += sortedMergeFiles[i]["nconnections"]
+                nData = max(nData,sortedMergeFiles[i]["ndata"])
+                nPaired  += sortedMergeFiles[i]["npaired"]
+
+        #create temporary storage with dimensions
+        Storage.create_merge_storage(pytablesStorage, numberOfKmers, maximumFrequency, maximumConnectionLength, 
+                                     nCycle, nReversal, nDirect, nConnections, nPaired, False, False)
+        tableCycle = pytablesStorage.root.cycle
+        tableReversal = pytablesStorage.root.reversal
+        tableDirect = pytablesStorage.root.direct
+        tableConnections = pytablesStorage.root.connections
+        tableData = pytablesStorage.root.data
+        tablePaired = pytablesStorage.root.paired
+
+        stepSizeStorage = 100000
+        maximumCycleLength = 0
+        maximumCycleNumber = 0
+        maximumReversalLength = 0
+        maximumReversalNumber = 0
+        maximumDirectDistance = 0
+        maximumDirectNumber = 0
+        maximumConnectionsNumber = 0
+        maximumConnectionsLength = 0
+        maximumPairedNumber = 0
+
+        for i in range(len(sortedMergeFiles)):
+            with tables.open_file(sortedMergeFiles[i]["filename"], mode="r") as pytables_merge:
+                for j in range(0,sortedMergeFiles[i]["ncycle"],stepSizeStorage):
+                    reducedCycleDataBlock = pytables_merge.root.cycle[j:j+stepSizeStorage]
+                    maximumCycleNumber = max(maximumCycleNumber,max(reducedCycleDataBlock["number"]))
+                    maximumCycleLength = max(maximumCycleLength,max(reducedCycleDataBlock["minimumLength"]))
+                    tableCycle.append(reducedCycleDataBlock)
+                for j in range(0,sortedMergeFiles[i]["nreversal"],stepSizeStorage):
+                    reducedReversalDataBlock = pytables_merge.root.reversal[j:j+stepSizeStorage]
+                    maximumReversalNumber = max(maximumReversalNumber,max(reducedReversalDataBlock["number"]))
+                    maximumReversalLength = max(maximumReversalLength,max(reducedReversalDataBlock["minimumLength"]))
+                    tableReversal.append(reducedReversalDataBlock)
+                for j in range(0,sortedMergeFiles[i]["ndirect"],stepSizeStorage):
+                    directDataBlock = pytables_merge.root.direct[j:j+stepSizeStorage]
+                    deleteDataBlock = pytables_merge.root.deleteDirect.read_where(
+                        "(fromLink>={}) & (fromLink<={})".format(
+                        directDataBlock[0]["fromLink"],directDataBlock[-1]["fromLink"]))
+                    deletableIndices = np.where(
+                        np.in1d(directDataBlock[["fromLink","fromDirection","toLink","toDirection"]],
+                                deleteDataBlock[["fromLink","fromDirection","toLink","toDirection"]]))[0]
+                    reducedDirectDataBlock = np.delete(directDataBlock,deletableIndices,0)
+                    maximumDirectNumber = max(maximumDirectNumber,max(reducedDirectDataBlock["number"]))
+                    maximumDirectDistance = max(maximumDirectDistance,max(reducedDirectDataBlock["distance"]))
+                    #add reduced direct data
+                    tableDirect.append(reducedDirectDataBlock)
+                for j in range(0,sortedMergeFiles[i]["nconnections"],stepSizeStorage):
+                    reducedConnectionsBlock = pytables_merge.root.connections[j:j+stepSizeStorage]
+                    maximumConnectionsNumber = max(maximumConnectionsNumber,max(reducedConnectionsBlock["number"]))
+                    maximumConnectionsLength = max(maximumConnectionsLength,max(reducedConnectionsBlock["length"]))
+                    tableConnections.append(reducedConnectionsBlock)
+                for j in range(0,sortedMergeFiles[i]["ndata"],stepSizeStorage):
+                    reducedDataBlock = pytables_merge.root.data[j:j+stepSizeStorage]
+                    tableData.append(reducedDataBlock)
+                for j in range(0,sortedMergeFiles[i]["npaired"],stepSizeStorage):
+                    pairedDataBlock = pytables_merge.root.paired[j:j+stepSizeStorage]
+                    deleteDataBlock = pytables_merge.root.deletePaired.read_where(
+                        "(fromLink>={}) & (fromLink<={})".format(
+                        pairedDataBlock[0]["fromLink"],pairedDataBlock[-1]["fromLink"]))
+                    deletableIndices = np.where(
+                        np.in1d(pairedDataBlock[["fromLink","toLink"]],
+                                deleteDataBlock[["fromLink","toLink"]]))[0]
+                    reducedPairedDataBlock = np.delete(pairedDataBlock,deletableIndices,0)
+                    maximumPairedNumber = max(maximumPairedNumber,max(reducedPairedDataBlock["number"]))
+                    #add reduced paired data
+                    tablePaired.append(reducedPairedDataBlock)
+
+        tableCycle.attrs["maximumNumber"] = maximumCycleNumber
+        tableCycle.attrs["maximumLength"] = maximumCycleLength
+        tableReversal.attrs["maximumNumber"] = maximumReversalNumber
+        tableReversal.attrs["maximumLength"] = maximumReversalLength
+        tableDirect.attrs["maximumDistance"] = maximumDirectDistance
+        tableDirect.attrs["maximumNumber"] = maximumDirectNumber
+        tableConnections.attrs["maximumNumber"] = maximumConnectionsNumber
+        tableConnections.attrs["maximumLength"] = maximumConnectionsLength
+        pytablesStorage.flush()
             
-        with tables.open_file(pytablesFile, mode="w") as pytables_storage:
-            
-            nCycle = 0
-            nReversal = 0
-            nDirect = 0
-            nDeleteDirect = 0
-            
-            #get dimensions
-            sortedMergeFiles = [{"filename": mergeFile} for mergeFile in sorted(mergeFiles)]
-            for i in range(len(sortedMergeFiles)):
-                with tables.open_file(sortedMergeFiles[i]["filename"], mode="r") as pytables_merge:
-                    sortedMergeFiles[i]["ncycle"] = pytables_merge.root.cycle.shape[0]
-                    sortedMergeFiles[i]["nreversal"] = pytables_merge.root.reversal.shape[0]
-                    sortedMergeFiles[i]["ndirect"] = pytables_merge.root.direct.shape[0]
-                    sortedMergeFiles[i]["ndeleteDirect"] = pytables_merge.root.deleteDirect.shape[0]
-                    nCycle += sortedMergeFiles[i]["ncycle"]
-                    nReversal += sortedMergeFiles[i]["nreversal"]
-                    nDirect += sortedMergeFiles[i]["ndirect"]
-                    nDeleteDirect += sortedMergeFiles[i]["ndeleteDirect"]
-                    
-            #create temporary storage with dimensions
-            Storage.create_merge_storage(pytables_storage, numberOfKmers, nCycle, nReversal, nDirect, False)
-            tableCycle = pytables_storage.root.cycle
-            tableReversal = pytables_storage.root.reversal
-            tableDirect = pytables_storage.root.direct
-                    
-            stepSizeStorage = 100000
-            maxCycleLength = 0
-            maxCycleNumber = 0
-            maxReversalLength = 0
-            maxReversalNumber = 0
-            maxDirectDistance = 0
-            maxDirectNumber = 0
-            for i in range(len(sortedMergeFiles)):
-                with tables.open_file(sortedMergeFiles[i]["filename"], mode="r") as pytables_merge:
-                    for j in range(0,sortedMergeFiles[i]["ncycle"],stepSizeStorage):
-                        reducedCycleDataBlock = pytables_merge.root.cycle[j:j+stepSizeStorage]
-                        maxCycleNumber = max(maxCycleNumber,max(reducedCycleDataBlock["number"]))
-                        maxCycleLength = max(maxCycleLength,max(reducedCycleDataBlock["minimumLength"]))
-                        tableCycle.append(reducedCycleDataBlock)
-                    for j in range(0,sortedMergeFiles[i]["nreversal"],stepSizeStorage):
-                        reducedReversalDataBlock = pytables_merge.root.reversal[j:j+stepSizeStorage]
-                        maxReversalNumber = max(maxReversalNumber,max(reducedReversalDataBlock["number"]))
-                        maxReversalLength = max(maxReversalLength,max(reducedReversalDataBlock["minimumLength"]))
-                        tableReversal.append(reducedReversalDataBlock)
-                    for j in range(0,sortedMergeFiles[i]["ndirect"],stepSizeStorage):
-                        directDataBlock = pytables_merge.root.direct[j:j+stepSizeStorage]
-                        deleteDataBlock = pytables_merge.root.deleteDirect.read_where(
-                            "(fromLink>={}) & (fromLink<={})".format(
-                            directDataBlock[0]["fromLink"],directDataBlock[-1]["fromLink"]))
-                        deletableIndices = np.where(
-                            np.in1d(directDataBlock[["fromLink","fromDirection","toLink","toDirection"]],
-                                    deleteDataBlock[["fromLink","fromDirection","toLink","toDirection"]]))[0]
-                        reducedDirectDataBlock = np.delete(directDataBlock,deletableIndices,0)
-                        maxDirectNumber = max(maxDirectNumber,max(reducedDirectDataBlock["number"]))
-                        maxDirectDistance = max(maxDirectDistance,max(reducedDirectDataBlock["distance"]))
-                        #add reduced direct data
-                        tableDirect.append(reducedDirectDataBlock)
-            tableCycle.attrs.maxNumber = maxCycleNumber
-            tableCycle.attrs.maxLength = maxCycleLength
-            tableReversal.attrs.maxNumber = maxReversalNumber
-            tableReversal.attrs.maxLength = maxReversalLength
-            tableDirect.attrs.maxDistance = maxDirectDistance
-            tableDirect.attrs.maxNumber = maxDirectNumber
-            pytables_storage.flush()
-            
-    def store_merged_direct(h5file,filenameBase,numberOfKmers,minFrequency):
-        pytablesFile = (filenameBase+"_tmp_direct_merge.h5")
-        logger = logging.getLogger(__name__)                
+    """
+    Store everything in the final database, handled by single process
+    """    
+    def store_merged_direct_connections(h5file,pytablesStorage,numberOfKmers,minimumFrequency):
+        logger = logging.getLogger(__name__)     
+        frequencyHistogram = {"distance": {}}
         
         def classifyDirectProblematic(dataBlock,directGood,directCoverage,directProblematic):
             dataBlock = np.array(dataBlock, dtype=object)                       
@@ -1159,7 +1560,7 @@ class Storage:
             elif len(dataBlock)==1:
                 dataBlock[:,4] = 0
                 directGood+=len(dataBlock)
-            elif max(dataBlock[:,2])<minFrequency:
+            elif max(dataBlock[:,2])<minimumFrequency:
                 dataBlock[:,4] = 1
                 directCoverage+=len(dataBlock)
             else:
@@ -1170,147 +1571,194 @@ class Storage:
             dataBlock = tuple([tuple(e) for e in dataBlock])
             return (dataBlock,directGood,directCoverage,directProblematic,distinct,number)
         
-        if not os.path.exists(pytablesFile):
-            logger.error("couldn't find {}".format(pytablesFile))
-        else:
-            stepSizeStorage = 100000
-            dsCkmer = h5file["/split/ckmer"]
-            with tables.open_file(pytablesFile, mode="r") as pytables:
-                #cycles
-                numberOfCycles = pytables.root.cycle.shape[0]
-                maxNumber = pytables.root.cycle.attrs.maxNumber
-                maxLength = pytables.root.cycle.attrs.maxLength
-                dtypeCycleList=[("ckmerLink",haplotyping.index.Database.getUint(numberOfKmers)),
-                                 ("minimumLength",haplotyping.index.Database.getUint(maxLength)),
-                                 ("number",haplotyping.index.Database.getUint(maxNumber))]
-                dtCycle=np.dtype(dtypeCycleList)
-                dsCycle=h5file["/relations/"].create_dataset("cycle",(numberOfCycles,), 
-                                                             dtype=dtCycle, chunks=None)
-                maxCycleLength = 0
-                maxCycleNumber = 0
-                for i in range(0,numberOfCycles,stepSizeStorage):
-                    stepData = pytables.root.cycle[i:i+stepSizeStorage]                    
-                    dsCycle[i:i+stepSizeStorage] = stepData
-                    for row in stepData:
-                        ckmerRow = dsCkmer[row[0]]
-                        ckmerRow[6] = row[2]
-                        maxCycleLength = max(maxCycleLength,row[1])
-                        maxCycleNumber = max(maxCycleNumber,row[2])
-                        dsCkmer[row[0]] = ckmerRow    
-                h5file["/config/"].attrs["numberOfCycles"]=numberOfCycles        
-                h5file["/config/"].attrs["maxCycleLength"]=maxCycleLength
-                h5file["/config/"].attrs["maxCycleNumber"]=maxCycleNumber
-                logger.info("store "+str(numberOfCycles)+" cycles")
-                #reversals
-                numberOfReversals = pytables.root.reversal.shape[0]
-                maxNumber = pytables.root.reversal.attrs.maxNumber
-                maxLength = pytables.root.reversal.attrs.maxLength
-                dtypeReversalList=[("ckmerLink",haplotyping.index.Database.getUint(numberOfKmers)),
-                                 ("minimumLength",haplotyping.index.Database.getUint(maxLength)),
-                                 ("number",haplotyping.index.Database.getUint(maxNumber))]
-                dtReversal=np.dtype(dtypeReversalList)
-                dsReversal=h5file["/relations/"].create_dataset("reversal",(numberOfReversals,), 
-                                                                dtype=dtReversal, chunks=None)
-                maxReversalLength = 0
-                maxReversalNumber = 0
-                for i in range(0,numberOfReversals,stepSizeStorage):
-                    stepData = pytables.root.reversal[i:i+stepSizeStorage]
-                    dsReversal[i:i+stepSizeStorage] = stepData
-                    for row in stepData:
-                        ckmerRow = dsCkmer[row[0]]
-                        ckmerRow[7] = row[2]
-                        maxReversalLength = max(maxReversalLength,row[1])
-                        maxReversalNumber = max(maxReversalNumber,row[2])
-                        dsCkmer[row[0]] = ckmerRow     
-                h5file["/config/"].attrs["numberOfReversals"]=numberOfReversals
-                h5file["/config/"].attrs["maxReversalLength"]=maxReversalLength
-                h5file["/config/"].attrs["maxReversalNumber"]=maxReversalNumber
-                logger.info("store "+str(numberOfReversals)+" reversals")
-                #direct relations
-                numberOfDirectRelations = pytables.root.direct.shape[0]
-                maxNumber = pytables.root.direct.attrs.maxNumber
-                maxDistance = pytables.root.direct.attrs.maxDistance
-                dtypeDirectList=[("from",[("ckmerLink",haplotyping.index.Database.getUint(numberOfKmers)),
-                                          ("direction","S1")]),
-                                 ("to",[("ckmerLink",haplotyping.index.Database.getUint(numberOfKmers)),
-                                          ("direction","S1")]),
-                                 ("number",haplotyping.index.Database.getUint(maxNumber)),
-                                 ("distance",haplotyping.index.Database.getUint(maxDistance)),
-                                 ("problematic","uint8")]
-                dtDirect=np.dtype(dtypeDirectList)
-                dsDirect=h5file["/relations/"].create_dataset("direct",(numberOfDirectRelations,), 
-                                                              dtype=dtDirect, chunks=None)
-                directCounter = 0
-                previousStepData = []
-                directGood = 0
-                directCoverage = 0
-                directProblematic = 0
-                for i in range(0,numberOfDirectRelations,stepSizeStorage):
-                    stepData = pytables.root.direct[i:i+stepSizeStorage]
-                    #move a bit to get all fromLinks in the selection
-                    if len(previousStepData)>0:
-                        stepData = np.concatenate((previousStepData, stepData))
-                    if (i+stepSizeStorage-1)<numberOfDirectRelations:
-                        lastFromLink = stepData[-1]["fromLink"]
-                        previousStepData = np.take(stepData, np.where(stepData["fromLink"] == lastFromLink))[0]
-                        stepData = np.delete(stepData, np.where(stepData["fromLink"] == lastFromLink))
-                    else:
-                        previousStepData = [] 
-                    #get relevant ckmer data
-                    firstFromLink = stepData[0]["fromLink"]
-                    lastFromLink = stepData[-1]["fromLink"]
-                    ckmerStepData = dsCkmer[firstFromLink:(lastFromLink+1)]
-                    #now create appropiate final selection
-                    newStepData = []
-                    newStepDataBlock = []
-                    previousFromLink = None
-                    previousFromDirection = None
-                    previousUpdateLink = None
-                    updateLink = None
-                    for row in stepData:
-                        if not ((previousFromLink==row["fromLink"]) and (previousFromDirection==row["fromDirection"])):
-                            if not (previousFromLink == None):
-                                updateLink = previousFromLink-firstFromLink
-                                (newStepDataBlock,directGood,directCoverage,
-                                 directProblematic,distinct,number) = classifyDirectProblematic(
-                                    newStepDataBlock,directGood,directCoverage,directProblematic)
-                                #update ckmer-data
-                                if not updateLink == previousUpdateLink:
-                                    ckmerStepData[updateLink][4][0] = directCounter + len(newStepData)
-                                if previousFromDirection == b"l":
-                                    ckmerStepData[updateLink][4][1] = (distinct,number,)
-                                elif previousFromDirection == b"r":
-                                    ckmerStepData[updateLink][4][2] = (distinct,number,)
-                                else:
-                                    raise Exception("unexpected direction")
-                                newStepData.extend(newStepDataBlock)
-                                newStepDataBlock = []
-                            previousFromLink = row["fromLink"]
-                            previousFromDirection = row["fromDirection"]
-                            previousUpdateLink = updateLink
-                        newStepDataBlock.append([(row["fromLink"],row["fromDirection"],),
-                                            (row["toLink"],row["toDirection"],),
-                                            row["number"],row["distance"],row["problematic"]])                    
-                    updateLink = previousFromLink-firstFromLink
-                    (newStepDataBlock,directGood,directCoverage,
-                     directProblematic,distinct,number) = classifyDirectProblematic(
-                                newStepDataBlock,directGood,directCoverage,directProblematic)
-                    #update ckmer-data
-                    if not updateLink == previousUpdateLink:
-                        ckmerStepData[updateLink][4][0] = directCounter + len(newStepData)
-                    if previousFromDirection == b"l":
-                        ckmerStepData[updateLink][4][1] = (distinct,number,)
-                    elif previousFromDirection == b"r":
-                        ckmerStepData[updateLink][4][2] = (distinct,number,)
-                    else:
-                        raise Exception("unexpected direction")
-                    newStepData.extend(newStepDataBlock)
-                    #store all
-                    dsDirect[directCounter:directCounter+len(newStepData)] = newStepData
-                    dsCkmer[firstFromLink:(lastFromLink+1)] = ckmerStepData
-                    directCounter+=len(newStepData)
-                    
-                logger.info("store {} direct connections, {} low coverage, {} problematic".format(
-                    numberOfDirectRelations,directCoverage,directProblematic))
+        stepSizeStorage = 100000
+        dsCkmer = h5file["/split/ckmer"]
+        
+        #cycles
+        numberOfCycles = pytablesStorage.root.cycle.shape[0]
+        maximumNumber = pytablesStorage.root.cycle.attrs.maximumNumber
+        maximumLength = pytablesStorage.root.cycle.attrs.maximumLength
+        dtypeCycleList=[("ckmerLink",haplotyping.index.Database.getUint(numberOfKmers)),
+                         ("minimumLength",haplotyping.index.Database.getUint(maximumLength)),
+                         ("number",haplotyping.index.Database.getUint(maximumNumber))]
+        dtCycle=np.dtype(dtypeCycleList)
+        dsCycle=h5file["/relations/"].create_dataset("cycle",(numberOfCycles,), 
+                                                     dtype=dtCycle, chunks=None)
+        maximumCycleLength = 0
+        maximumCycleNumber = 0
+        for i in range(0,numberOfCycles,stepSizeStorage):
+            stepData = pytablesStorage.root.cycle[i:i+stepSizeStorage]                    
+            dsCycle[i:i+stepSizeStorage] = stepData
+            for row in stepData:
+                ckmerRow = dsCkmer[row[0]]
+                ckmerRow[6] = row[2]
+                maximumCycleLength = max(maximumCycleLength,row[1])
+                maximumCycleNumber = max(maximumCycleNumber,row[2])
+                dsCkmer[row[0]] = ckmerRow    
+        h5file["/config/"].attrs["numberOfCycles"]=numberOfCycles        
+        h5file["/config/"].attrs["maximumCycleLength"]=maximumCycleLength
+        h5file["/config/"].attrs["maximumCycleNumber"]=maximumCycleNumber
+        logger.info("store "+str(numberOfCycles)+" cycles")
+        #reversals
+        numberOfReversals = pytablesStorage.root.reversal.shape[0]
+        maximumNumber = pytablesStorage.root.reversal.attrs.maximumNumber
+        maximumLength = pytablesStorage.root.reversal.attrs.maximumLength
+        dtypeReversalList=[("ckmerLink",haplotyping.index.Database.getUint(numberOfKmers)),
+                         ("minimumLength",haplotyping.index.Database.getUint(maximumLength)),
+                         ("number",haplotyping.index.Database.getUint(maximumNumber))]
+        dtReversal=np.dtype(dtypeReversalList)
+        dsReversal=h5file["/relations/"].create_dataset("reversal",(numberOfReversals,), 
+                                                        dtype=dtReversal, chunks=None)
+        maximumReversalLength = 0
+        maximumReversalNumber = 0
+        for i in range(0,numberOfReversals,stepSizeStorage):
+            stepData = pytablesStorage.root.reversal[i:i+stepSizeStorage]
+            dsReversal[i:i+stepSizeStorage] = stepData
+            for row in stepData:
+                ckmerRow = dsCkmer[row[0]]
+                ckmerRow[7] = row[2]
+                maximumReversalLength = max(maximumReversalLength,row[1])
+                maximumReversalNumber = max(maximumReversalNumber,row[2])
+                dsCkmer[row[0]] = ckmerRow     
+        h5file["/config/"].attrs["numberOfReversals"]=numberOfReversals
+        h5file["/config/"].attrs["maximumReversalLength"]=maximumReversalLength
+        h5file["/config/"].attrs["maximumReversalNumber"]=maximumReversalNumber
+        logger.info("store "+str(numberOfReversals)+" reversals")
+        #direct relations
+        numberOfDirectRelations = pytablesStorage.root.direct.shape[0]
+        maximumNumber = pytablesStorage.root.direct.attrs.maximumNumber
+        maximumDistance = pytablesStorage.root.direct.attrs.maximumDistance
+        dtypeDirectList=[("from",[("ckmerLink",haplotyping.index.Database.getUint(numberOfKmers)),
+                                  ("direction","S1")]),
+                         ("to",[("ckmerLink",haplotyping.index.Database.getUint(numberOfKmers)),
+                                  ("direction","S1")]),
+                         ("number",haplotyping.index.Database.getUint(maximumNumber)),
+                         ("distance",haplotyping.index.Database.getUint(maximumDistance)),
+                         ("problematic","uint8")]
+        dtDirect=np.dtype(dtypeDirectList)
+        dsDirect=h5file["/relations/"].create_dataset("direct",(numberOfDirectRelations,), 
+                                                      dtype=dtDirect, chunks=None)
+        #connections
+        numberOfConnections = pytablesStorage.root.connections.shape[0]
+        numberOfData = pytablesStorage.root.data.shape[0]
+        maximumNumber = pytablesStorage.root.connections.attrs.maximumNumber
+        maximumLength = pytablesStorage.root.connections.attrs.maximumLength
+        dtypeConnectionsList=[("ckmerLink",haplotyping.index.Database.getUint(numberOfKmers)),
+                              ("dataLink",haplotyping.index.Database.getUint(numberOfData)),
+                              ("length",haplotyping.index.Database.getUint(maximumLength)),
+                              ("direct","uint8"),
+                              ("number",haplotyping.index.Database.getUint(maximumNumber))
+                             ]
+        dtConnections=np.dtype(dtypeConnectionsList)
+        dsConnections=h5file["/connections/"].create_dataset("index",(numberOfConnections,), 
+                                                      dtype=dtConnections, chunks=None)
+        dsData=h5file["/connections/"].create_dataset("data",(numberOfData,), 
+                          dtype=haplotyping.index.Database.getUint(numberOfKmers), chunks=None)
 
-            
+        #process direct relations
+        directCounter = 0
+        previousStepData = []
+        directGood = 0
+        directCoverage = 0
+        directProblematic = 0
+        for i in range(0,numberOfDirectRelations,stepSizeStorage):
+            stepData = pytablesStorage.root.direct[i:i+stepSizeStorage]
+            #move a bit to get all fromLinks in the selection
+            if len(previousStepData)>0:
+                stepData = np.concatenate((previousStepData, stepData))
+            if (i+stepSizeStorage-1)<numberOfDirectRelations:
+                lastFromLink = stepData[-1]["fromLink"]
+                previousStepData = np.take(stepData, np.where(stepData["fromLink"] == lastFromLink))[0]
+                stepData = np.delete(stepData, np.where(stepData["fromLink"] == lastFromLink))
+            else:
+                previousStepData = [] 
+            #get relevant ckmer data
+            firstFromLink = stepData[0]["fromLink"]
+            lastFromLink = stepData[-1]["fromLink"]
+            ckmerStepData = dsCkmer[firstFromLink:(lastFromLink+1)]
+            #now create appropiate final selection
+            newStepData = []
+            newStepDataBlock = []
+            previousFromLink = None
+            previousFromDirection = None
+            previousUpdateLink = None
+            updateLink = None
+            for row in stepData:
+                if not ((previousFromLink==row["fromLink"]) and (previousFromDirection==row["fromDirection"])):
+                    if not (previousFromLink == None):
+                        updateLink = previousFromLink-firstFromLink
+                        (newStepDataBlock,directGood,directCoverage,
+                         directProblematic,distinct,number) = classifyDirectProblematic(
+                            newStepDataBlock,directGood,directCoverage,directProblematic)
+                        #update ckmer-data
+                        if not updateLink == previousUpdateLink:
+                            ckmerStepData[updateLink][4][0] = directCounter + len(newStepData)
+                        if previousFromDirection == b"l":
+                            ckmerStepData[updateLink][4][1] = (distinct,number,)
+                        elif previousFromDirection == b"r":
+                            ckmerStepData[updateLink][4][2] = (distinct,number,)
+                        else:
+                            raise Exception("unexpected direction")
+                        newStepData.extend(newStepDataBlock)
+                        newStepDataBlock = []
+                    previousFromLink = row["fromLink"]
+                    previousFromDirection = row["fromDirection"]
+                    previousUpdateLink = updateLink
+                newStepDataBlock.append([(row["fromLink"],row["fromDirection"],),
+                                    (row["toLink"],row["toDirection"],),
+                                    row["number"],row["distance"],row["problematic"]])   
+                frequencyHistogram["distance"][row["distance"]] = (
+                    frequencyHistogram["distance"].get(row["distance"],0)+row["number"])
+            updateLink = previousFromLink-firstFromLink
+            (newStepDataBlock,directGood,directCoverage,
+             directProblematic,distinct,number) = classifyDirectProblematic(
+                        newStepDataBlock,directGood,directCoverage,directProblematic)
+            #update ckmer-data
+            if not updateLink == previousUpdateLink:
+                ckmerStepData[updateLink][4][0] = directCounter + len(newStepData)
+            if previousFromDirection == b"l":
+                ckmerStepData[updateLink][4][1] = (distinct,number,)
+            elif previousFromDirection == b"r":
+                ckmerStepData[updateLink][4][2] = (distinct,number,)
+            else:
+                raise Exception("unexpected direction")
+            newStepData.extend(newStepDataBlock)
+            #store all
+            dsDirect[directCounter:directCounter+len(newStepData)] = newStepData
+            dsCkmer[firstFromLink:(lastFromLink+1)] = ckmerStepData
+            directCounter+=len(newStepData)
+
+        logger.info("store {} direct connections, {} low coverage, {} problematic".format(
+            numberOfDirectRelations,directCoverage,directProblematic))
+
+        connectionsCounter = 0
+        dataCounter = 0
+        for i in range(0,numberOfConnections,stepSizeStorage):
+            stepData = pytablesStorage.root.connections[i:i+stepSizeStorage]   
+            dsConnections[connectionsCounter:connectionsCounter+len(stepData)] = stepData
+            connectionsCounter+=len(stepData)
+        for i in range(0,numberOfData,stepSizeStorage):
+            stepData = pytablesStorage.root.data[i:i+stepSizeStorage]   
+            dsData[dataCounter:dataCounter+len(stepData)] = stepData
+            dataCounter+=len(stepData)
+
+        logger.info("store {} indirect connections with {} data entries".format(
+            numberOfConnections,numberOfData))
+
+        # store histogram direct distances
+        maximumDistance = max(frequencyHistogram["distance"].keys())
+        maximumNumber = max(frequencyHistogram["distance"].values())
+        dtypeFrequencyHistogramDistanceList=[
+                    ("distance",haplotyping.index.Database.getUint(maximumDistance)),
+                    ("number",haplotyping.index.Database.getUint(maximumNumber)),]
+        dtFrequencyHistogramDistance=np.dtype(dtypeFrequencyHistogramDistanceList)
+        dsFrequencyHistogramDistance=h5file["/histogram/"].create_dataset("distance",
+              (len(frequencyHistogram["distance"]),), dtype=dtFrequencyHistogramDistance, chunks=None)
+        logger.info("store {} entries direct distances histogram".format(
+            len(frequencyHistogram["distance"])))
+        #store histogram
+        dsFrequencyHistogramDistance[0:len(frequencyHistogram["distance"])] = list(
+            sorted(frequencyHistogram["distance"].items()))
+
+
+

@@ -19,7 +19,7 @@ class Database:
         Name of the variety
 
     filenameBase : str
-        Base name and location for the splitting k-mer database (and the temporary databases if in debug mode)
+        Base name and location for the splitting k-mer database and the temporary databases
 
     sortedIndexFile: str
         Location of the sorted k-mer list
@@ -38,43 +38,41 @@ class Database:
         Adjusting this number will change the amount of read error based results but 
         can also introduce gaps; With higher read depth or lower error rate, this number can possibly be increased
         
-    maxProcesses: int, optional, default is 5
+    maximumProcesses: int, optional, default is 5
         The maximum number of processes including main process, should be at least 5
         
-    maxProcessesAutomaton: int, optional, default is 1
+    maximumProcessesAutomaton: int, optional, default is 1
         The maximum number of processes used for direct parsing of reads using the automaton
         Because shared memory can't be used, multiple copies of the automaton have to be in memory
         Be carefull if available memory is limited
     
-    maxProcessesIndex: int, optional
+    maximumProcessesIndex: int, optional
         The maximum number of processes used for creating a (partial) index from the matches
         Making use of shared memory to load index
         
-    maxProcessesMatches: int, optional
+    maximumProcessesMatches: int, optional
         The maximum number of processes used for creating a (partial) index from the matches
         Collecting and organising data is done mostly in memory
         Be carefull if available memory is limited
     
-    maxProcessesConnections: int, optional
+    maximumProcessesConnections: int, optional
         The maximum number of processes used for creating a (partial) index from the matches
         Collecting and organising data is done mostly in memory
         Be carefull if available memory is limited
     
-    maxProcessesMerges: int, optional
+    maximumProcessesMerges: int, optional
         The maximum number of processes used for merging operations
     
     automatonKmerSize: int optional, default is None
         The used reduced k-mer size, if undefined automatically set to just above half the k-mer size
     
     debug: bool, optional, default is False
-        Only use this when debugging or extending the code.
-        Running in debug mode will create temporary files using the location defined by filenameBase.
-        These temporary files can be used for further inspection and will not be deleted afterwards.         
+        Only use this when debugging or extending the code.      
         
     """
+
+    version = "20220710"
     
-    version = "20220621"
-        
     def __init__(self,
                  k: int, 
                  name: str, 
@@ -82,12 +80,12 @@ class Database:
                  sortedIndexFile: str,
                  readFiles=[], pairedReadFiles=[],
                  minimumFrequency: int = 2,
-                 maxProcesses: int = 5,
-                 maxProcessesAutomaton: int = 1,
-                 maxProcessesIndex: int = None,
-                 maxProcessesMatches: int = None,
-                 maxProcessesConnections: int = None,
-                 maxProcessesMerges: int = None,
+                 maximumProcesses: int = 5,
+                 maximumProcessesAutomaton: int = 1,
+                 maximumProcessesIndex: int = None,
+                 maximumProcessesMatches: int = None,
+                 maximumProcessesConnections: int = None,
+                 maximumProcessesMerges: int = None,
                  automatonKmerSize: int = None,
                  debug: bool = False):  
         
@@ -108,40 +106,42 @@ class Database:
         self.minimumFrequency = minimumFrequency
         self.debug = debug
         self.filenameBase = filenameBase
-        self.maxProcesses = maxProcesses
-        self.maxProcessesAutomaton = maxProcesses if maxProcessesAutomaton==None else maxProcessesAutomaton
-        self.maxProcessesIndex = maxProcesses if maxProcessesIndex==None else maxProcessesIndex
-        self.maxProcessesMatches = maxProcesses if maxProcessesMatches==None else maxProcessesMatches
-        self.maxProcessesConnections = maxProcesses if maxProcessesConnections==None else maxProcessesConnections
-        self.maxProcessesMerges = maxProcesses if maxProcessesMerges==None else maxProcessesMerges
+        self.maximumProcesses = maximumProcesses
+        self.maximumProcessesAutomaton = (maximumProcesses if maximumProcessesAutomaton==None 
+                                          else maximumProcessesAutomaton)
+        self.maximumProcessesIndex = (maximumProcesses if maximumProcessesIndex==None 
+                                      else maximumProcessesIndex)
+        self.maximumProcessesMatches = (maximumProcesses if maximumProcessesMatches==None 
+                                        else maximumProcessesMatches)
+        self.maximumProcessesConnections = (maximumProcesses if maximumProcessesConnections==None 
+                                            else maximumProcessesConnections)
+        self.maximumProcessesMerges = (maximumProcesses if maximumProcessesMerges==None 
+                                       else maximumProcessesMerges)
         
         #check boundaries number of processes
-        assert self.maxProcesses>=5
-        assert self.maxProcessesAutomaton>=1
-        assert self.maxProcessesMatches>=1
-        assert self.maxProcessesIndex>=1
-        assert self.maxProcessesConnections>=1
-        assert self.maxProcessesMerges>=1
+        assert self.maximumProcesses>=5
+        assert self.maximumProcessesAutomaton>=1
+        assert self.maximumProcessesMatches>=1
+        assert self.maximumProcessesIndex>=1
+        assert self.maximumProcessesConnections>=1
+        assert self.maximumProcessesMerges>=1
         
         if len(readFiles)==0 and len(pairedReadFiles)==0:
             self._logger.error("no read files provided")
         elif not os.path.exists(sortedIndexFile):
             self._logger.error("no sorted k-mer list provided")
         else:                
-            #define filename
-            filename = filenameBase+".h5"
+            #define filenames
+            filename = filenameBase+".h5"            
             
-            filename_splits = filenameBase+".splits.h5"
-            filename_distances = filenameBase+".distances.h5"
-
             #skip finished steps
-            if os.path.exists(filename_distances):
-                shutil.copyfile(filename_distances, filename)
-            elif os.path.exists(filename_splits):
-                shutil.copyfile(filename_splits, filename)
-            
-            #if os.path.exists(filename):
-            #    os.remove(filename)
+            if self.debug:
+                filename_splits = filenameBase+".splits.h5"
+                filename_distances = filenameBase+".distances.h5"
+                if os.path.exists(filename_distances):
+                    shutil.copyfile(filename_distances, filename)
+                elif os.path.exists(filename_splits):
+                    shutil.copyfile(filename_splits, filename)
 
             #use tables for temporary file, and h5py for final
             with h5py.File(filename,"a") as h5file:
@@ -165,38 +165,45 @@ class Database:
                     assert h5file["/config"].attrs["minimumFrequency"] == self.minimumFrequency
                     
                 #these settings are allowed to change in secondary runs
-                h5file["/config"].attrs["maxProcesses"] = self.maxProcesses
-                h5file["/config"].attrs["maxProcessesAutomaton"] = self.maxProcessesAutomaton
-                h5file["/config"].attrs["maxProcessesIndex"] = self.maxProcessesIndex
-                h5file["/config"].attrs["maxProcessesMatches"] = self.maxProcessesMatches
-                h5file["/config"].attrs["maxProcessesConnections"] = self.maxProcessesConnections
-                h5file["/config"].attrs["maxProcessesMerges"] = self.maxProcessesMerges
-               
-            
+                h5file["/config"].attrs["maximumProcesses"] = self.maximumProcesses
+                h5file["/config"].attrs["maximumProcessesAutomaton"] = self.maximumProcessesAutomaton
+                h5file["/config"].attrs["maximumProcessesIndex"] = self.maximumProcessesIndex
+                h5file["/config"].attrs["maximumProcessesMatches"] = self.maximumProcessesMatches
+                h5file["/config"].attrs["maximumProcessesConnections"] = self.maximumProcessesConnections
+                h5file["/config"].attrs["maximumProcessesMerges"] = self.maximumProcessesMerges
+
                 #get splitting k-mers from index   
-                if not "/split" in h5file:
+                if not ("/split" in h5file and "/histogram" in h5file):
                     self._logger.debug("get splitting k-mers from the provided index")
                     haplotyping.index.splits.Splits(sortedIndexFile, h5file, self.filenameBase, self.debug)    
                     h5file.flush()
                     #backup
-                    shutil.copyfile(filename, filename_splits)
+                    if self.debug:
+                        shutil.copyfile(filename, filename_splits)
                 else:
                     self._logger.debug("detected splitting k-mers from previous run")
                     
                 #parse read files and store distances
-                if not ("/relations" in h5file and "/relations/direct" in h5file):
+                if not ("/relations" in h5file and "/connections" in h5file):
                     self._logger.debug("parse read files and store distances in database")
                     haplotyping.index.reads.Reads(readFiles,pairedReadFiles, h5file, 
                                                   self.filenameBase, self.debug)
                     h5file.flush()
                     #backup
-                    shutil.copyfile(filename, filename_distances)
+                    if self.debug:
+                        shutil.copyfile(filename, filename_distances)
                 else:
                     self._logger.debug("detected distances from previous run")
 
                 #finished
                 h5file.flush()
                 
+                if self.debug:
+                    if os.path.exists(filename_distances):
+                        os.remove(filename_distances)
+                    if os.path.exists(filename_splits):
+                        os.remove(filename_splits)
+
                 
     letters = ["A","C","G","T"]
         
