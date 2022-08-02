@@ -481,7 +481,7 @@ class Splits:
     def createAutomatonWithIndex(h5file, indexFile, automatonFile, k):
         k = min(h5file["/config"].attrs["k"],k)
         logger = logging.getLogger(__name__)
-        logger.info("create automaton with k' = {}"+format(k))
+        logger.info("create automaton with k' = {}".format(k))
         automatonSplits = ahocorasick.Automaton()
         numberOfKmers = h5file["/split/ckmer"].shape[0]
         kmers = h5file["/split/ckmer"]

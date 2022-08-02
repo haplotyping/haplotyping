@@ -1,5 +1,5 @@
 import logging, h5py, os, glob, re, math, shutil
-import numpy as np, tables
+import numpy as np, tables, gzip, csv
 
 import haplotyping
 import haplotyping.index.splits
@@ -244,6 +244,15 @@ class Database:
                     unpairedReadFiles.append(filename)
 
         return (unpairedReadFiles, pairedReadFiles, allReadFiles)
+    
+    def detectKmerSize(location: str):
+        try:
+            with gzip.open(location, "rt") as f: 
+                reader = csv.reader(f, delimiter="\t")
+                for line in reader:
+                    return len(str(line[0]))
+        except OSError as ex:
+            raise Exception("problem with sorted list: {}".format(ex))
     
     def getTablesUint(maximumValue, position):
         if maximumValue<=np.iinfo(np.uint8).max:

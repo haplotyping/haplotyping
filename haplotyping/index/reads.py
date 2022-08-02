@@ -193,9 +193,16 @@ class Reads:
         
         nWorkersLeft = nWorkers - nWorkersAutomaton - nWorkersMatches - nWorkersIndex - nWorkersConnections
         while(nWorkersLeft>0):
-            print("TODO: implement change")
-            break              
-        
+            if(nWorkersLeft>0 and nWorkersMatches<self.maximumProcessesMatches):
+                nWorkersMatches+=1
+            if(nWorkersLeft>0 and nWorkersIndex<self.maximumProcessesIndex):
+                nWorkersIndex+=1
+            newWorkersLeft = nWorkers - nWorkersAutomaton - nWorkersMatches - nWorkersIndex - nWorkersConnections
+            if nWorkersLeft<newWorkersLeft:
+                nWorkersLeft=newWorkersLeft
+            else:
+                break
+
         self._logger.debug("start {} processes to parse reads with reduced automaton".format(nWorkersAutomaton))
         self._logger.debug("start {} processes to check matches with index".format(nWorkersIndex))
         self._logger.debug("start {} processes to process matches".format(nWorkersMatches))
