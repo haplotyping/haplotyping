@@ -65,6 +65,9 @@ class Database:
     
     automatonKmerSize: int optional, default is None
         The used reduced k-mer size, if undefined automatically set to just above half the k-mer size
+        
+    onlySplittingKmers: bool, optional, default is False
+        Only the first step will be executed, using a single process.
     
     debug: bool, optional, default is False
         Only use this when debugging or extending the code.      
@@ -87,6 +90,7 @@ class Database:
                  maximumProcessesConnections: int = None,
                  maximumProcessesMerges: int = None,
                  automatonKmerSize: int = None,
+                 onlySplittingKmers: bool = False,
                  debug: bool = False):  
         
         
@@ -126,10 +130,8 @@ class Database:
         assert self.maximumProcessesConnections>=1
         assert self.maximumProcessesMerges>=1
         
-        if len(readFiles)==0 and len(pairedReadFiles)==0:
+        if (not onlySplittingKmers) and (len(readFiles)==0) and (len(pairedReadFiles)==0):
             self._logger.error("no read files provided")
-        elif not os.path.exists(sortedIndexFile):
-            self._logger.error("no sorted k-mer list provided")
         else:                
             #define filenames
             filename = filenameBase+".h5"            
@@ -174,26 +176,30 @@ class Database:
 
                 #get splitting k-mers from index   
                 if not ("/split" in h5file and "/histogram" in h5file):
-                    self._logger.debug("get splitting k-mers from the provided index")
-                    haplotyping.index.splits.Splits(sortedIndexFile, h5file, self.filenameBase, self.debug)    
-                    h5file.flush()
-                    #backup
-                    if self.debug:
-                        shutil.copyfile(filename, filename_splits)
+                    if not os.path.exists(sortedIndexFile):
+                        self._logger.error("no sorted k-mer list provided")
+                    else:
+                        self._logger.debug("get splitting k-mers from the provided index")
+                        haplotyping.index.splits.Splits(sortedIndexFile, h5file, self.filenameBase, self.debug)    
+                        h5file.flush()
+                        #backup
+                        if self.debug:
+                            shutil.copyfile(filename, filename_splits)
                 else:
                     self._logger.debug("detected splitting k-mers from previous run")
                     
                 #parse read files and store distances
-                if not ("/relations" in h5file and "/connections" in h5file):
-                    self._logger.debug("parse read files and store distances in database")
-                    haplotyping.index.reads.Reads(readFiles,pairedReadFiles, h5file, 
-                                                  self.filenameBase, self.debug)
-                    h5file.flush()
-                    #backup
-                    if self.debug:
-                        shutil.copyfile(filename, filename_distances)
-                else:
-                    self._logger.debug("detected distances from previous run")
+                if (not onlySplittingKmers) and ("/split" in h5file) and ("/histogram" in h5file):
+                    if not ("/relations" in h5file and "/connections" in h5file):
+                        self._logger.debug("parse read files and store distances in database")
+                        haplotyping.index.reads.Reads(readFiles,pairedReadFiles, h5file, 
+                                                      self.filenameBase, self.debug)
+                        h5file.flush()
+                        #backup
+                        if self.debug:
+                            shutil.copyfile(filename, filename_distances)
+                    else:
+                        self._logger.debug("detected distances from previous run")
 
                 #finished
                 h5file.flush()
