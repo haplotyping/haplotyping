@@ -256,7 +256,7 @@ class Storage:
                             if len(matches)==0 or (len(matches)==1 and len(matches[0])==1):
                                 pass
                             else:
-                                queue_matches.put((matches, direct))
+                                queue_matches.put(((matches, direct,),))
                         elif len(item)==2:
                             sequence0 = item[0][0]
                             sequence1 = item[1][0]
