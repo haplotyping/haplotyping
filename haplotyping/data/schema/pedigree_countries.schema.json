@@ -1,0 +1,25 @@
+{
+  "fields": [
+    {
+      "name": "code",
+      "type": "string",
+      "constraints": {
+        "required": true,
+        "unique": true
+      }
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "constraints": {
+        "required": true
+      }
+    }
+  ],
+  "primaryKey": [
+    "code"
+  ],
+  "missingValues": [
+    ""
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "fields": [
+    {
+      "name": "id",
+      "type": "integer",
+      "constraints": {
+        "required": true,
+        "unique": true
+      }
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "constraints": {
+        "required": true
+      }
+    },
+    {
+      "name": "location",
+      "type": "string"
+    }
+  ],
+  "primaryKey": [
+    "id"
+  ],
+  "missingValues": [
+    ""
+  ]
+}

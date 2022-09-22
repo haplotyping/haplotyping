@@ -1,0 +1,67 @@
+{
+  "fields": [
+    {
+      "name": "id",
+      "type": "integer",
+      "constraints": {
+        "required": false,
+        "unique": true
+      }
+    },
+    {
+      "name": "uid",
+      "type": "string",
+      "constraints": {
+        "required": false,
+        "unique": false
+      }
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "constraints": {
+        "required": false
+      }
+    },
+    {
+      "name": "year",
+      "type": "any",
+      "constraints": {
+        "required": false
+      }
+    },
+    {
+      "name": "origin",
+      "type": "string",
+      "constraints": {
+        "required": false
+      }
+    },
+    {
+      "name": "ancestors",
+      "type": "string",
+      "constraints": {
+        "required": false
+      }
+    }
+  ],
+  "primaryKey": [
+    "id"
+  ],
+  "foreignKeys": [
+    {
+      "fields": [
+        "uid"
+      ],
+      "reference": {
+        "resource": "pedigree_varieties",
+        "fields": [
+          "uid"
+        ]
+      }
+    }
+  ],
+  "missingValues": [
+    ""
+  ]  
+}

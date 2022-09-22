@@ -1,0 +1,36 @@
+{
+  "fields": [
+    {
+      "name": "uid",
+      "type": "string",
+      "constraints": {
+        "required": true,
+        "unique": false
+      }
+    },
+    {
+      "name": "synonym",
+      "type": "string",
+      "constraints": {
+        "required": true,
+        "unique": false
+      }
+    }
+  ],
+  "foreignKeys": [
+    {
+      "fields": [
+        "uid"
+      ],
+      "reference": {
+        "resource": "pedigree_varieties",
+        "fields": [
+          "uid"
+        ]
+      }
+    }
+  ],
+  "missingValues": [
+    ""
+  ]
+}

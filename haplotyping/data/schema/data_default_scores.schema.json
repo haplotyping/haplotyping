@@ -1,0 +1,35 @@
+{
+  "fields": [
+    {
+      "name": "source",
+      "type": "string",
+      "constraints": {
+        "required": true,
+        "unique": true
+      }
+    },
+    {
+      "name": "experiment_id",
+      "type": "integer",
+      "constraints": {
+        "required": true
+      }
+    }  
+  ],
+  "foreignKeys": [
+    {
+      "fields": [
+        "experiment_id"
+      ],
+      "reference": {
+        "resource": "experiments",
+        "fields": [
+          "id"
+        ]
+      }
+    }
+  ],
+  "missingValues": [
+    ""
+  ]
+}

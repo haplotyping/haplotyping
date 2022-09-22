@@ -620,6 +620,7 @@ class Storage:
                     compactedSelection = [] 
                     compactedSelectionMinimum = None
                     linkingEntry = None
+                    # entry: [ link, splitType, frequency, #id connectionsList]
                     for id,entry in enumerate(compactedConnectionsList):
                         newDirection = entry[0][1] if len(entry)==2 else entry[1]
                         if potentialId==None:
@@ -698,6 +699,7 @@ class Storage:
                         else:
                             connectedKmers = tuple(connectedKmers)
                         connectionsRow = connections[connectionsList[linkingEntry][0]]
+                        #don't store if too much k-mers are involved or if non-informative
                         if connectionsRow[0]>arrayNumberConnection or len(connectedKmers)<=1:
                             pass
                         else:
@@ -705,6 +707,7 @@ class Storage:
                             directValue = 1 if direct else 0
                             hashValue = hash(connectedKmers)
                             stored = False
+                            #check hash-based if already stored
                             for i in range(connectionsRow[0]):
                                 if connectionsRow[1][i][3] == hashValue:                                    
                                     if connectionsRow[1][i][1] == lengthValue:                                        
@@ -1549,7 +1552,7 @@ class Storage:
     """
     Store everything in the final database, handled by single process
     """    
-    def store_merged_direct_connections(h5file,pytablesStorage,numberOfKmers,minimumFrequency):
+    def store_merged_connections(h5file,pytablesStorage,numberOfKmers,minimumFrequency):
         logger = logging.getLogger(__name__)     
         frequencyHistogram = {"distance": {}}
         
@@ -1732,11 +1735,19 @@ class Storage:
             numberOfDirectRelations,directCoverage,directProblematic))
 
         connectionsCounter = 0
-        dataCounter = 0
+        ckmerConnectionsCounter = np.zeros(dsCkmer.len(), dtype=int)
         for i in range(0,numberOfConnections,stepSizeStorage):
-            stepData = pytablesStorage.root.connections[i:i+stepSizeStorage]   
+            stepData = pytablesStorage.root.connections[i:i+stepSizeStorage]  
+            for row in stepData:
+                ckmerConnectionsCounter[row[0]]+=1
             dsConnections[connectionsCounter:connectionsCounter+len(stepData)] = stepData
             connectionsCounter+=len(stepData)
+        for i in range(0,dsCkmer.len(),stepSizeStorage):
+            stepData = dsCkmer[i:i+stepSizeStorage]  
+            for j in range(i,i+len(stepData)):                
+                stepData[j-i][5] = (ckmerConnectionsCounter[j],)
+            dsCkmer[i:i+len(stepData)] = stepData
+        dataCounter = 0
         for i in range(0,numberOfData,stepSizeStorage):
             stepData = pytablesStorage.root.data[i:i+stepSizeStorage]   
             dsData[dataCounter:dataCounter+len(stepData)] = stepData

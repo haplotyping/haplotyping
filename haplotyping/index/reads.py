@@ -29,9 +29,6 @@ class Reads:
         self.debug = debug
         self.filenameBase = filenameBase
         
-        #set multiprocessing method to fork (not safe on MacOSX?)
-        mp.set_start_method("fork")
-        
         #set variables
         self.k = h5file["/config"].attrs["k"]
         self.automatonKmerSize = h5file["/config"].attrs["automatonKmerSize"]
@@ -533,8 +530,8 @@ class Reads:
         self.h5file["/config/"].attrs["readTotal"]=self.readTotal
         self.h5file["/config/"].attrs["processReadsTime"]=int(np.ceil(self.processReadsTime))        
         
-        #store merged direct data
-        haplotyping.index.storage.Storage.store_merged_direct_connections(
+        #store merged data
+        haplotyping.index.storage.Storage.store_merged_connections(
             self.h5file, self.pytablesStorage, 
             self.numberOfKmers, self.minimumFrequency)        
 

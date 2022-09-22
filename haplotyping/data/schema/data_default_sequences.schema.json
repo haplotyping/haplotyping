@@ -1,0 +1,64 @@
+{
+  "fields": [
+    {
+      "name": "variety_id",
+      "type": "integer",
+      "constraints": {
+        "required": true
+      }
+    },
+    {
+      "name": "experiment_id",
+      "type": "integer",
+      "constraints": {
+        "required": true
+      }
+    },
+    {
+      "name": "type",
+      "type": "string",
+      "constraints": {
+        "required": true,
+        "enum": ["wgs","bait"]
+      }
+    },
+    {
+      "name": "platform",
+      "type": "string"
+    },
+    {
+      "name": "location",
+      "type": "string",
+      "constraints": {
+        "required": true
+      }
+    }
+  ],
+  "foreignKeys": [
+    {
+      "fields": [
+        "variety_id"
+      ],
+      "reference": {
+        "resource": "varieties",
+        "fields": [
+          "id"
+        ]
+      }
+    },
+    {
+      "fields": [
+        "experiment_id"
+      ],
+      "reference": {
+        "resource": "experiments",
+        "fields": [
+          "id"
+        ]
+      }
+    }
+  ],
+  "missingValues": [
+    ""
+  ]
+}

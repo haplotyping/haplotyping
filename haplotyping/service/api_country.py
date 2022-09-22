@@ -20,8 +20,7 @@ class CountryList(Resource):
             cursor.execute("SELECT COUNT(*) AS `number` FROM `country`")  
             total = cursor.fetchone()[0]
             if start<total:
-                cursor.execute("SELECT `country`.`uid`, `country`.`name`, `country`.`region`, `country`.`sub-region`, \
-                                `country`.`intermediate-region` FROM `country` \
+                cursor.execute("SELECT `country`.`uid`, `country`.`name` FROM `country` \
                                 INNER JOIN `variety` ON `country`.`uid` = `variety`.`origin` \
                                 GROUP BY `country`.`id` ORDER BY `country`.`uid` LIMIT ?,? ",(start,number,))  
                 resultList = [dict(row) for row in cursor.fetchall()]
