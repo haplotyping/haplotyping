@@ -13,7 +13,7 @@ class Reads:
     Internal use, parse read files and store results in database
     """
     
-    def __init__(self, unpairedReadFiles, pairedReadFiles, h5file, filenameBase, debug):
+    def __init__(self, unpairedReadFiles, pairedReadFiles, h5file, filenameBase, debug=False, keepTemporaryFiles=False):
         
         """
         Internal use only: initialize
@@ -27,6 +27,7 @@ class Reads:
             self._logger.info("parse "+str(2*len(pairedReadFiles))+" paired readfile(s)")
         
         self.debug = debug
+        self.keepTemporaryFiles = keepTemporaryFiles
         self.filenameBase = filenameBase
         
         #set multiprocessing method to fork (not safe on MacOSX?)
@@ -116,9 +117,10 @@ class Reads:
                 self._logger.error("problem occurred while processing reads: "+str(e))
             finally:
                 try:
-                    os.remove(pytablesFile)
-                    os.remove(automatonFile)
-                    os.remove(indexFile)
+                    if not self.keepTemporaryFiles:
+                        os.remove(pytablesFile)
+                        os.remove(automatonFile)
+                        os.remove(indexFile)
                 except:
                     self._logger.error("problem removing files")    
 
@@ -363,10 +365,11 @@ class Reads:
                 time.sleep(1)
                 
             #clean
-            for item in storageDirectFiles:
-                os.remove(item)
-            for item in storageConnectionsFiles:
-                os.remove(item)
+            if not self.keepTemporaryFiles:
+                for item in storageDirectFiles:
+                    os.remove(item)
+                for item in storageConnectionsFiles:
+                    os.remove(item)
                 
             #collect created merges
             mergeFiles = []
@@ -390,8 +393,9 @@ class Reads:
                 self.arrayNumberConnection)
             
             #clean
-            for item in mergeFiles:
-                os.remove(item)
+            if not self.keepTemporaryFiles:
+                for item in mergeFiles:
+                    os.remove(item)
                 
         except KeyboardInterrupt:
             original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)

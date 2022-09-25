@@ -72,6 +72,9 @@ class Database:
     debug: bool, optional, default is False
         Only use this when debugging or extending the code.      
         
+    keepTemporaryFiles: bool, optional, default is False
+        Only use this when debugging or extending the code.      
+        
     """
 
     version = "20220710"
@@ -91,7 +94,8 @@ class Database:
                  maximumProcessesMerges: int = None,
                  automatonKmerSize: int = None,
                  onlySplittingKmers: bool = False,
-                 debug: bool = False):  
+                 debug: bool = False,
+                 keepTemporaryFiles: bool=False):  
         
         
         
@@ -109,6 +113,7 @@ class Database:
         self.name=name
         self.minimumFrequency = minimumFrequency
         self.debug = debug
+        self.keepTemporaryFiles = keepTemporaryFiles
         self.filenameBase = filenameBase
         self.maximumProcesses = maximumProcesses
         self.maximumProcessesAutomaton = (maximumProcesses if maximumProcessesAutomaton==None 
@@ -180,7 +185,8 @@ class Database:
                         self._logger.error("no sorted k-mer list provided")
                     else:
                         self._logger.debug("get splitting k-mers from the provided index")
-                        haplotyping.index.splits.Splits(sortedIndexFile, h5file, self.filenameBase, self.debug)    
+                        haplotyping.index.splits.Splits(sortedIndexFile, h5file, 
+                                                        self.filenameBase, self.debug, self.keepTemporaryFiles)    
                         h5file.flush()
                         #backup
                         if self.debug:
@@ -193,7 +199,7 @@ class Database:
                     if not ("/relations" in h5file and "/connections" in h5file):
                         self._logger.debug("parse read files and store distances in database")
                         haplotyping.index.reads.Reads(readFiles,pairedReadFiles, h5file, 
-                                                      self.filenameBase, self.debug)
+                                                      self.filenameBase, self.debug, self.keepTemporaryFiles)
                         h5file.flush()
                         #backup
                         if self.debug:
@@ -204,7 +210,7 @@ class Database:
                 #finished
                 h5file.flush()
                 
-                if self.debug:
+                if self.debug and not self.keepTemporaryFiles:
                     if os.path.exists(filename_distances):
                         os.remove(filename_distances)
                     if os.path.exists(filename_splits):
@@ -249,6 +255,17 @@ class Database:
                     filename0 = dirname + basename
                     filename1 = dirname + re.sub(r'_1P\.', 
                                                  '_2P.', basename)
+                    if filename0==filename and filename1 in allReadFiles and not filename in processed:
+                        processed.add(filename0)
+                        processed.add(filename1)
+                        pairedReadFiles.append((filename0,filename1,))
+                    else:
+                        processed.add(filename)
+                        unpairedReadFiles.append(filename)
+                elif re.search(r'_R1\.', basename):
+                    filename0 = dirname + basename
+                    filename1 = dirname + re.sub(r'_R1\.', 
+                                                 '_R2.', basename)
                     if filename0==filename and filename1 in allReadFiles and not filename in processed:
                         processed.add(filename0)
                         processed.add(filename1)

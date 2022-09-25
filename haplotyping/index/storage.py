@@ -1415,7 +1415,7 @@ class Storage:
                         #create storage
                         numberLength = len(str(numberOfKmers))
                         mergeEnd = min(numberOfKmers,mergeStart+mergeNumber)-1
-                        pytablesFileRange = (filenameBase+"_tmp_direct_connections_merge_"+
+                        pytablesFileRange = (filenameBase+"_tmp_connections_merge_"+
                                              str(mergeStart).zfill(numberLength)+"_"+
                                         str(mergeEnd).zfill(numberLength)+".process.h5")
                         if os.path.exists(pytablesFileRange):
@@ -1591,7 +1591,7 @@ class Storage:
             dsCycle[i:i+stepSizeStorage] = stepData
             for row in stepData:
                 ckmerRow = dsCkmer[row[0]]
-                ckmerRow[6] = row[2]
+                ckmerRow[7] = row[2]
                 maximumCycleLength = max(maximumCycleLength,row[1])
                 maximumCycleNumber = max(maximumCycleNumber,row[2])
                 dsCkmer[row[0]] = ckmerRow    
@@ -1616,7 +1616,7 @@ class Storage:
             dsReversal[i:i+stepSizeStorage] = stepData
             for row in stepData:
                 ckmerRow = dsCkmer[row[0]]
-                ckmerRow[7] = row[2]
+                ckmerRow[8] = row[2]
                 maximumReversalLength = max(maximumReversalLength,row[1])
                 maximumReversalNumber = max(maximumReversalNumber,row[2])
                 dsCkmer[row[0]] = ckmerRow     
@@ -1641,6 +1641,7 @@ class Storage:
         #connections
         numberOfConnections = pytablesStorage.root.connections.shape[0]
         numberOfData = pytablesStorage.root.data.shape[0]
+        numberOfPaired = pytablesStorage.root.paired.shape[0]
         maximumNumber = pytablesStorage.root.connections.attrs.maximumNumber
         maximumLength = pytablesStorage.root.connections.attrs.maximumLength
         dtypeConnectionsList=[("ckmerLink",haplotyping.index.Database.getUint(numberOfKmers)),
@@ -1654,7 +1655,13 @@ class Storage:
                                                       dtype=dtConnections, chunks=None)
         dsData=h5file["/connections/"].create_dataset("data",(numberOfData,), 
                           dtype=haplotyping.index.Database.getUint(numberOfKmers), chunks=None)
-
+        dtypePairedList=[("fromLink",haplotyping.index.Database.getUint(numberOfKmers)),
+                         ("toLink",haplotyping.index.Database.getUint(numberOfKmers)),
+                         ("number",haplotyping.index.Database.getUint(maximumNumber))
+                        ]
+        dtPaired=np.dtype(dtypePairedList)
+        dsPaired=h5file["/connections/"].create_dataset("paired",(numberOfPaired,), 
+                                                      dtype=dtPaired, chunks=None)
         #process direct relations
         directCounter = 0
         previousStepData = []
@@ -1733,6 +1740,7 @@ class Storage:
 
         connectionsCounter = 0
         dataCounter = 0
+        pairedCounter = 0
         for i in range(0,numberOfConnections,stepSizeStorage):
             stepData = pytablesStorage.root.connections[i:i+stepSizeStorage]   
             dsConnections[connectionsCounter:connectionsCounter+len(stepData)] = stepData
@@ -1741,9 +1749,13 @@ class Storage:
             stepData = pytablesStorage.root.data[i:i+stepSizeStorage]   
             dsData[dataCounter:dataCounter+len(stepData)] = stepData
             dataCounter+=len(stepData)
+        for i in range(0,numberOfPaired,stepSizeStorage):
+            stepData = pytablesStorage.root.paired[i:i+stepSizeStorage]   
+            dsPaired[pairedCounter:pairedCounter+len(stepData)] = stepData
+            pairedCounter+=len(stepData)
 
-        logger.info("store {} indirect connections with {} data entries".format(
-            numberOfConnections,numberOfData))
+        logger.info("store {} indirect connections with {} data entries and {} paired".format(
+            numberOfConnections,numberOfData,numberOfPaired))
 
         # store histogram direct distances
         maximumDistance = max(frequencyHistogram["distance"].keys())

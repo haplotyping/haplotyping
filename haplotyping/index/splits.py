@@ -11,7 +11,7 @@ class Splits:
     
     stepSizeStorage = 10000
     
-    def __init__(self, sortedIndexFile: str, h5file, filenameBase, debug=False):
+    def __init__(self, sortedIndexFile: str, h5file, filenameBase, debug=False, keepTemporaryFiles=False):
         
         """
         Internal use only: initialize
@@ -30,6 +30,7 @@ class Splits:
         self.h5file = h5file
         self.maximumNumber = 0
         self.debug = debug
+        self.keepTemporaryFiles = keepTemporaryFiles
         
         
         #check existence group
@@ -68,7 +69,8 @@ class Splits:
                 self._logger.error("problem occurred while constructing splits: "+str(e))
             finally:
                 try:
-                    os.remove(pytablesFile)
+                    if not self.keepTemporaryFiles:
+                        os.remove(pytablesFile)
                 except:
                     self._logger.error("problem removing "+pytablesFile)    
 
@@ -396,7 +398,8 @@ class Splits:
                                [("distinct","uint8"),
                                 ("number",haplotyping.index.Database.getUint(self.maximumNumber))])
                              ]),
-                   ("connected",[("distinct",haplotyping.index.Database.getUint(self.maximumNumber))]),
+                   ("connected",[("distinct","uint8")]),
+                   ("paired",[("distinct","uint8")]),
                    ("cycle",[("number",haplotyping.index.Database.getUint(self.maximumNumber))]),
                    ("reversal",[("number",haplotyping.index.Database.getUint(self.maximumNumber))])]
         dtCkmer=np.dtype(dtypeCkmerList)
