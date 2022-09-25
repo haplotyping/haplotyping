@@ -1,0 +1,70 @@
+{
+  "fields": [
+    {
+      "name": "id",
+      "type": "integer",
+      "constraints": {
+        "required": true,
+        "unique": true
+      }
+    },
+    {
+      "name": "variety",
+      "type": "string",
+      "constraints": {
+        "required": true,
+        "unique": false
+      }
+    },
+    {
+      "name": "ancestor",
+      "type": "string"
+    },
+    {
+      "name": "type",
+      "type": "string"
+    },
+    {
+      "name": "offspring",
+      "type": "integer"
+    }
+  ],
+  "foreignKeys": [
+    {
+      "fields": [
+        "variety"
+      ],
+      "reference": {
+        "resource": "pedigree_varieties",
+        "fields": [
+          "uid"
+        ]
+      }
+    },
+    {
+      "fields": [
+        "ancestor"
+      ],
+      "reference": {
+        "resource": "pedigree_varieties",
+        "fields": [
+          "uid"
+        ]
+      }
+    },
+    {
+      "fields": [
+        "offspring"
+      ],
+      "reference": {
+        "resource": "",
+        "fields": [
+          "id"
+        ]
+      }
+    }
+  ],
+  "missingValues": [
+    ""
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "fields": [
+    {
+      "name": "label",
+      "type": "string",
+      "constraints": {
+        "unique": true,
+        "enum": [
+          "name",
+          "location"
+        ]
+      }
+    },
+    {
+      "name": "value"
+    }
+  ],
+  "primaryKey": [
+    "label"
+  ],
+  "missingValues": [
+    ""
+  ]
+}

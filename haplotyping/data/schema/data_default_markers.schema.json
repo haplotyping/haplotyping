@@ -1,0 +1,68 @@
+{
+  "fields": [
+    {
+      "name": "id",
+      "type": "integer",
+      "constraints": {
+        "required": true,
+        "unique": true
+      }
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "constraints": {
+        "required": true,
+        "unique": true
+      }
+    },
+    {
+      "name": "ref",
+      "type": "string",
+      "constraints": {
+        "maxLength": 1
+      }   
+    },
+    {
+      "name": "alt",
+      "type": "string",
+      "constraints": {
+        "maxLength": 1
+      }   
+    },
+    {
+      "name": "sequence_ref",
+      "type": "string",
+      "constraints": {
+        "maxLength": 10
+      }   
+    },
+    {
+      "name": "sequence_alt",
+      "type": "string",
+      "constraints": {
+        "maxLength": 10
+      }   
+    },
+    {
+      "name": "sequence_left",
+      "type": "string",
+      "constraints": {
+        "maxLength": 255
+      }   
+    },
+    {
+      "name": "sequence_right",
+      "type": "string",
+      "constraints": {
+        "maxLength": 255
+      }   
+    }
+  ],
+  "primaryKey": [
+    "id"
+  ],
+  "missingValues": [
+    ""
+  ]
+}

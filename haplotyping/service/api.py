@@ -1,9 +1,10 @@
-import os,logging,configparser
-from multiprocessing import Process
+import os,sys,logging,configparser
+from multiprocessing import Process,get_start_method
 from flask import Flask, Blueprint, Response, render_template, current_app, g, request
 from flask_restx import Api, Resource
 from werkzeug.middleware.proxy_fix import ProxyFix
 import json, sqlite3
+from waitress import serve
 
 import haplotyping
 
@@ -21,13 +22,12 @@ from haplotyping.service.api_split import cache as cache_api_split
 
 class API:
     
-    def __init__(self, location, doStart=True):
-        
+    def __init__(self, location):
+                                
         self.location = str(location)
         
         #set logging
         logger_server = logging.getLogger(__name__+".server")
-        
         
         self.config = configparser.ConfigParser()
         self.config.read(os.path.join(self.location,"server.ini")) 
@@ -38,18 +38,27 @@ class API:
         else:
             logger_server.setLevel(logging.INFO)
         
+        #solve reload problem when using spawn method (osx/windows)
+        if get_start_method()=="spawn":
+            frame = sys._getframe()
+            while frame:
+                if "__name__" in frame.f_locals.keys():
+                    if not frame.f_locals["__name__"]=="__main__":
+                        return                    
+                frame = frame.f_back
+                
         #restart on errors
-        while doStart:
+        while True:
             try:
                 process_api = Process(target=self.process_api_messages, args=[])
                 #start everything
-                logger_server.info("start server on port {:s}".format(self.config["api"]["port"]))
+                logger_server.info("start server on port {:s}".format(self.config["api"].get("port","8080")))
                 process_api.start()
                 #wait until ends  
                 process_api.join()
             except Exception as e:  
                 logger_server.error("error: "+ str(e))  
-                
+        
     def get_db_connection():
         db_connection = getattr(g, "_database", None)
         if db_connection is None:
@@ -79,11 +88,11 @@ class API:
         except:
             return None
                                 
-    def process_api_messages(self, doStart=True):    
+    def process_api_messages(self):    
         
         #--- initialize Flask application ---  
         logging.getLogger("werkzeug").disabled = True
-        os.environ["WERKZEUG_RUN_MAIN"] = "true"
+        #os.environ["WERKZEUG_RUN_MAIN"] = "true"
         app = Flask(__name__, static_url_path="/static", 
                     static_folder=os.path.join(self.location,"static"), 
                     template_folder=os.path.join(self.location,"templates")) 
@@ -172,12 +181,13 @@ class API:
             return render_template("index.html")
         
         #--- start webserver ---
-        if doStart:
-            app.run(host=self.config["api"]["host"], port=self.config["api"]["port"], 
-                    debug=self.config.getboolean("api","debug"), 
-                    use_reloader=False)   
-        else:
-            return app
+        #app.run(host=self.config["api"].get("host", "::"), port=self.config["api"].get("port", "8080"), 
+        #        debug=self.config.getboolean("api","debug"), 
+        #        use_reloader=False)   
+        serve(app, 
+              host=self.config["api"].get("host", "::"), 
+              port=self.config["api"].get("port", "8080"), 
+              threads=self.config["api"].get("threads", "10"))                            
         
         
         

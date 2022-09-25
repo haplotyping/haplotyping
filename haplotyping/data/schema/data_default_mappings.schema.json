@@ -1,0 +1,32 @@
+{
+  "fields": [
+    {
+      "name": "marker_id",
+      "type": "integer",
+      "constraints": {
+        "required": true
+      }
+    },
+    {
+      "name": "mapping",
+      "type": "string",
+      "constraints": {
+        "required": true
+      }
+    },
+    {
+      "name": "lg",
+      "type": "string"
+    },
+    {
+      "name": "pos",
+      "type": "number"
+    }
+  ],
+  "primaryKey": [
+    "marker_id","mapping"
+  ],
+  "missingValues": [
+    ""
+  ]
+}

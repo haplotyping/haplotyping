@@ -1,5 +1,6 @@
-import logging, h5py, os, glob, re, math, shutil
+import logging, h5py, os, sys, glob, re, math, shutil
 import numpy as np, tables, gzip, csv
+import multiprocessing as mp
 
 import haplotyping
 import haplotyping.index.splits
@@ -77,7 +78,7 @@ class Database:
         
     """
 
-    version = "20220710"
+    version = "20220916"
     
     def __init__(self,
                  k: int, 
@@ -102,6 +103,15 @@ class Database:
         """
         Internal use only: initialize
         """
+        
+        if mp.get_start_method()=="spawn":
+            frame = sys._getframe()
+            while frame:
+                if "__name__" in frame.f_locals.keys():
+                    if not frame.f_locals["__name__"]=="__main__":
+                        return
+                    break                    
+                frame = frame.f_back
         
         #logger
         self._logger = logging.getLogger(__name__)

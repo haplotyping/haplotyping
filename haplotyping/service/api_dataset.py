@@ -49,15 +49,11 @@ class DatasetList(Resource):
     dataset_list.add_argument("number", type=int, required=False, location="values", 
                               help="paging")
     dataset_list.add_argument("collection", type=str, required=False, location="values", 
-                              help="variety has dataset from comma separated list of collections")
-    dataset_list.add_argument("variety", type=bool, required=False, location="values", 
+                              help="variety has dataset from comma separated list of collection uids")
+    dataset_list.add_argument("hasVariety", type=bool, required=False, location="values", 
                               help="linked to a variety")
-    dataset_list.add_argument("kmer", type=bool, required=False, location="values", 
-                              help="k-mer information available")
-    dataset_list.add_argument("split", type=bool, required=False, location="values", 
-                              help="splitting k-mer information available")
-    dataset_list.add_argument("marker", type=bool, required=False, location="values", 
-                              help="marker information available")
+    dataset_list.add_argument("type", type=str, required=False, location="values", choices=["marker","kmer","split"], 
+                              help="type of dataset")
     
     dataset_set = namespace.model("uid list to get datasets", {"uids": fields.List(fields.String, attribute="items", 
                           required=True, description="list of uids")})

@@ -1,0 +1,42 @@
+{
+  "fields": [
+    {
+      "name": "id",
+      "type": "integer",
+      "constraints": {
+        "required": true,
+        "unique": true
+      }
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "constraints": {
+        "required": true
+      }
+    },
+    {
+      "name": "country",
+      "type": "string"
+    }
+  ],
+  "primaryKey": [
+    "id"
+  ],
+  "foreignKeys": [
+    {
+      "fields": [
+        "country"
+      ],
+      "reference": {
+        "resource": "pedigree_countries",
+        "fields": [
+          "code"
+        ]
+      }
+    }
+  ],
+  "missingValues": [
+    ""
+  ]
+}
