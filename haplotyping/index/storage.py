@@ -573,35 +573,6 @@ class Storage:
                 mapSplitDirection = [{b"l":"l", b"r":"r", b"b":"b"},{b"l":"r", b"r":"l", b"b":"b"}]
                 
                 def store_connections(connectionsList,direct,tableConnectionsData,tableConnectionsDataNumber):
-                    
-                    def recompute_linking_entry(linkingEntry,compactedSelectionMinimum,potentialNumber,potentialId):
-                        if compactedSelectionMinimum==None or (potentialNumber<=compactedSelectionMinimum):
-                            entry = compactedConnectionsList[potentialId]
-                            if compactedSelectionMinimum==potentialNumber:
-                                if len(entry)==2:
-                                    if entry[0][-2]==potentialNumber and entry[0][-1]<linkingEntry:
-                                        linkingEntry = entry[0][-1]
-                                    if entry[1][-2]==potentialNumber and entry[1][-1]<linkingEntry:
-                                        linkingEntry = entry[1][-1]                                           
-                                else:
-                                    assert compactedSelectionMinimum == entry[-2]
-                                    if entry[-1]<linkingEntry:
-                                        linkingEntry=entry[-1]
-                            else:
-                                compactedSelectionMinimum = potentialNumber
-                                if len(entry)==2:
-                                    if entry[0][-2]>entry[1][-2]:
-                                        linkingEntry = entry[0][-1] 
-                                    elif entry[0][-2]<entry[1][-2]:
-                                        linkingEntry = entry[1][-1] 
-                                    elif entry[0][-1]<entry[1][-1]:
-                                        linkingEntry = entry[0][-1] 
-                                    else:
-                                        linkingEntry = entry[1][-1]
-                                else:
-                                    linkingEntry = entry[-1]           
-                        return (linkingEntry,compactedSelectionMinimum)
-                    
                     #compact pairs with equal dosage
                     compactedConnectionsList = []
                     for id, (link,direction) in enumerate(connectionsList):
@@ -614,17 +585,13 @@ class Storage:
                         else:
                             compactedConnectionsList.append(newEntry)
                     #select entries with (potential) minimal dosage
-                    potentialNumber = None
                     potentialDirection = None
                     potentialId = None
                     compactedSelection = [] 
-                    compactedSelectionMinimum = None
-                    linkingEntry = None
                     # entry: [ link, splitType, frequency, #id connectionsList]
                     for id,entry in enumerate(compactedConnectionsList):
                         newDirection = entry[0][1] if len(entry)==2 else entry[1]
                         if potentialId==None:
-                            potentialNumber = max(entry[0][-2],entry[1][-2]) if len(entry)==2 else entry[-2]
                             potentialDirection = entry[-1][1] if len(entry)==2 else entry[1]
                             potentialId = id
                         else:
@@ -633,17 +600,12 @@ class Storage:
                                     pass
                                 else:
                                     compactedSelection.append(potentialId)
-                                    (linkingEntry,compactedSelectionMinimum) = recompute_linking_entry(
-                                        linkingEntry,compactedSelectionMinimum,
-                                        potentialNumber,potentialId)
-                                    potentialNumber = max(entry[0][-2],entry[1][-2]) if len(entry)==2 else entry[-2]
                                     potentialDirection = entry[-1][1] if len(entry)==2 else entry[1]
                                     potentialId = id
                             elif potentialDirection=="r":
                                 if newDirection=="l":
                                     raise Exception("can't happen")
                                 else:
-                                    potentialNumber = max(entry[0][-2],entry[1][-2]) if len(entry)==2 else entry[-2]
                                     potentialDirection = entry[-1][1] if len(entry)==2 else entry[1]
                                     potentialId = id
                             else:
@@ -651,54 +613,84 @@ class Storage:
                                     pass
                                 else:
                                     compactedSelection.append(potentialId)
-                                    (linkingEntry,compactedSelectionMinimum) = recompute_linking_entry(
-                                        linkingEntry,compactedSelectionMinimum,
-                                        potentialNumber,potentialId)
-                                    potentialNumber = max(entry[0][-2],entry[1][-2]) if len(entry)==2 else entry[-2]
                                     potentialDirection = entry[-1][1] if len(entry)==2 else entry[1]
                                     potentialId = id
                     if not potentialId==None:
                         compactedSelection.append(potentialId)
-                        (linkingEntry,compactedSelectionMinimum) = recompute_linking_entry(
-                            linkingEntry,compactedSelectionMinimum,
-                            potentialNumber,potentialId)
+                    #compute final selection and linking entry
                     finalSelection = []
+                    linkingId = None
+                    linkingNumber = None
+                    def recompute_linking_entry(linkingId,linkingNumber,newId,newNumber):
+                        if linkingId==None or linkingNumber>newNumber:
+                            linkingId = newId
+                            linkingNumber = newNumber
+                        elif linkingNumber==newNumber:
+                            if connectionsList[linkingId][0]>connectionsList[newId][0]:
+                                linkingId = newId
+                                linkingNumber = newNumber
+                        return (linkingId,linkingNumber,)
+                    
+                    for id in compactedSelection:
+                        if len(compactedConnectionsList[id])==2:
+                            if id==0:
+                                finalSelection.append(compactedConnectionsList[id][1][-1])
+                                (linkingId,linkingNumber) = recompute_linking_entry(linkingId,linkingNumber,
+                                                                compactedConnectionsList[id][1][-1],
+                                                                compactedConnectionsList[id][1][2])
+                            elif id==len(compactedConnectionsList)-1:
+                                finalSelection.append(compactedConnectionsList[id][0][-1])
+                                (linkingId,linkingNumber) = recompute_linking_entry(linkingId,linkingNumber,
+                                                                compactedConnectionsList[id][0][-1],
+                                                                compactedConnectionsList[id][0][2])
+                            else:
+                                if compactedConnectionsList[id][0][2]>compactedConnectionsList[id][1][2]:
+                                    finalSelection.append(compactedConnectionsList[id][0][-1])
+                                    (linkingId,linkingNumber) = recompute_linking_entry(linkingId,linkingNumber,
+                                                                compactedConnectionsList[id][0][-1],
+                                                                compactedConnectionsList[id][0][2])
+                                elif compactedConnectionsList[id][1][2]>compactedConnectionsList[id][0][2]:
+                                    finalSelection.append(compactedConnectionsList[id][1][-1])
+                                    (linkingId,linkingNumber) = recompute_linking_entry(linkingId,linkingNumber,
+                                                                compactedConnectionsList[id][1][-1],
+                                                                compactedConnectionsList[id][1][2])
+                                elif compactedConnectionsList[id][0][0]>compactedConnectionsList[id][1][0]:
+                                    finalSelection.append(compactedConnectionsList[id][0][-1])
+                                    (linkingId,linkingNumber) = recompute_linking_entry(linkingId,linkingNumber,
+                                                                compactedConnectionsList[id][0][-1],
+                                                                compactedConnectionsList[id][0][2])
+                                else:
+                                    finalSelection.append(compactedConnectionsList[id][1][-1])
+                                    (linkingId,linkingNumber) = recompute_linking_entry(linkingId,linkingNumber,
+                                                                compactedConnectionsList[id][1][-1],
+                                                                compactedConnectionsList[id][1][2])
+                        else:
+                            finalSelection.append(compactedConnectionsList[id][-1])
+                            (linkingId,linkingNumber) = recompute_linking_entry(linkingId,linkingNumber,
+                                                                compactedConnectionsList[id][-1],
+                                                                compactedConnectionsList[id][2])
+
+                    linkingConnectedKmer = None
+                    
                     #single entry not informative
                     if len(compactedSelection)<=1:
                         pass
                     #directly neighhbouring entries not informative
                     elif len(compactedSelection)==2 and (compactedSelection[1]-compactedSelection[0])==1:
                         pass
-                    else:
-                        for id in compactedSelection:
-                            if len(compactedConnectionsList[id])==2:
-                                if id==0:
-                                    finalSelection.append(compactedConnectionsList[id][1][-1])
-                                elif id==len(compactedConnectionsList)-1:
-                                    finalSelection.append(compactedConnectionsList[id][0][-1])
-                                else:
-                                    if compactedConnectionsList[id][0][2]>compactedConnectionsList[id][1][2]:
-                                        finalSelection.append(compactedConnectionsList[id][0][-1])
-                                    elif compactedConnectionsList[id][1][2]>compactedConnectionsList[id][0][2]:
-                                        finalSelection.append(compactedConnectionsList[id][1][-1])
-                                    elif compactedConnectionsList[id][0][0]>compactedConnectionsList[id][1][0]:
-                                        finalSelection.append(compactedConnectionsList[id][0][-1])
-                                    else:
-                                        finalSelection.append(compactedConnectionsList[id][1][-1])
-                            else:
-                                finalSelection.append(compactedConnectionsList[id][-1])
-
-                    if len(finalSelection)>0:
+                    elif len(finalSelection)>0:
                         #get final list of connected k-mers
                         connectedKmers = [connectionsList[id][0] for id in finalSelection]
+                        linkingConnectedKmer = connectionsList[linkingId][0]
+                        assert linkingConnectedKmer in connectedKmers
                         #remove neighbouring duplicates
                         connectedKmers = sorted(set(connectedKmers), key=connectedKmers.index)
-                        #remove neighbouring duplicates
+                        #always sorted in same direction
                         if connectedKmers[0]>connectedKmers[-1]:
                             connectedKmers = tuple(connectedKmers[::-1])
                         else:
                             connectedKmers = tuple(connectedKmers)
-                        connectionsRow = connections[connectionsList[linkingEntry][0]]
+                        connectionsRow = connections[linkingConnectedKmer]
                         #don't store if too much k-mers are involved or if non-informative
                         if connectionsRow[0]>arrayNumberConnection or len(connectedKmers)<=1:
                             pass
@@ -736,13 +728,9 @@ class Storage:
                                     connectionsRow[0] = arrayNumberConnection+1
                                     
                             #store (in memory)
-                            connections[connectionsList[linkingEntry][0]] = connectionsRow
+                            connections[linkingConnectedKmer] = connectionsRow
                             
-                    if linkingEntry==None:
-                        ckmerLink = None
-                    else:
-                        ckmerLink = connectionsList[linkingEntry][0]
-                    return (tableConnectionsData,tableConnectionsDataNumber,ckmerLink)
+                    return (tableConnectionsDataNumber,linkingConnectedKmer)
                 
                 def store_paired(linkedCkmer0,linkedCkmer1):
                     #only store if potentially necessary
@@ -787,25 +775,25 @@ class Storage:
                         elif isinstance(item,tuple):
                             if len(item)==1:
                                 if len(item[0][0])>2:
-                                    tableConnectionsData,tableConnectionsDataNumber = store_connections(
+                                    tableConnectionsDataNumber = store_connections(
                                                       item[0][0],item[0][2],
-                                                      tableConnectionsData,tableConnectionsDataNumber)[0:2]
+                                                      tableConnectionsData,tableConnectionsDataNumber)[0]
                             elif len(item)==2:
                                 if len(item[0][0])==0:
                                     if len(item[1][0])>0:
-                                        tableConnectionsData,tableConnectionsDataNumber = store_connections(
+                                        tableConnectionsDataNumber = store_connections(
                                                       item[1][0],item[1][2],
-                                                      tableConnectionsData,tableConnectionsDataNumber)[0:2]
+                                                      tableConnectionsData,tableConnectionsDataNumber)[0]
                                 elif len(item[1][0])==0:
                                     if len(item[0][0])>0:
-                                        tableConnectionsData,tableConnectionsDataNumber = store_connections(
+                                        tableConnectionsDataNumber = store_connections(
                                                       item[0][0],item[0][2],
-                                                      tableConnectionsData,tableConnectionsDataNumber)[0:2]
+                                                      tableConnectionsData,tableConnectionsDataNumber)[0]
                                 else:
-                                    (tableConnectionsData,tableConnectionsDataNumber,linkedCkmer0) = store_connections(
+                                    (tableConnectionsDataNumber,linkedCkmer0) = store_connections(
                                                       item[0][0],item[0][2],
                                                       tableConnectionsData,tableConnectionsDataNumber)
-                                    (tableConnectionsData,tableConnectionsDataNumber,linkedCkmer1) = store_connections(
+                                    (tableConnectionsDataNumber,linkedCkmer1) = store_connections(
                                                       item[1][0],item[1][2],
                                                       tableConnectionsData,tableConnectionsDataNumber)
                                     #store paired connections
@@ -1492,6 +1480,8 @@ class Storage:
         maximumConnectionsNumber = 0
         maximumConnectionsLength = 0
         maximumPairedNumber = 0
+        
+        connectionsDataCounter = 0
 
         for i in range(len(sortedMergeFiles)):
             with tables.open_file(sortedMergeFiles[i]["filename"], mode="r") as pytables_merge:
@@ -1520,12 +1510,15 @@ class Storage:
                     tableDirect.append(reducedDirectDataBlock)
                 for j in range(0,sortedMergeFiles[i]["nconnections"],stepSizeStorage):
                     reducedConnectionsBlock = pytables_merge.root.connections[j:j+stepSizeStorage]
+                    for k in range(len(reducedConnectionsBlock)):
+                        reducedConnectionsBlock[k][1]+=connectionsDataCounter
                     maximumConnectionsNumber = max(maximumConnectionsNumber,max(reducedConnectionsBlock["number"]))
                     maximumConnectionsLength = max(maximumConnectionsLength,max(reducedConnectionsBlock["length"]))
                     tableConnections.append(reducedConnectionsBlock)
                 for j in range(0,sortedMergeFiles[i]["ndata"],stepSizeStorage):
                     reducedDataBlock = pytables_merge.root.data[j:j+stepSizeStorage]
                     tableData.append(reducedDataBlock)
+                    connectionsDataCounter+=len(reducedDataBlock)
                 for j in range(0,sortedMergeFiles[i]["npaired"],stepSizeStorage):
                     pairedDataBlock = pytables_merge.root.paired[j:j+stepSizeStorage]
                     deleteDataBlock = pytables_merge.root.deletePaired.read_where(
@@ -1744,27 +1737,34 @@ class Storage:
         connectionsCounter = 0
         dataCounter = 0
         pairedCounter = 0
+        ckmerConnectionsIndexCounter = np.zeros(dsCkmer.len(), dtype=int)
         ckmerConnectionsCounter = np.zeros(dsCkmer.len(), dtype=int)
+        ckmerPairedCounter = np.zeros(dsCkmer.len(), dtype=int)
         for i in range(0,numberOfConnections,stepSizeStorage):
             stepData = pytablesStorage.root.connections[i:i+stepSizeStorage]  
             for row in stepData:
-                ckmerConnectionsCounter[row[0]]+=1
+                ckmerConnectionsIndexCounter[row[0]]+=1
             dsConnections[connectionsCounter:connectionsCounter+len(stepData)] = stepData
             connectionsCounter+=len(stepData)
-        for i in range(0,dsCkmer.len(),stepSizeStorage):
-            stepData = dsCkmer[i:i+stepSizeStorage]  
-            for j in range(i,i+len(stepData)):                
-                stepData[j-i][5] = (ckmerConnectionsCounter[j],)
-            dsCkmer[i:i+len(stepData)] = stepData
         for i in range(0,numberOfData,stepSizeStorage):
             stepData = pytablesStorage.root.data[i:i+stepSizeStorage]   
+            for row in stepData:
+                ckmerConnectionsCounter[row]+=1
             dsData[dataCounter:dataCounter+len(stepData)] = stepData
             dataCounter+=len(stepData)
         for i in range(0,numberOfPaired,stepSizeStorage):
             stepData = pytablesStorage.root.paired[i:i+stepSizeStorage]   
+            for row in stepData:
+                ckmerPairedCounter[row[0]]+=1
             dsPaired[pairedCounter:pairedCounter+len(stepData)] = stepData
             pairedCounter+=len(stepData)
-
+        for i in range(0,dsCkmer.len(),stepSizeStorage):
+            stepData = dsCkmer[i:i+stepSizeStorage]  
+            for j in range(i,i+len(stepData)):                
+                stepData[j-i][5] = (ckmerConnectionsIndexCounter[j],ckmerConnectionsCounter[j],)
+                stepData[j-i][6] = (ckmerPairedCounter[j],)
+            dsCkmer[i:i+len(stepData)] = stepData
+        
         logger.info("store {} indirect connections with {} data entries and {} paired".format(
             numberOfConnections,numberOfData,numberOfPaired))
 
