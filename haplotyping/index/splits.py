@@ -398,9 +398,11 @@ class Splits:
                                [("distinct","uint8"),
                                 ("number",haplotyping.index.Database.getUint(self.maximumNumber))])
                              ]),
-                   ("connected",[("index","uint8"),
-                                 ("number","uint8")]),
-                   ("paired",[("number","uint8")]),
+                   ("connected",[("link",haplotyping.index.Database.getUint(numberOfKmers)),
+                                 ("number",haplotyping.index.Database.getUint(len(haplotyping.index.Database.letters)**4)),
+                                 ("connected",haplotyping.index.Database.getUint(len(haplotyping.index.Database.letters)**4))]),
+                   ("paired",[("link",haplotyping.index.Database.getUint(numberOfKmers)),
+                              ("number","uint8")]),
                    ("cycle",[("number",haplotyping.index.Database.getUint(self.maximumNumber))]),
                    ("reversal",[("number",haplotyping.index.Database.getUint(self.maximumNumber))])]
         dtCkmer=np.dtype(dtypeCkmerList)

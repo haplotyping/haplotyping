@@ -92,7 +92,6 @@ class Reads:
                                           (1+self.estimatedMaximumReadLength-self.k))
             self.arrayNumberConnection = max(self.arrayNumberDirect,self.arrayNumberConnection)
             self.arrayNumberConnection = min(self.arrayNumberConnection,len(haplotyping.index.Database.letters)**4)
-            print(self.arrayNumberConnection)
             h5file["/config/"].attrs["arrayNumberConnection"] = self.arrayNumberConnection
             #process
             try:                                                

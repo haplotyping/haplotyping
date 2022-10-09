@@ -1734,16 +1734,23 @@ class Storage:
         logger.info("store {} direct connections, {} low coverage, {} problematic".format(
             numberOfDirectRelations,directCoverage,directProblematic))
 
+        #process connections
         connectionsCounter = 0
         dataCounter = 0
         pairedCounter = 0
+        ckmerConnectionsIndexLink = np.zeros(dsCkmer.len(), dtype=int)
         ckmerConnectionsIndexCounter = np.zeros(dsCkmer.len(), dtype=int)
         ckmerConnectionsCounter = np.zeros(dsCkmer.len(), dtype=int)
+        ckmerPairedLink = np.zeros(dsCkmer.len(), dtype=int)
         ckmerPairedCounter = np.zeros(dsCkmer.len(), dtype=int)
         for i in range(0,numberOfConnections,stepSizeStorage):
             stepData = pytablesStorage.root.connections[i:i+stepSizeStorage]  
-            for row in stepData:
-                ckmerConnectionsIndexCounter[row[0]]+=1
+            for j in range(i,i+len(stepData)):    
+                if ckmerConnectionsIndexCounter[stepData[j-i][0]]==0:
+                    ckmerConnectionsIndexLink[stepData[j-i][0]] = j
+                    ckmerConnectionsIndexCounter[stepData[j-i][0]] = 1
+                else:
+                    ckmerConnectionsIndexCounter[stepData[j-i][0]]+=1
             dsConnections[connectionsCounter:connectionsCounter+len(stepData)] = stepData
             connectionsCounter+=len(stepData)
         for i in range(0,numberOfData,stepSizeStorage):
@@ -1754,15 +1761,19 @@ class Storage:
             dataCounter+=len(stepData)
         for i in range(0,numberOfPaired,stepSizeStorage):
             stepData = pytablesStorage.root.paired[i:i+stepSizeStorage]   
-            for row in stepData:
-                ckmerPairedCounter[row[0]]+=1
+            for j in range(i,i+len(stepData)):
+                if ckmerPairedCounter[stepData[j-i][0]]==0:
+                    ckmerPairedLink[stepData[j-i][0]] = j
+                    ckmerPairedCounter[stepData[j-i][0]] = 1
+                else:
+                    ckmerPairedCounter[stepData[j-i][0]]+=1
             dsPaired[pairedCounter:pairedCounter+len(stepData)] = stepData
             pairedCounter+=len(stepData)
         for i in range(0,dsCkmer.len(),stepSizeStorage):
             stepData = dsCkmer[i:i+stepSizeStorage]  
             for j in range(i,i+len(stepData)):                
-                stepData[j-i][5] = (ckmerConnectionsIndexCounter[j],ckmerConnectionsCounter[j],)
-                stepData[j-i][6] = (ckmerPairedCounter[j],)
+                stepData[j-i][5] = (ckmerConnectionsIndexLink[j],ckmerConnectionsIndexCounter[j],ckmerConnectionsCounter[j],)
+                stepData[j-i][6] = (ckmerPairedLink[j],ckmerPairedCounter[j],)
             dsCkmer[i:i+len(stepData)] = stepData
         
         logger.info("store {} indirect connections with {} data entries and {} paired".format(
