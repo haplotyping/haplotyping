@@ -63,14 +63,14 @@ class Split:
             if start>=number:
                 return ([],currentRowId,newCache,)
             currentRow = table[currentRowId]
-            currentId = currentRow[0]        
+            currentId = currentRow[0][0]    
             if currentId==id:
                 currentRows = [currentRow]
                 tmpId = currentRowId
                 while tmpId>0:
                     tmpId-=1
                     tmpRow = table[tmpId]
-                    if tmpRow[0]==id:
+                    if tmpRow[0][0]==id:
                         currentRows.append(tmpRow)
                     else:
                         break
@@ -78,7 +78,7 @@ class Split:
                 while tmpId<table.shape[0]-1:
                     tmpId+=1
                     tmpRow = table[tmpId]
-                    if tmpRow[0]==id:
+                    if tmpRow[0][0]==id:
                         currentRows.append(tmpRow)
                     else:
                         break
@@ -144,14 +144,22 @@ class Split:
                 "rightSplitBase": {
                 },
                 "direct": {
+                    "link": int(row[4][0]),
                     "left": {
-                        "distinct": int(row[4][0][0]),
-                        "number": int(row[4][0][1])
-                    },"right": {
                         "distinct": int(row[4][1][0]),
                         "number": int(row[4][1][1])
+                    },"right": {
+                        "distinct": int(row[4][2][0]),
+                        "number": int(row[4][2][1])
                     }
-                }
+                },
+                "connected": {
+                    "number": int(row[5][1]),
+                    "connected": int(row[5][2])
+                },
+                "paired": int(row[6][1]),
+                "cycle": int(row[7][0]),
+                "reverse": int(row[8][0]),
             }
             baseTable = h5file.get("/split/base")
             if response["split"] in ["left","both"]:
@@ -184,14 +192,14 @@ class Split:
             ckmerTable = h5file.get("/split/ckmer")
             baseTable = h5file.get("/split/base")
             for directRow in directRows:
-                fromDirection = directRow[1].decode("ascii")
-                ckmerRow = ckmerTable[directRow[2]]
+                fromDirection = directRow[0][1].decode("ascii")
+                ckmerRow = ckmerTable[directRow[1][0]]
                 item = {
                     "connection": {                    
-                        "direction": Split._translate_type(directRow[3].decode("ascii")),
-                        "distance": int(directRow[4]),
-                        "number": int(directRow[5]),
-                        "problem": int(directRow[6])
+                        "direction": Split._translate_type(directRow[1][1].decode("ascii")),
+                        "distance": int(directRow[3]),
+                        "number": int(directRow[2]),
+                        "problem": int(directRow[4])
                     },
                     "ckmer": ckmerRow[0].decode("ascii"),
                     "split": Split._translate_type(ckmerRow[1].decode("ascii")),
@@ -213,51 +221,28 @@ class Split:
             response = None
         return response
     
-    def _kmer_connected_result(connectedIndexLinks: list, h5file: h5py.File):
-        response = {}
-        connectedDict = {}
-        connectedIndexTable = h5file.get("/relations/connectedIndex")
-        connectedPairTable = h5file.get("/relations/connectedPair")
-        connectedTable = h5file.get("/relations/connected")
+    def _kmer_connected_result(ckmerId, ckmerRow, connectionsIndexRows: list, connectionsPairedRows: list, h5file: h5py.File):
+        response = {"ckmer": ckmerRow[0].decode("ascii"), "connections":[], "paired": {}}
         ckmerTable = h5file.get("/split/ckmer")
-        #make selection
-        idSelection = sorted(list(set(connectedIndexLinks)))
-        #find pairs and create fullIdSelection
-        fullIdSelection = set()
-        number = connectedPairTable.shape[0]
-        start = 0
-        cache = {}
-        pairedRows = []
-        for id in idSelection:
-            fullIdSelection.add(id)
-            (connectedPairRows,connectedPairId,cache) = Split._findId(id,connectedPairTable,start,number,cache)  
-            if not connectedPairRows==None:
-                pairedRows.extend(connectedPairRows)
-                for pairedRow in connectedPairRows:
-                    fullIdSelection.add(pairedRow[1])
-                start = connectedPairId+1
-            else:
-                start = connectedPairId 
-        fullIdSelection = sorted(list(fullIdSelection))
-        #find connected
-        for id in fullIdSelection:
-            connectedIndexRow = connectedIndexTable[id]
-            item = {
-                "number": int(connectedIndexRow[3]),
-                "length": int(connectedIndexRow[1]),
-                "direct": int(connectedIndexRow[4]),
-                "ckmers": [],
-                "paired": {}
-            }
-            for connectedRow in connectedTable[connectedIndexRow[2]:connectedIndexRow[2]+connectedIndexRow[0]]:
-                item["ckmers"].append(ckmerTable[connectedRow[0]][0].decode("ascii"))
-            itemId = len(response)
-            response[itemId] = item
-            connectedDict[id] = itemId
-        #process paired
-        for pairedRow in pairedRows:
-            response[connectedDict[pairedRow[0]]]["paired"][connectedDict[pairedRow[1]]] = int(pairedRow[2])
-            response[connectedDict[pairedRow[1]]]["paired"][connectedDict[pairedRow[0]]] = int(pairedRow[2])
+        if len(connectionsIndexRows)>0:
+            connectionsDataTable = h5file.get("/connections/data")
+            for connectionsIndexRow in connectionsIndexRows:
+                assert connectionsIndexRow[0]==ckmerId
+                direct = connectionsIndexRow[3]
+                number = connectionsIndexRow[4]
+                connections = connectionsDataTable[connectionsIndexRow[1]:connectionsIndexRow[1]+connectionsIndexRow[2]]
+                assert connectionsIndexRow[0] in connections
+                connectionsCkmers = []
+                for ckmerLink in connections:
+                    if not ckmerLink==ckmerId:
+                        connectionsCkmers.append(ckmerTable[ckmerLink][0].decode("ascii"))
+                response["connections"].append({"connections": connectionsCkmers, 
+                                                "direct": int(connectionsIndexRow[3]),
+                                                "number": int(connectionsIndexRow[4])})
+        for connectionsPairedRow in connectionsPairedRows:
+            assert connectionsPairedRow[0]==ckmerId
+            linkedCkmer = ckmerTable[connectionsPairedRow[1]][0].decode("ascii")
+            response["paired"][linkedCkmer] = int(connectionsPairedRow[2])                
         return response
     
     #---
@@ -338,15 +323,18 @@ class Split:
         ckmer = haplotyping.General.canonical(kmer)
         ckmerTable = h5file.get("/split/ckmer")
         (ckmerRow,id,cache) = Split._findItem(ckmer,ckmerTable)
-        if ckmerRow:            
-            relationsCkmerTable = h5file.get("/relations/ckmer")
-            relationsCkmerRow = relationsCkmerTable[id]
-            connectedIndexLinks = []
-            if relationsCkmerRow[1]>0:                
-                relationsCkmerConnectedTable = h5file.get("/relations/ckmerConnected")
-                for row in relationsCkmerConnectedTable[relationsCkmerRow[0]:relationsCkmerRow[0]+relationsCkmerRow[1]]:
-                    connectedIndexLinks.append(row[0])
-            return Split._kmer_connected_result(connectedIndexLinks, h5file)
+        if ckmerRow:
+            if ckmerRow[5][1]>0:   
+                connectionsIndexTable = h5file.get("/connections/index")                
+                connectionsIndexRows = connectionsIndexTable[ckmerRow[5][0]:ckmerRow[5][0]+ckmerRow[5][1]]               
+            else:
+                connectionsIndexRows = []
+            if ckmerRow[6][1]>0:   
+                connectionsPairedTable = h5file.get("/connections/paired")                
+                connectionsPairedRows = connectionsPairedTable[ckmerRow[6][0]:ckmerRow[6][0]+ckmerRow[6][1]]
+            else:
+                connectionsPairedRows = []
+            return Split._kmer_connected_result(id, ckmerRow, connectionsIndexRows, connectionsPairedRows, h5file)
         else:
             return None
     
@@ -358,30 +346,33 @@ class Split:
         ckmerList = list(ckmerList)
         ckmerList.sort()
         #get ids
-        ckmerIds = set()
         ckmerTable = h5file.get("/split/ckmer")
         number = ckmerTable.shape[0]
         start = 0
         cache = {}
+        #construct response
+        response = []
         for i in range(len(ckmerList)):
             ckmer = ckmerList[i]
             (ckmerRow,id,cache) = Split._findItem(ckmer,ckmerTable,start,number,cache)
             if ckmerRow:
-                ckmerIds.add(id)
                 start = id+1
+                if ckmerRow[5][1]>0:   
+                    connectionsIndexTable = h5file.get("/connections/index")                
+                    connectionsIndexRows = connectionsIndexTable[ckmerRow[5][0]:ckmerRow[5][0]+ckmerRow[5][1]]               
+                else:
+                    connectionsIndexRows = []
+                if ckmerRow[6][1]>0:   
+                    connectionsPairedTable = h5file.get("/connections/paired")                
+                    connectionsPairedRows = connectionsPairedTable[ckmerRow[6][0]:ckmerRow[6][0]+ckmerRow[6][1]]
+                else:
+                    connectionsPairedRows = []
+                response.append(Split._kmer_connected_result(id, ckmerRow, connectionsIndexRows, 
+                                                             connectionsPairedRows, h5file))
             else:
                 start = id 
-        ckmerIds=sorted(list(ckmerIds))
-        #get connectedIndexlinks
-        connectedIndexLinks = []
-        relationsCkmerTable = h5file.get("/relations/ckmer")
-        relationsCkmerConnectedTable = h5file.get("/relations/ckmerConnected")
-        for id in ckmerIds:            
-            relationsCkmerRow = relationsCkmerTable[id]
-            if relationsCkmerRow[1]>0:                
-                for row in relationsCkmerConnectedTable[relationsCkmerRow[0]:relationsCkmerRow[0]+relationsCkmerRow[1]]:
-                    connectedIndexLinks.append(row[0])
-        return Split._kmer_connected_result(connectedIndexLinks, h5file)
+        return response
+            
    
     #---
     

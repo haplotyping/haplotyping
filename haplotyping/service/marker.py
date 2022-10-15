@@ -8,14 +8,14 @@ class Marker:
             dataTable = h5file.get("/data")
             if varietyId>=0 and varietyId<dataTable.shape[0]:
                 markerList = []
-                ploidy = int(varietyTable["ploidy"][varietyId])
+                name = varietyTable["name"][varietyId].decode("utf8")
                 values = dataTable[varietyId]
                 for i in range(len(values)):
                     if values[i]>=0:
                         markerList.append(int(values[i]))
                     else:
                         markerList.append(None)
-                return (ploidy,markerList,)
+                return (name,markerList,)
             else:
                 raise Exception("invalid identifier '"+str(varietyId)+"', data not available"+str(dataTable.shape))
                 

@@ -52,7 +52,7 @@ class DatasetList(Resource):
                               help="variety has dataset from comma separated list of collection uids")
     dataset_list.add_argument("hasVariety", type=bool, required=False, location="values", 
                               help="linked to a variety")
-    dataset_list.add_argument("type", type=str, required=False, location="values", choices=["marker","kmer","split"], 
+    dataset_list.add_argument("dataType", type=str, required=False, location="values", choices=["marker","kmer","split"], 
                               help="type of dataset")
     
     dataset_set = namespace.model("uid list to get datasets", {"uids": fields.List(fields.String, attribute="items", 
@@ -66,38 +66,28 @@ class DatasetList(Resource):
             number = int(request.args.get("number",10))        
             name = request.args.get("name",None)
             collection = request.args.get("collection",None)
-            variety = request.args.get("variety",None)
-            kmer = request.args.get("kmer",None)
-            split = request.args.get("split",None)
-            marker = request.args.get("marker",None)
-            condition_sql = "1"
+            hasVariety = request.args.get("hasVariety",None)
+            dataType = request.args.get("dataType",None)
+            condition_sql = "NOT (`dataset`.`uid` IS NULL OR `dataset`.`type` IS NULL)"
             condition_variables = []
             if not collection==None:
                 collection_list = collection.split(",")
-                condition_sql = condition_sql + " AND (`collection`.`name` IN ("+",".join(["?"]*len(collection_list))+"))"
+                condition_sql = condition_sql + " AND (`collection`.`uid` IN ("+",".join(["?"]*len(collection_list))+"))"
                 condition_variables.extend(collection_list)
-            if not variety==None:
-                if _make_bool(variety):
+            if not hasVariety==None:
+                if _make_bool(hasVariety):
                     condition_sql = condition_sql + " AND NOT (`dataset`.`variety` IS NULL)"
                 else:
                     condition_sql = condition_sql + " AND (`dataset`.`variety` IS NULL)"       
-            if not kmer==None:
-                if _make_bool(kmer):
-                    condition_sql = condition_sql + " AND NOT (`dataset`.`location_kmer` IS NULL)"
+            if not dataType==None:
+                if dataType=="kmer":
+                    condition_sql = condition_sql + " AND ((`dataset`.`type` IS 'kmer') OR (`dataset`.`type` IS 'split'))"  
+                elif dataType=="split":
+                    condition_sql = condition_sql + " AND (`dataset`.`type` IS 'split')" 
+                elif dataType=="marker":
+                    condition_sql = condition_sql + " AND (`dataset`.`type` IS 'marker')"
                 else:
-                    condition_sql = condition_sql + " AND (`dataset`.`location_kmer` IS NULL)"
-            if not split==None:
-                if _make_bool(split):
-                    condition_sql = condition_sql + " AND NOT (`dataset`.`location_split` IS NULL)"
-                else:
-                    condition_sql = condition_sql + " AND (`dataset`.`location_split` IS NULL)"   
-            if not marker==None:
-                if _make_bool(marker):
-                    condition_sql = condition_sql + " AND NOT (`dataset`.`location_marker` IS NULL \
-                                                            OR `dataset`.`marker_id` IS NULL)"
-                else:
-                    condition_sql = condition_sql + " AND (`dataset`.`location_marker` IS NULL \
-                                                            OR `dataset`.`marker_id` IS NULL)"   
+                    abort(422, "incorrect dataType condition "+str(dataType))   
             db_connection = haplotyping.service.API.get_db_connection()
             db_connection.row_factory = sqlite3.Row
             cursor = db_connection.cursor()
@@ -109,11 +99,9 @@ class DatasetList(Resource):
             total = cursor.fetchone()[0]
             if start<total:
                 cursor.execute("SELECT `dataset`.`uid`, \
-                                (CASE WHEN `dataset`.`location_kmer` IS NULL THEN 0 ELSE 1 END) AS `kmer`, \
-                                (CASE WHEN `dataset`.`location_split` IS NULL THEN 0 ELSE 1 END) AS `split`, \
-                                (CASE WHEN `dataset`.`location_marker` IS NULL OR \
-                                    `dataset`.`marker_id` IS NULL THEN 0 ELSE 1 END) AS `marker`, \
-                                `collection`.`name` AS `collection`, \
+                                `dataset`.`type`, \
+                                `collection`.`uid` AS `collection_uid`, \
+                                `collection`.`name` AS `collection_name`, \
                                 `variety`.`uid` AS `variety_uid`, \
                                 `variety`.`name` AS `variety_name`, \
                                 `variety`.`origin` AS `variety_origin`, \
@@ -154,10 +142,7 @@ class DatasetList(Resource):
                                 WHERE "+condition_sql, tuple(condition_variables))  
                 total = cursor.fetchone()[0]
                 cursor.execute("SELECT `dataset`.`uid`, \
-                                (CASE WHEN `dataset`.`location_kmer` IS NULL THEN 0 ELSE 1 END) AS `kmer`, \
-                                (CASE WHEN `dataset`.`location_split` IS NULL THEN 0 ELSE 1 END) AS `split`, \
-                                (CASE WHEN `dataset`.`location_marker` IS NULL OR \
-                                    `dataset`.`marker_id` IS NULL THEN 0 ELSE 1 END) AS `marker`, \
+                                `dataset`.`type`, \
                                 `collection`.`name` AS `collection`, \
                                 `variety`.`uid` AS `variety_uid`, \
                                 `variety`.`name` AS `variety_name`, \
@@ -192,10 +177,7 @@ class DatasetId(Resource):
             db_connection.row_factory = sqlite3.Row
             cursor = db_connection.cursor()
             cursor.execute("SELECT `dataset`.`uid`, \
-                            (CASE WHEN `dataset`.`location_kmer` IS NULL THEN 0 ELSE 1 END) AS `kmer`, \
-                            (CASE WHEN `dataset`.`location_split` IS NULL THEN 0 ELSE 1 END) AS `split`, \
-                            (CASE WHEN `dataset`.`location_marker` IS NULL OR \
-                                    `dataset`.`marker_id` IS NULL THEN 0 ELSE 1 END) AS `marker`, \
+                            `dataset`.`type`, \
                             `collection`.`name` AS `collection`, \
                             `variety`.`uid` AS `variety_uid`, \
                             `variety`.`name` AS `variety_name`, \

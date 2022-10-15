@@ -13,18 +13,36 @@ yearRangePattern = re.compile(r"^[\d]{4}\-[\d]{4}$")
 def _make_bool(text):
     return str(text).lower() in ("yes", "true", "t", "1")
 
-def get_variety_datasets(uid, db_connection):
+def get_variety_datasets(uid, collection, dataset, db_connection):
+    condition_variables = [uid]
+    condition_sql = "`dataset`.`variety` = ? \
+                        AND (NOT `dataset`.`uid` IS NULL) AND (NOT `dataset`.`type` IS NULL)"
+    if not collection==None:
+        collection_list = collection.split(",")
+        condition_sql = condition_sql + " AND (`collection`.`uid` IN ("+",".join(["?"]*len(collection_list))+"))"
+        condition_variables.extend(collection_list)
+    if not dataset==None:
+        if dataset=="any":
+            condition_sql = condition_sql + " AND NOT (`dataset`.`id` IS NULL)"
+        elif dataset=="none":
+            condition_sql = condition_sql + " AND (`dataset`.`id` IS NULL)"  
+        elif dataset=="kmer":
+            condition_sql = condition_sql + " AND ((`dataset`.`type` IS 'kmer') OR (`dataset`.`type` IS 'split'))"  
+        elif dataset=="split":
+            condition_sql = condition_sql + " AND (`dataset`.`type` IS 'split')" 
+        elif dataset=="marker":
+            condition_sql = condition_sql + " AND (`dataset`.`type` IS 'marker')" 
+        else:
+            abort(422, "incorrect dataset condition "+str(dataset))
     cursor = db_connection.cursor()
     cursor.execute("SELECT `dataset`.`uid`, \
-                        (CASE WHEN `dataset`.`location_kmer` IS NULL THEN 0 ELSE 1 END) AS `kmer`, \
-                        (CASE WHEN `dataset`.`location_split` IS NULL THEN 0 ELSE 1 END) AS `split`, \
-                        (CASE WHEN `dataset`.`location_marker` IS NULL OR `dataset`.`marker_id` \
-                            IS NULL THEN 0 ELSE 1 END) AS `marker`, \
-                        `collection`.`name` AS `collection` \
+                           `dataset`.`type`, \
+                           `collection`.`uid` AS `collection_uid`, \
+                           `collection`.`name` AS `collection_name` \
                         FROM `dataset` \
                         LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
-                        WHERE `dataset`.`variety` = ? \
-                        ORDER BY `collection`.`name`, `dataset`.`uid`",(uid,)) 
+                        WHERE "+condition_sql+" ORDER BY `collection`.`name`, `dataset`.`uid`", 
+                   tuple(condition_variables)) 
     return [dict(row) for row in cursor.fetchall()]  
 
 def parents_tree(id,parentData):
@@ -84,17 +102,10 @@ def year_description(year_min,year_max):
     else:
         return str(year_min)+"-"+str(year_max)
     
-def adjust_variety_response(item, db_connection):
+def adjust_variety_response(item, collection, dataset, db_connection):
     #origin
-    item["origin"] = {"uid": item["origin"], "country": item["country"], 
-                        "intermediate-region": item["intermediate-region"],
-                        "sub-region": item["sub-region"],
-                        "region": item["region"]
-                        }
+    item["origin"] = {"uid": item["origin"], "country": item["country"]}
     del item["country"]
-    del item["region"]
-    del item["sub-region"]
-    del item["intermediate-region"]
     #year
     item["year"] = {"description": year_description(item["year_min"],item["year_max"]), 
                     "min": item["year_min"], 
@@ -102,7 +113,14 @@ def adjust_variety_response(item, db_connection):
     del item["year_min"]
     del item["year_max"]
     #datasets
-    item["datasets"] = get_variety_datasets(item["uid"], db_connection)
+    item["datasets"] = get_variety_datasets(item["uid"], collection, dataset, db_connection)
+    for i in range(len(item["datasets"])):
+        item["datasets"][i]["collection"] = {
+            "uid": item["datasets"][i]["collection_uid"],
+            "name": item["datasets"][i]["collection_name"]
+        }
+        del item["datasets"][i]["collection_uid"]
+        del item["datasets"][i]["collection_name"]
     #parents
     item["parents"] = get_variety_parents(item["uid"], db_connection)
     #offspring
@@ -125,12 +143,12 @@ class VarietyList(Resource):
     variety_list.add_argument("year", type=str, required=False, location="args", 
                               help="year of variety (e.g. '1995', '<1995', '>1995', '1990-1995')")
     variety_list.add_argument("collection", type=str, required=False, location="args", 
-                              help="variety has dataset from comma separated list of collections")
+                              help="variety has dataset from comma separated list of collection uids")
     variety_list.add_argument("dataset", type=str, required=False, location="args", 
                               help="variety has dataset (of specific type)", choices=["any","none","kmer","split","marker"])
-    variety_list.add_argument("parents", type=bool, required=False, location="args", 
+    variety_list.add_argument("hasParents", type=bool, required=False, location="args", 
                               help="parent(s) known for this variety")
-    variety_list.add_argument("offspring", type=bool, required=False, location="args", 
+    variety_list.add_argument("hasOffspring", type=bool, required=False, location="args", 
                               help="offspring known for this variety")
 
     variety_set = namespace.model("uid list to get varieties", {"uids": fields.List(fields.String, attribute="items", 
@@ -147,8 +165,8 @@ class VarietyList(Resource):
             year = request.args.get("year",None)
             collection = request.args.get("collection",None)
             dataset = request.args.get("dataset",None)
-            parents = request.args.get("parents",None)
-            offspring = request.args.get("offspring",None)
+            hasParents = request.args.get("hasParents",None)
+            hasOffspring = request.args.get("hasOffspring",None)
             condition_sql = "1"
             condition_variables = []
             if not name==None:
@@ -182,29 +200,28 @@ class VarietyList(Resource):
                     abort(422, "incorrect year condition "+str(year))
             if not collection==None:
                 collection_list = collection.split(",")
-                condition_sql = condition_sql + " AND (`collection`.`name` IN ("+",".join(["?"]*len(collection_list))+"))"
+                condition_sql = condition_sql + " AND (`collection`.`uid` IN ("+",".join(["?"]*len(collection_list))+"))"
                 condition_variables.extend(collection_list)
             if not dataset==None:
                 if dataset=="any":
-                    condition_sql = condition_sql + " AND NOT (`dataset`.`uid` IS NULL)"
+                    condition_sql = condition_sql + " AND NOT (`dataset`.`id` IS NULL)"  
                 elif dataset=="none":
                     condition_sql = condition_sql + " AND (`dataset`.`id` IS NULL)"  
                 elif dataset=="kmer":
-                    condition_sql = condition_sql + " AND NOT (`dataset`.`location_kmer` IS NULL)"  
+                    condition_sql = condition_sql + " AND ((`dataset`.`type` IS 'kmer') OR (`dataset`.`type` IS 'split'))"  
                 elif dataset=="split":
-                    condition_sql = condition_sql + " AND NOT (`dataset`.`location_split` IS NULL)"  
+                    condition_sql = condition_sql + " AND (`dataset`.`type` IS 'split')" 
                 elif dataset=="marker":
-                    condition_sql = condition_sql + " AND NOT (`dataset`.`location_marker` IS NULL \
-                                                                OR `dataset`.`marker_id` IS NULL)"  
+                    condition_sql = condition_sql + " AND (`dataset`.`type` IS 'marker')"
                 else:
                     abort(422, "incorrect dataset condition "+str(dataset))
-            if not parents==None:
-                if _make_bool(parents):
+            if not hasParents==None:
+                if _make_bool(hasParents):
                     condition_sql = condition_sql + " AND NOT (`ancestor`.`id` IS NULL)"
                 else:
                     condition_sql = condition_sql + " AND (`ancestor`.`id` IS NULL)"       
-            if not offspring==None:
-                if _make_bool(offspring):
+            if not hasOffspring==None:
+                if _make_bool(hasOffspring):
                     condition_sql = condition_sql + " AND NOT (`offspring`.`id` IS NULL)"
                 else:
                     condition_sql = condition_sql + " AND (`offspring`.`id` IS NULL)"       
@@ -214,6 +231,7 @@ class VarietyList(Resource):
             cursor.execute("SELECT COUNT(DISTINCT `variety`.`id`) AS `number` \
                             FROM `variety` \
                             LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
+                            AND NOT `dataset`.`uid` IS NULL AND NOT `dataset`.`type` IS NULL \
                             LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
                             LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
                             LEFT JOIN `variety_ancestor` AS `ancestor` ON `variety`.`uid` = `ancestor`.`variety` \
@@ -222,12 +240,12 @@ class VarietyList(Resource):
             total = cursor.fetchone()[0]
             if start<total:
                 cursor.execute("SELECT `variety`.`uid`, `variety`.`name`, `variety`.`origin`, \
-                                `country`.`name` AS `country`, `country`.`region`, \
-                                `country`.`sub-region`, `country`.`intermediate-region`, \
+                                `country`.`name` AS `country`, \
                                 NULL AS `year`, `variety`.`year_min`, `variety`.`year_max`, \
                                 COUNT(DISTINCT `dataset`.`id`) as `datasets` \
                                 FROM `variety` \
                                 LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
+                                AND NOT `dataset`.`uid` IS NULL AND NOT `dataset`.`type` IS NULL\
                                 LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
                                 LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
                                 LEFT JOIN `variety_ancestor` AS `ancestor` ON `variety`.`uid` = `ancestor`.`variety` \
@@ -240,7 +258,7 @@ class VarietyList(Resource):
             else:
                 resultList = []
             for i in range(len(resultList)):
-                resultList[i] = adjust_variety_response(resultList[i], db_connection)                
+                resultList[i] = adjust_variety_response(resultList[i], collection, dataset, db_connection)                
             response = {"start": start, "number": number, "total": total, "list": resultList}
             return Response(json.dumps(response), mimetype="application/json") 
         except Exception as e:
@@ -260,16 +278,17 @@ class VarietyList(Resource):
                 cursor.execute("SELECT COUNT(DISTINCT `variety`.`id`) AS `number` \
                                 FROM `variety` \
                                 LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
+                                AND NOT (`dataset`.`uid` IS NULL) AND NOT (`dataset`.`type` IS NULL) \
                                 LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
                                 WHERE "+condition_sql, tuple(condition_variables))  
                 total = cursor.fetchone()[0]
                 cursor.execute("SELECT `variety`.`uid`, `variety`.`name`, `variety`.`origin`, \
-                                `country`.`name` AS `country`, `country`.`region`, \
-                                `country`.`sub-region`, `country`.`intermediate-region`, \
+                                `country`.`name` AS `country`, \
                                 NULL AS `year`, `variety`.`year_min`, `variety`.`year_max`, \
                                 COUNT(DISTINCT `dataset`.`id`) as `datasets` \
                                 FROM `variety` \
                                 LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
+                                AND NOT (`dataset`.`uid` IS NULL) AND NOT (`dataset`.`type` IS NULL) \
                                 LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
                                 WHERE "+condition_sql+" \
                                 GROUP BY `variety`.`id` \
@@ -279,7 +298,7 @@ class VarietyList(Resource):
                 total = 0
                 resultList = []
             for i in range(len(resultList)):
-                resultList[i] = adjust_variety_response(resultList[i], db_connection)                
+                resultList[i] = adjust_variety_response(resultList[i], None, None, db_connection)                
             response = {"total": total, "list": resultList}
             return Response(json.dumps(response), mimetype="application/json") 
         except Exception as e:
@@ -296,18 +315,18 @@ class VarietyId(Resource):
             db_connection.row_factory = sqlite3.Row
             cursor = db_connection.cursor()
             cursor.execute("SELECT `variety`.`uid`, `variety`.`name`, `variety`.`origin`, \
-                            `country`.`name` AS `country`, `country`.`region`, \
-                            `country`.`sub-region`, `country`.`intermediate-region`, \
+                            `country`.`name` AS `country`, \
                             NULL AS `year`, `variety`.`year_min`, `variety`.`year_max`, \
                             NULL as `datasets` \
                             FROM `variety` \
                             LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
+                            AND NOT (`dataset`.`uid` IS NULL) AND NOT (`dataset`.`type` IS NULL) \
                             LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
                             WHERE `variety`.`uid` = ? \
                             GROUP BY `variety`.`id`",(uid,))  
             data = cursor.fetchone()
             if data:
-                response = adjust_variety_response(dict(data), db_connection)
+                response = adjust_variety_response(dict(data), None, None, db_connection)
                 return Response(json.dumps(response), mimetype="application/json")
             else:
                 abort(404, "no variety with uid "+str(uid))

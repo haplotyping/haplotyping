@@ -1,12 +1,16 @@
 from flask import Response, request, abort
 from flask_restx import Namespace, Resource, fields
 from flask_caching import Cache
-import json, haplotyping, sqlite3
+import json, haplotyping, sqlite3, os
 
 from haplotyping.service.kmer_kmc import Kmer as KmerKMC
 
 def _make_cache_key(*args, **kwargs):
-    cacheKey = "%s_%s_%s_%s" % (args[0].__class__.__name__, str(request.path), str(request.args), str(namespace.payload))
+    #todo: find better solution
+    try:
+        cacheKey = "%s_%s_%s_%s" % (args[0].__class__.__name__, str(request.path), str(request.args), str(namespace.payload))
+    except:
+        cacheKey = "%s_%s_%s" % (args[0].__class__.__name__, str(request.path), str(request.args))
     return cacheKey
     
 namespace = Namespace("kmer", description="K-mer frequencies for a dataset", path="/kmer")
@@ -18,12 +22,13 @@ def _getDataset(uid):
     db_connection.row_factory = sqlite3.Row
     cursor = db_connection.cursor()
     cursor.execute("SELECT `dataset`.`uid`, \
-                    `dataset`.`location_kmer`, \
-                    `collection`.`location` AS `location` \
+                    `dataset`.`type`, \
+                    `dataset`.`location` AS `dataset_location`, \
+                    `collection`.`location` AS `collection_location` \
                     FROM `dataset` \
                     LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
                     WHERE `dataset`.`uid` = ? \
-                    AND NOT `dataset`.`location_kmer` IS NULL \
+                    AND (`dataset`.`type` = 'kmer' OR `dataset`.`type` = 'split') \
                     AND NOT `collection`.`location` IS NULL",(str(uid),))  
     data = cursor.fetchone()
     return data
@@ -44,7 +49,12 @@ class KmerSingle(Resource):
         try:
             data = _getDataset(uid)
             if data:
-                location_kmc = haplotyping.service.API.get_data_location() + data["location"] + data["location_kmer"]
+                if not data["collection_location"]==None:
+                    location_kmc = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.kmc")
+                else:
+                    location_kmc = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.kmc")
                 kmc_query_library = haplotyping.service.API.get_kmc_query_library()
                 kmc_query_binary_location = haplotyping.service.API.get_kmc_query_binary_location()
                 if kmc_query_library:
@@ -52,10 +62,12 @@ class KmerSingle(Resource):
                     if not response:
                         abort(500,"no response using kmc query library for "+str(kmer))
                 elif kmc_query_binary_location:
-                    response = KmerKMC.kmc_binary_frequencies(kmc_query_binary_location,location_kmc,[kmer],mm)
+                    kmc_query_binary_location_query = os.path.join(kmc_query_binary_location,"kmc_query")
+                    kmc_query_binary_location_analysis = os.path.join(kmc_query_binary_location,"kmc_analysis")
+                    response = KmerKMC.kmc_binary_frequencies(kmc_query_binary_location_query,location_kmc,[kmer],mm)
                     if not response:
                         abort(500,"no response using kmc query binary for "+str(kmer))
-                    response["info"] = KmerKMC.kmc_binary_info(kmc_query_binary_location,location_kmc)
+                    response["info"] = KmerKMC.kmc_binary_info(kmc_query_binary_location_analysis,location_kmc)
                 else:
                     abort(500,"no kmc binary or library configured")
                 return Response(json.dumps(response), mimetype="application/json")                
@@ -82,7 +94,12 @@ class KmerMultiple(Resource):
         try:
             data = _getDataset(uid)
             if data:
-                location_kmc = haplotyping.service.API.get_data_location() + data["location"] + data["location_kmer"]
+                if not data["collection_location"]==None:
+                    location_kmc = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.kmc")
+                else:
+                    location_kmc = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.kmc")
                 kmc_query_library = haplotyping.service.API.get_kmc_query_library()
                 kmc_query_binary_location = haplotyping.service.API.get_kmc_query_binary_location()
                 if kmc_query_library:
@@ -90,10 +107,12 @@ class KmerMultiple(Resource):
                     if not response:
                         abort(500,"no response using kmc query library for "+str(kmers))
                 elif kmc_query_binary_location:
-                    response = KmerKMC.kmc_binary_frequencies(kmc_query_binary_location,location_kmc,kmers,mm)
+                    kmc_query_binary_location_query = os.path.join(kmc_query_binary_location,"kmc_query")
+                    kmc_query_binary_location_analysis = os.path.join(kmc_query_binary_location,"kmc_analysis")
+                    response = KmerKMC.kmc_binary_frequencies(kmc_query_binary_location_query,location_kmc,kmers,mm)
                     if not response:
                         abort(500,"no response using kmc query binary for "+str(kmers))
-                    response["info"] = KmerKMC.kmc_binary_info(kmc_query_binary_location,location_kmc)
+                    response["info"] = KmerKMC.kmc_binary_info(kmc_query_binary_location_analysis,location_kmc)
                 else:
                     abort(500,"no kmc binary or library configured")
                 return Response(json.dumps(response), mimetype="application/json")                
@@ -122,7 +141,12 @@ class KmerSequence(Resource):
         try:
             data = _getDataset(uid)
             if data:
-                location_kmc = haplotyping.service.API.get_data_location() + data["location"] + data["location_kmer"]
+                if not data["collection_location"]==None:
+                    location_kmc = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.kmc")
+                else:
+                    location_kmc = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.kmc")
                 kmc_query_library = haplotyping.service.API.get_kmc_query_library()
                 kmc_query_binary_location = haplotyping.service.API.get_kmc_query_binary_location()
                 if kmc_query_library:
@@ -135,10 +159,12 @@ class KmerSequence(Resource):
                     if not response:
                         abort(500,"no response using kmc query library for "+str(kmers))
                 elif kmc_query_binary_location:
-                    info = KmerKMC.kmc_binary_info(kmc_query_binary_location,location_kmc)
+                    kmc_query_binary_location_query = os.path.join(kmc_query_binary_location,"kmc_query")
+                    kmc_query_binary_location_analysis = os.path.join(kmc_query_binary_location,"kmc_analysis")
+                    info = KmerKMC.kmc_binary_info(kmc_query_binary_location_analysis,location_kmc)
                     k = info.get("kmer_length",0)
                     kmers = [sequence[i:i+k] for i in range(len(sequence)-(k-1)) if k>0]
-                    response = KmerKMC.kmc_binary_frequencies(kmc_query_binary_location,location_kmc,kmers,mm)
+                    response = KmerKMC.kmc_binary_frequencies(kmc_query_binary_location_query,location_kmc,kmers,mm)
                     response["info"] = info;
                     if not response:
                         abort(500,"no response using kmc query binary for "+str(kmers))

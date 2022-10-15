@@ -1,4 +1,4 @@
-import ctypes, tempfile, subprocess, re
+import ctypes, tempfile, subprocess, re, os
 
 class Kmer:
     
@@ -76,7 +76,7 @@ class Kmer:
     def kmc_binary_info(binary_location: str, filename: str):
         try:        
             response = {}
-            args = [binary_location+"kmc_analysis", "info", filename]
+            args = [binary_location, "info", filename]
             p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             result = p.communicate()
             if result[1]:
@@ -114,7 +114,7 @@ class Kmer:
             return str(e)
             return None
     
-    def kmc_binary_frequencies(binary_location: str, filename: str, kmers: list = [], mm: int = 0):
+    def kmc_binary_frequencies(binary_location: str, data_location: str, kmers: list = [], mm: int = 0):
         inputFile = None
         try:        
             response = {"stats":{}, "kmers": {}}
@@ -124,7 +124,7 @@ class Kmer:
                     for kmer in kmers:
                         line = str(kmer).strip()+"\n"
                         file.write(line.encode("utf-8")) 
-                args = [binary_location+"kmc_query", filename, "-mm", str(mm), "-f", inputFile.name]
+                args = [binary_location, data_location, "-mm", str(mm), "-f", inputFile.name]
                 p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 result = p.communicate()
                 if result[1]:

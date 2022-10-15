@@ -1,12 +1,16 @@
 from flask import Response, request, abort
 from flask_restx import Namespace, Resource, fields
 from flask_caching import Cache
-import json, haplotyping, sqlite3
+import json, haplotyping, sqlite3, os
 
 from haplotyping.service.split import Split
 
 def _make_cache_key(*args, **kwargs):
-    cacheKey = "%s_%s_%s_%s" % (args[0].__class__.__name__, str(request.path), str(request.args), str(namespace.payload))
+    #todo: find better solution
+    try:
+        cacheKey = "%s_%s_%s_%s" % (args[0].__class__.__name__, str(request.path), str(request.args), str(namespace.payload))
+    except:
+        cacheKey = "%s_%s_%s" % (args[0].__class__.__name__, str(request.path), str(request.args))
     return cacheKey
    
 namespace = Namespace("split", description="Splitting k-mer information for a dataset", path="/split")
@@ -18,12 +22,13 @@ def _getDataset(uid):
     db_connection.row_factory = sqlite3.Row
     cursor = db_connection.cursor()
     cursor.execute("SELECT `dataset`.`uid`, \
-                    `dataset`.`location_split`, \
-                    `collection`.`location` AS `location` \
+                    `dataset`.`type`, \
+                    `dataset`.`location` AS `dataset_location`, \
+                    `collection`.`location` AS `collection_location` \
                     FROM `dataset` \
                     LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
                     WHERE `dataset`.`uid` = ? \
-                    AND NOT `dataset`.`location_split` IS NULL \
+                    AND (`dataset`.`type` = 'kmer' OR `dataset`.`type` = 'split') \
                     AND NOT `collection`.`location` IS NULL",(str(uid),))  
     data = cursor.fetchone()
     return data
@@ -38,7 +43,12 @@ class SplitKmerInfo(Resource):
         try:
             data = _getDataset(uid)
             if data:
-                location_split = haplotyping.service.API.get_data_location() + data["location"] + data["location_split"]
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
                 response = Split.info(location_split)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -56,7 +66,12 @@ class SplitKmerSingle(Resource):
         try:
             data = _getDataset(uid)
             if data:
-                location_split = haplotyping.service.API.get_data_location() + data["location"] + data["location_split"]
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
                 response = Split.kmer_info(location_split, kmer)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -80,7 +95,12 @@ class SplitKmerMultiple(Resource):
         try:
             data = _getDataset(uid)
             if data:
-                location_split = haplotyping.service.API.get_data_location() + data["location"] + data["location_split"]
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
                 response = Split.kmer_list_info(location_split, kmers)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -98,7 +118,12 @@ class SplitKmerDirectSingle(Resource):
         try:
             data = _getDataset(uid)
             if data:
-                location_split = haplotyping.service.API.get_data_location() + data["location"] + data["location_split"]
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
                 response = Split.kmer_direct(location_split, kmer)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -122,7 +147,12 @@ class SplitKmerDirectMultiple(Resource):
         try:
             data = _getDataset(uid)
             if data:
-                location_split = haplotyping.service.API.get_data_location() + data["location"] + data["location_split"]
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
                 response = Split.kmer_list_direct(location_split, kmers)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -140,7 +170,12 @@ class SplitKmerConnectedSingle(Resource):
         try:
             data = _getDataset(uid)
             if data:
-                location_split = haplotyping.service.API.get_data_location() + data["location"] + data["location_split"]
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
                 response = Split.kmer_connected(location_split, kmer)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -164,7 +199,12 @@ class SplitKmerConnectedMultiple(Resource):
         try:
             data = _getDataset(uid)
             if data:
-                location_split = haplotyping.service.API.get_data_location() + data["location"] + data["location_split"]
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
                 response = Split.kmer_list_connected(location_split, kmers)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -187,7 +227,12 @@ class SplitKmerSequence(Resource):
         try:
             data = _getDataset(uid)
             if data:
-                location_split = haplotyping.service.API.get_data_location() + data["location"] + data["location_split"]
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
                 response = Split.kmer_sequence_info(location_split, sequence)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -205,7 +250,12 @@ class SplitBaseSingle(Resource):
         try:
             data = _getDataset(uid)
             if data:
-                location_split = haplotyping.service.API.get_data_location() + data["location"] + data["location_split"]
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
                 response = Split.base_info(location_split, base)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -229,7 +279,12 @@ class SplitBaseMultiple(Resource):
         try:
             data = _getDataset(uid)
             if data:
-                location_split = haplotyping.service.API.get_data_location() + data["location"] + data["location_split"]
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
                 response = Split.base_list_info(location_split, bases)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:

@@ -81,10 +81,17 @@ class API:
         except:
             return None
         
-    def get_data_location():
+    def get_data_kmer_location():
         try:
             config = current_app.config.get("config")
-            return config["settings"]["data_location"]
+            return config["settings"]["data_location_kmer"]
+        except:
+            return None
+                                
+    def get_data_marker_location():
+        try:
+            config = current_app.config.get("config")
+            return config["settings"]["data_location_marker"]
         except:
             return None
                                 

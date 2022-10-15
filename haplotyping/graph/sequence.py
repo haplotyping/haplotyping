@@ -3,10 +3,12 @@ from haplotyping.graph.api import APIGraph
 from haplotyping.general import General
 import haplotyping
 
+#TODO: minimum frequency and maximum distance centrally configured
+
 class SequenceGraph(APIGraph):
     """constructing the De Bruijn graph"""
     
-    def __init__(self, url: str, uid: str, sequence: str):
+    def __init__(self, url: str, uid: str, sequence: str, expandSteps: int = 10, ignoreMissingPath: bool = True):
         """
         construct the De Bruijn graph from a reference sequence using the dataset 
         defined by uid via the API at provided url
@@ -17,14 +19,17 @@ class SequenceGraph(APIGraph):
         self._logger = logging.getLogger(__name__)
         #store call parameters
         self._sequence = str(sequence).strip()
+        self._expandSteps = expandSteps
+        self._ignoreMissingPath = ignoreMissingPath
         self._logger.info("construct De Bruijn graph for sequence of length "+str(len(self._sequence)))
-        #start initialisation
-        self._sequencePositions = set()
+        #construct by expanding
         self._sequence_construct_graph()
         #try to fix missing connections in the graph
         self._fix_missing_connections()
         #try to glue missing connections
         self._glue_missing_connections()
+        #fix start and end based on connected candidates
+        self._expand_connected_start_end_candidates()
         
     def __repr__(self):
         text = super(haplotyping.graph.sequence.SequenceGraph, self).__repr__()
@@ -37,11 +42,6 @@ class SequenceGraph(APIGraph):
         """
         self._logger.debug("start constructing the De Bruijn Graph")  
         #initialise
-        self._start = set()
-        self._end = set()
-        self._ckmers = {}
-        self._orientatedCkmers = {}
-        self._orientatedBases = {}
         self._connectedCkmers = {}
         #get main k-mers from sequence
         response = requests.post(self._baseUrl+"split/"+self._uid+"/kmer/sequence", json = {"sequence": self._sequence})
@@ -53,6 +53,13 @@ class SequenceGraph(APIGraph):
                 #pre-compute positions
                 forward_positions = {}
                 backward_positions = {}
+                #initialise minimum and maximum
+                positionMin = None
+                positionMax = None
+                startCandidate = None
+                endCandidate = None
+                dataIndex = {item["ckmer"]: item for item in data}
+                #create initial k-mers
                 for i in range(len(self._sequence)-(self._k-1)):
                     kmer = self._sequence[i:i+self._k]
                     ckmer = haplotyping.General.canonical(kmer)
@@ -61,86 +68,172 @@ class SequenceGraph(APIGraph):
                             forward_positions[ckmer].append(i)
                         else:
                             forward_positions[ckmer]=[i]
+                        direction="forward"
                     else:
                         if ckmer in backward_positions.keys():
                             backward_positions[ckmer].append(i)
                         else:
                             backward_positions[ckmer]=[i]
-                #initialise minimum and maximum
-                position_min = len(self._sequence)-self._k
-                position_max = 0
-                #create initial k-mers
-                for item in data:
-                    #get positions
-                    ckmer_forward_positions = set(forward_positions.get(item["ckmer"],[]))
-                    ckmer_backward_positions = set(backward_positions.get(item["ckmer"],[]))
-                    self._sequencePositions.update(ckmer_forward_positions)
-                    self._sequencePositions.update(ckmer_backward_positions)
-                    if len(ckmer_forward_positions)>0:
-                        ckmerForwardEntry = self._create_ckmer(item, "forward")
-                        ckmerForwardEntry.set_level(0)
-                        ckmerForwardEntry.set_candidate()
-                        position_min = min(position_min,min(ckmer_forward_positions))
-                        position_max = max(position_max,max(ckmer_forward_positions))
-                        ckmerForwardEntry.add_positions(ckmer_forward_positions)
-                    if len(ckmer_backward_positions)>0:
-                        ckmerBackwardEntry = self._create_ckmer(item, "backward")
-                        ckmerBackwardEntry.set_level(0)
-                        ckmerBackwardEntry.set_candidate()
-                        position_min = min(position_min,min(ckmer_backward_positions))
-                        position_max = max(position_max,max(ckmer_backward_positions))
-                        ckmerBackwardEntry.add_positions(ckmer_backward_positions)
-                self._logger.debug("found %d splitting k-mers in sequence" % (len(self._orientatedCkmers)))
-                #find first and last splitting k-mer
-                self._logger.debug("define k-mer with position %d as start k-mer" % (position_min))
-                self._logger.debug("define k-mer with position %d as end k-mer" % (position_max))
-                self._start.update([k for k in self._orientatedCkmers.keys() 
-                                    if position_min in self._orientatedCkmers[k]._positions])
-                self._end.update([k for k in self._orientatedCkmers.keys() 
-                                  if position_max in self._orientatedCkmers[k]._positions])
+                        direction="backward"
+                    if ckmer in dataIndex.keys():
+                        orientatedCkmerKey = (ckmer, direction)
+                        if not orientatedCkmerKey in self._orientatedCkmers.keys():
+                            newEntry = self._create_ckmer(dataIndex[ckmer], direction)
+                            newEntry.set_position(i)
+                        else:
+                            newEntry = self._orientatedCkmers[orientatedCkmerKey]
+                        newEntry.set_level(0)
+                        newEntry.set_candidate()
+                        self._selected.add(orientatedCkmerKey)
+                        if positionMin==None or i<positionMin:
+                            startCandidate = orientatedCkmerKey
+                            positionMin = i
+                        if positionMax==None or i>positionMax:
+                            endCandidate = orientatedCkmerKey
+                            positionMax = i
+                self._logger.debug("found {} splitting k-mers in sequence".format(len(self._orientatedCkmers)))
+                
+                #compute (and possibly add) best start candidate(s)
+                searchFinished = False
+                for i in range(positionMin):
+                    startKmer = self._sequence[i:self._k+i]
+                    response = requests.get(self._baseUrl+"kmer/"+self._uid+"/kmer"+str(startKmer)+"?mismatches=2")
+                    if response.ok:
+                        data = response.json()
+                        #found a hit
+                        if len(data["kmers"])>0:
+                            #expand hits to the first splitting k-mer
+                            for kmer in data["kmers"].keys():
+                                splitData = self._findSplit(kmer,"right")
+                                if len(splitData["orientatedCkmers"])>0:
+                                    searchFinished = True
+                                    self._logger.debug("process {} k-mers as potential start candidate(s)".format(
+                                        len(splitData["orientatedCkmers"]))) 
+                                    #alternative route
+                                    if (i+splitData["distance"])>positionMin:
+                                        #mark found splitting k-mers as connected on incoming side
+                                        for orientatedCkmerKey in splitData["orientatedCkmers"]:
+                                            if orientatedCkmerKey in self._orientatedCkmers.keys():
+                                                self._orientatedCkmers[orientatedCkmerKey]._set_connected_via_candidate(
+                                                    "incoming") 
+                                            else:
+                                                response = requests.get(
+                                                    self._baseUrl+"split/"+self._uid+"/kmer"+str(orientatedCkmerKey[0]))
+                                                if response.ok:
+                                                    data = response.json()
+                                                    if data:
+                                                        orientatedCkmer = self._create_ckmer(data, orientatedCkmerKey[1])
+                                                        orientatedCkmer._set_connected_via_candidate("incoming")
+                                    else:
+                                        #mark found splitting k-mers as candidates
+                                        for orientatedCkmerKey in splitData["orientatedCkmers"]:
+                                            if orientatedCkmerKey in self._orientatedCkmers.keys():
+                                                self._orientatedCkmers[orientatedCkmerKey].set_candidate()
+                                                self._orientatedCkmers[orientatedCkmerKey].set_level(1) 
+                                                self._orientatedCkmers[orientatedCkmerKey].set_position(
+                                                   i+splitData["distance"])
+                                            else:
+                                                response = requests.get(
+                                                    self._baseUrl+"split/"+self._uid+"/kmer/"+str(orientatedCkmerKey[0]))
+                                                if response.ok:
+                                                    data = response.json()
+                                                    if data:
+                                                        orientatedCkmer = self._create_ckmer(data, orientatedCkmerKey[1])
+                                                        orientatedCkmer.set_candidate()
+                                                        orientatedCkmer.set_level(1) 
+                                                        orientatedCkmer.set_position(i+splitData["distance"])
+                                                else:
+                                                    self._logger.error("request to {} didn't succeed".format(self._baseUrl))
+                                            self.set_start(orientatedCkmerKey)                            
+                                    if (i+splitData["distance"])>=positionMin:
+                                        #set first splitting k-mer from sequence as start candidate  
+                                        self.set_start(startCandidate)                            
+                        if searchFinished:
+                            break
+                    else:
+                        self._logger.error("request to {} didn't succeed".format(self._baseUrl))                     
+                #at least one start candidate
+                if len(self._start)==0:
+                    #set first splitting k-mer from sequence as start candidate  
+                    self.set_start(startCandidate)
+                self._logger.debug("marked {} orientated k-mers as start candidate(s)".format(len(self._start)))         
+                        
+                #compute (and possibly add) best end candidate(s)
+                searchFinished = False                
+                for i in range(len(self._sequence)-self._k,positionMax-1,-1):
+                    endKmer = self._sequence[i:self._k+i]
+                    response = requests.get(self._baseUrl+"kmer/"+self._uid+"/kmer"+str(endKmer)+"?mismatches=2")
+                    if response.ok:
+                        data = response.json()
+                        #found a hit
+                        if len(data["kmers"])>0:
+                            #expand hits to the first splitting k-mer
+                            for kmer in data["kmers"].keys():
+                                splitData = self._findSplit(kmer,"left")
+                                if len(splitData["orientatedCkmers"])>0:
+                                    searchFinished = True
+                                    self._logger.debug("process {} k-mers as potential end candidate(s)".format(
+                                        len(splitData["orientatedCkmers"]))) 
+                                    #alternative route
+                                    if (i-splitData["distance"])<positionMax:
+                                        #mark found splitting k-mers as connected on incoming side
+                                        for orientatedCkmerKey in splitData["orientatedCkmers"]:
+                                            if orientatedCkmerKey in self._orientatedCkmers.keys():
+                                                self._orientatedCkmers[orientatedCkmerKey]._set_connected_via_candidate(
+                                                    "outgoing") 
+                                            else:
+                                                response = requests.get(
+                                                    self._baseUrl+"split/"+self._uid+"/kmer"+str(orientatedCkmerKey[0]))
+                                                if response.ok:
+                                                    data = response.json()
+                                                    if data:
+                                                        orientatedCkmer = self._create_ckmer(data, orientatedCkmerKey[1])
+                                                        orientatedCkmer._set_connected_via_candidate("outgoing")
+                                    else:
+                                        #mark found splitting k-mers as candidates
+                                        for orientatedCkmerKey in splitData["orientatedCkmers"]:
+                                            if orientatedCkmerKey in self._orientatedCkmers.keys():
+                                                self._orientatedCkmers[orientatedCkmerKey].set_candidate()
+                                                self._orientatedCkmers[orientatedCkmerKey].set_level(1) 
+                                                self._orientatedCkmers[orientatedCkmerKey].set_position(
+                                                   i-splitData["distance"])
+                                            else:
+                                                response = requests.get(
+                                                    self._baseUrl+"split/"+self._uid+"/kmer/"+str(orientatedCkmerKey[0]))
+                                                if response.ok:
+                                                    data = response.json()
+                                                    if data:
+                                                        orientatedCkmer = self._create_ckmer(data, orientatedCkmerKey[1])
+                                                        orientatedCkmer.set_candidate()
+                                                        orientatedCkmer.set_level(1) 
+                                                        orientatedCkmer.set_position(i-splitData["distance"])
+                                                else:
+                                                    self._logger.error("request to {} didn't succeed".format(self._baseUrl))
+                                            self.set_end(orientatedCkmerKey)                            
+                                    if (i-splitData["distance"])<=positionMax:
+                                        #set last splitting k-mer from sequence as end candidate  
+                                        self.set_end(endCandidate)                                 
+                        if searchFinished:
+                            break
+                    else:
+                        self._logger.error("request to {} didn't succeed".format(self._baseUrl))                     
+                #at least one end candidate
+                if len(self._end)==0:
+                    #set last splitting k-mer from sequence as end candidate  
+                    self.set_end(endCandidate)
+                self._logger.debug("marked {} orientated k-mers as end candidate(s)".format(len(self._end))) 
+                
                 #expand k-mer set from the connected set
                 candidate_kmer_keys = [k for k in self._orientatedCkmers.keys() 
                                        if self._orientatedCkmers[k]._candidate]
                 candidate_kmers = set([k[0] for k in candidate_kmer_keys])
-                connected = set(candidate_kmers)
-                #local helper function to find connected k-mers
-                def _find_connected(kmer_list):
-                    response_connected = requests.post(self._baseUrl+"split/"+self._uid+"/kmer/connected", 
-                                         json = {"kmers": sorted(list(kmer_list))})
-                    if response_connected.ok:
-                        data_connected = response_connected.json()
-                        for id in data_connected.keys():
-                            connected.update(data_connected[id]["ckmers"])
-                            connectedCkmersEntry = tuple(data_connected[id]["ckmers"])
-                            if not connectedCkmersEntry in self._connectedCkmers:
-                                self._connectedCkmers[connectedCkmersEntry] = {
-                                    "paired": {}, 
-                                    "direct": data_connected[id]["direct"]>0,
-                                    "number": data_connected[id]["number"]
-                                }
-                            for pairedId in data_connected[id]["paired"]:
-                                pairedConnectedCkmersEntry = tuple(data_connected[pairedId]["ckmers"])
-                                self._connectedCkmers[connectedCkmersEntry]["paired"][pairedConnectedCkmersEntry] = {
-                                    "number": data_connected[id]["paired"][pairedId]
-                                } 
-                    else:
-                        self._logger.error("request to "+self.baseUrl+" didn't succeed") 
                 #expand k-mers
-                for level in range(10):                    
-                    if level==0:
-                        new_candidate_kmers = candidate_kmers
-                    else:
-                        new_candidate_kmer_keys=[k for k in self._orientatedCkmers.keys() 
-                                         if self._orientatedCkmers[k]._candidate and not k[0] in candidate_kmers]
-                        new_candidate_kmers = set([k[0] for k in new_candidate_kmer_keys])
-                    if len(new_candidate_kmers)>0:
-                        _find_connected(candidate_kmers)
-                        self._logger.debug("try to connect %d k-mers" % (len(connected)))                        
-                    self._expand_ckmers(level, connected)                    
+                for level in range(self._expandSteps):                    
+                    self._expand_ckmers(level)                    
         else:
-            self._logger.error("request to "+self.baseUrl+" didn't succeed") 
+            self._logger.error("request to {} didn't succeed".format(self._baseUrl)) 
 
-    def _expand_ckmers(self, level: int, connected: list):
+    def _expand_ckmers(self, level: int):
         """
         expand k-mers from defined level by finding direct connections
         used in _sequence_construct_graph()
@@ -148,7 +241,16 @@ class SequenceGraph(APIGraph):
         assert level>=0
         #define list of k-mers to check
         kmer_keys = [k for k in self._orientatedCkmers.keys() 
-                     if self._orientatedCkmers[k]._level==level]
+                     if (not self._orientatedCkmers[k]._level==None and self._orientatedCkmers[k]._level<=level) and 
+                     not self._orientatedCkmers[k]._expanded]
+        #define orientated right split bases containing a candidate
+        oRightSplitBases_candidate = set([b for b in self._orientatedBases.keys() if self._orientatedBases[b]._candidate])
+        #define orientated canonical k-mers with candidate base
+        ocKmers_candidateBases = [self._orientatedBases[b]._orientatedCkmers for b in oRightSplitBases_candidate]
+        ocKmers_candidateBases = set([item for sublist in ocKmers_candidateBases for item in sublist])
+        #extend kmer-keys
+        kmer_keys.extend([c for c in ocKmers_candidateBases if not self._orientatedCkmers[c]._expanded])
+        #process
         kmers = set([k[0] for k in kmer_keys])
         initial_candidates = sum(self._orientatedCkmers[ckmer_key]._candidate for ckmer_key in self._orientatedCkmers)
         self._logger.debug("from %d k-mers with %d candidates, expand %d at level %d" % 
@@ -171,55 +273,52 @@ class SequenceGraph(APIGraph):
                             assert direction1 in ["left","right"]
                             for directionItem in item["direct"][direction1]:                                
                                 ckmer2 = directionItem["ckmer"]
-                                if not ckmer2 in connected:
-                                    counter_skipped_connections+=1
+                                #administration
+                                counter_direct_connections+=1
+                                set_direct_kmers.add(ckmer2)
+                                direction2 = directionItem["connection"]["direction"]
+                                assert direction2 in ["left","right"]
+                                #inward/outward
+                                if ((orientation1=="forward" and direction1=="right") or
+                                    (orientation1=="backward" and direction1=="left")):
+                                    #outward
+                                    orientation2 = "backward" if direction2=="right" else "forward"
+                                    ckmerKey2 = (ckmer2,orientation2) 
+                                    if not ckmerKey2 in self._orientatedCkmers.keys():
+                                        self._create_ckmer(directionItem, orientation2)
+                                        set_new_kmers.add(ckmer2)
+                                    self._orientatedCkmers[ckmerKey1].set_outgoing(ckmerKey2, 
+                                                                         directionItem["connection"]["distance"], 
+                                                                         directionItem["connection"]["number"],
+                                                                         directionItem["connection"]["problem"]>0)
+                                    self._orientatedCkmers[ckmerKey2].set_incoming(ckmerKey1, 
+                                                                         directionItem["connection"]["distance"], 
+                                                                         directionItem["connection"]["number"],
+                                                                         directionItem["connection"]["problem"]>0)            
                                 else:
-                                    #administration
-                                    counter_direct_connections+=1
-                                    set_direct_kmers.add(ckmer2)
-                                    direction2 = directionItem["connection"]["direction"]
-                                    assert direction2 in ["left","right"]
-                                    #inward/outward
-                                    if ((orientation1=="forward" and direction1=="right") or
-                                        (orientation1=="backward" and direction1=="left")):
-                                        #outward
-                                        orientation2 = "backward" if direction2=="right" else "forward"
-                                        ckmerKey2 = (ckmer2,orientation2) 
-                                        if not ckmerKey2 in self._orientatedCkmers.keys():
-                                            self._create_ckmer(directionItem, orientation2)
-                                            set_new_kmers.add(ckmer2)
-                                        self._orientatedCkmers[ckmerKey1].set_outgoing(ckmerKey2, 
-                                                                             directionItem["connection"]["distance"], 
-                                                                             directionItem["connection"]["number"],
-                                                                             directionItem["connection"]["problem"]>0)
-                                        self._orientatedCkmers[ckmerKey2].set_incoming(ckmerKey1, 
-                                                                             directionItem["connection"]["distance"], 
-                                                                             directionItem["connection"]["number"],
-                                                                             directionItem["connection"]["problem"]>0)
-                                        self._orientatedCkmers[ckmerKey2].set_level(level+1)
-                                    else:
-                                        #inward
-                                        orientation2 = "forward" if direction2=="right" else "backward"
-                                        ckmerKey2 = (ckmer2,orientation2) 
-                                        if not ckmerKey2 in self._orientatedCkmers.keys():
-                                            self._create_ckmer(directionItem, orientation2)
-                                            set_new_kmers.add(ckmer2)
-                                        self._orientatedCkmers[ckmerKey1].set_incoming(ckmerKey2, 
-                                                                             directionItem["connection"]["distance"], 
-                                                                             directionItem["connection"]["number"],
-                                                                             directionItem["connection"]["problem"]>0)  
-                                        self._orientatedCkmers[ckmerKey2].set_outgoing(ckmerKey1, 
-                                                                             directionItem["connection"]["distance"], 
-                                                                             directionItem["connection"]["number"],
-                                                                             directionItem["connection"]["problem"]>0)  
-                                        self._orientatedCkmers[ckmerKey2].set_level(level+1)
+                                    #inward
+                                    orientation2 = "forward" if direction2=="right" else "backward"
+                                    ckmerKey2 = (ckmer2,orientation2) 
+                                    if not ckmerKey2 in self._orientatedCkmers.keys():
+                                        self._create_ckmer(directionItem, orientation2)
+                                        set_new_kmers.add(ckmer2)
+                                    self._orientatedCkmers[ckmerKey1].set_incoming(ckmerKey2, 
+                                                                         directionItem["connection"]["distance"], 
+                                                                         directionItem["connection"]["number"],
+                                                                         directionItem["connection"]["problem"]>0)  
+                                    self._orientatedCkmers[ckmerKey2].set_outgoing(ckmerKey1, 
+                                                                         directionItem["connection"]["distance"], 
+                                                                         directionItem["connection"]["number"],
+                                                                         directionItem["connection"]["problem"]>0)  
             final_candidates = sum(self._orientatedCkmers[ckmer]._candidate for ckmer in self._orientatedCkmers)
             self._logger.debug("skipped %d and found %d connections to %d k-mers: %d new and %d new candidates" % 
                                (counter_skipped_connections, counter_direct_connections,len(set_direct_kmers),
-                                len(set_new_kmers),(final_candidates-initial_candidates))) 
-                                    
+                                len(set_new_kmers),(final_candidates-initial_candidates)))
+            #set all k-mers to expanded
+            for k in kmer_keys:
+                self._orientatedCkmers[k]._expanded = True                                    
         else:
-            self._logger.error("request to "+self.baseUrl+" didn't succeed")
+            self._logger.error("request to {} didn't succeed".format(self._baseUrl))         
             
     def _create_ckmer(self, item: dict, orientation: str):         
         """
@@ -235,6 +334,183 @@ class SequenceGraph(APIGraph):
             self._logger.warning("orientated k-mer already exists")
         return self._orientatedCkmers[orientatedCkmerKey]
     
+    def _expand_connected_start_end_candidates(self):
+        connectedSets = self.getConnectedCandidates()
+        expandedStartCandidates = 0
+        expandedEndCandidates = 0
+        #get start and end entries
+        startEntries = set()
+        endEntries = set()
+        removedConnectedSets = 0
+        for connectedSet in connectedSets:
+            if len(connectedSet["connected"])==1:
+                for orientatedCkmerKey in connectedSet["connected"]:
+                    self._orientatedCkmers[orientatedCkmerKey].unset_candidate()
+                for orientatedCkmerKey in connectedSet["start"]:
+                    self.unset_start(orientatedCkmerKey)
+                for orientatedCkmerKey in connectedSet["end"]:
+                    self.unset_end(orientatedCkmerKey)
+                removedConnectedSets+=1
+            else:
+                connectedList = list(connectedSet["connected"])
+                for orientatedCkmerKey in connectedSet["start"]:
+                    self.set_start(orientatedCkmerKey)
+                    orientatedCkmer = self._orientatedCkmers[orientatedCkmerKey]
+                    assert orientatedCkmer._candidate==True
+                    if orientatedCkmerKey[1]=="backward":
+                        startEntries.add(haplotyping.General.reverse_complement(orientatedCkmerKey[0]))
+                    else:
+                        startEntries.add(orientatedCkmerKey[0])                
+                for orientatedCkmerKey in connectedSet["end"]:
+                    self.set_end(orientatedCkmerKey)
+                    orientatedCkmer = self._orientatedCkmers[orientatedCkmerKey]
+                    assert orientatedCkmer._candidate==True
+                    if orientatedCkmerKey[1]=="backward":
+                        endEntries.add(haplotyping.General.reverse_complement(orientatedCkmerKey[0]))
+                    else:
+                        endEntries.add(orientatedCkmerKey[0])
+        #find alternatives
+        response = requests.post(self._baseUrl+"kmer/"+self._uid, 
+                         json = {"kmers": list(startEntries), "mismatches": 2})
+        if response.ok:
+            data = response.json()
+            startAlternatives = set(data["kmers"].keys()).difference(startEntries)
+        response = requests.post(self._baseUrl+"kmer/"+self._uid, 
+                                 json = {"kmers": list(endEntries), "mismatches": 2})
+        if response.ok:
+            data = response.json()
+            endAlternatives = set(data["kmers"].keys()).difference(endEntries)
+        #find splits
+        shortestDistances = self.getShortestDistances()
+        for kmer in startAlternatives:
+            foundSplits = self._findSplit(kmer,"right")
+            for orientatedCkmer in foundSplits["orientatedCkmers"]:
+                if orientatedCkmer in self._orientatedCkmers:
+                    connected = set([k for k in shortestDistances[orientatedCkmer].keys() 
+                                     if shortestDistances[orientatedCkmer][k]!=0])
+                    #only if connected to ending k-mers
+                    if (len(connected.intersection(endAlternatives))>0 or 
+                        len(connected.intersection(self._end))>0):
+                        self._orientatedCkmers[orientatedCkmer].set_candidate()
+                        self.set_start(orientatedCkmer)  
+                        expandedStartCandidates+=1
+        for kmer in endAlternatives:
+            foundSplits = self._findSplit(kmer,"left")
+            for orientatedCkmer in foundSplits["orientatedCkmers"]:
+                if orientatedCkmer in self._orientatedCkmers:
+                    connected = set([k for k in shortestDistances[orientatedCkmer].keys() 
+                                     if shortestDistances[orientatedCkmer][k]!=0])
+                    #only if connected to ending k-mers
+                    if (len(connected.intersection(startAlternatives))>0 or 
+                        len(connected.intersection(self._start))>0):
+                        self._orientatedCkmers[orientatedCkmer].set_candidate()
+                        self.set_end(orientatedCkmer)
+                        expandedEndCandidates+=1
+        self._logger.debug("expanded with {} start and {} end k-mers for {} connected sets of candidates".format(
+           expandedStartCandidates,expandedEndCandidates,len(connectedSets)-removedConnectedSets))                        
+                            
+    def _findPath(self, orientedCkmerFrom, orientedCkmerTo, distance:int):
+        minimumFrequency = 2
+        kmerFrom = (orientedCkmerFrom[0] if orientedCkmerFrom[1]=="forward" 
+                    else haplotyping.General.reverse_complement(orientedCkmerFrom[0]))
+        kmerTo = (orientedCkmerTo[0] if orientedCkmerTo[1]=="forward" 
+                    else haplotyping.General.reverse_complement(orientedCkmerTo[0]))
+        newKmer = kmerFrom
+        path = kmerFrom
+        for i in range(distance):
+            rightNeighbours = set()
+            for rb in ["A","C","G","T"]:
+                rightNeighbours.add(newKmer[1:]+rb)
+            kmerList = list(rightNeighbours)
+            response = requests.post(self._baseUrl+"kmer/"+self._uid, json = {"kmers": sorted(kmerList)})
+            if response.ok:
+                data = response.json()
+                kmerFound = [k for k in data["kmers"].keys() if data["kmers"][k]>=minimumFrequency]
+                rightSplitters = [k for k in rightNeighbours if k in kmerFound or 
+                                      haplotyping.General.reverse_complement(k) in kmerFound]
+                if len(rightSplitters)==1:
+                    newKmer = rightSplitters[0]
+                    path = path + newKmer[-1]
+                elif (i==distance-1):
+                    for rightSplitter in rightSplitters:
+                        if haplotyping.General.canonical(rightSplitter)==orientedCkmerTo[0]:
+                            path = path + rightSplitter[-1]
+                            break
+                else:
+                    return None
+            else:
+                return None
+        if kmerTo==path[-len(kmerTo):]:
+            return path
+        else:
+            return None
+        
+    def _findSplit(self, kmer:str, direction:str):
+        assert direction in ["right","left"]
+        #check split
+        response = requests.get(self._baseUrl+"split/"+self._uid+"/kmer/"+str(kmer))
+        if response.ok:
+            data = response.json()
+            if data and data["ckmer"]:
+                newKmer = kmer if direction=="right" else haplotyping.General.reverse_complement(kmer)
+                newCkmer = haplotyping.General.canonical(kmer)
+                if direction=="right":
+                    response = {"distance": None, "orientatedCkmers":[]}
+                    return {"distance": 0, 
+                            "orientatedCkmers":[(newCkmer,"forward" if newKmer==newCkmer else "backward")], 
+                            "pathKmers": []}
+                else:
+                    return {"distance": 0, 
+                            "orientatedCkmers":[(newCkmer,"forward" if not newKmer==newCkmer else "backward")], 
+                            "pathKmers": []}
+        #check neighbours
+        maximumDistance = 1000
+        minimumFrequency = 2        
+        newKmer = kmer if direction=="right" else haplotyping.General.reverse_complement(kmer)    
+        result = {"distance": None, "orientatedCkmers":[], "pathKmers": [newKmer]}
+        for i in range(maximumDistance):
+            rightNeighbours = set()
+            leftSplitters = set()
+            for rb in ["A","C","G","T"]:
+                rightNeighbours.add(newKmer[1:]+rb)
+            if i>0:
+                for lb in ["A","C","G","T"]:
+                    if not lb==newKmer[0]:
+                        leftSplitters.add(lb+newKmer[1:])
+            kmerList = list(rightNeighbours.union(leftSplitters))
+            response = requests.post(self._baseUrl+"kmer/"+self._uid, json = {"kmers": sorted(kmerList)})
+            if response.ok:
+                data = response.json()
+                kmerFound = [k for k in data["kmers"].keys() if data["kmers"][k]>=minimumFrequency]
+                if len([k for k in leftSplitters if k in kmerFound])>0:
+                    splitKmers = [newKmer]
+                    result["distance"] = i
+                    result["pathKmers"] = result["pathKmers"][:-1]
+                    break               
+                else:
+                    rightSplitters = [k for k in rightNeighbours if k in kmerFound or 
+                                      haplotyping.General.reverse_complement(k) in kmerFound]
+                    if len(rightSplitters)>1:
+                        splitKmers = rightSplitters
+                        result["distance"] = i+1
+                        break
+                    elif len(rightSplitters)==0:
+                        return result
+                    else:
+                        newKmer = rightSplitters[0] 
+                        result["pathKmers"].append(newKmer)
+            else:
+                return result            
+        for splitKmer in splitKmers:
+            newKmer = splitKmer
+            newCkmer = haplotyping.General.canonical(newKmer)
+            if direction=="right":
+                result["orientatedCkmers"].append((newCkmer,"forward" if newKmer==newCkmer else "backward"))
+            else:
+                result["orientatedCkmers"].append((newCkmer,"forward" if not newKmer==newCkmer else "backward"))
+        return result
+    
+    
     def _fix_missing_connections(self):
         #compute k-mers with only single orientation (not necessary to extend this to double orientation?)
         relevantKmers = set([c for c in self._ckmers if len(self._ckmers[c])==1])
@@ -245,7 +521,6 @@ class SequenceGraph(APIGraph):
         #define orientated right split bases containing a candidate
         oRightSplitBases_candidate = set([b for b in self._orientatedBases.keys() if self._orientatedBases[b]._candidate])
         #define orientated canonical k-mers with candidate base
-        #flat_list = [item for sublist in t for item in sublist]
         ocKmers_candidateBases = [self._orientatedBases[b]._orientatedCkmers for b in oRightSplitBases_candidate]
         ocKmers_candidateBases = set([item for sublist in ocKmers_candidateBases for item in sublist])
         #define the set of relevant open orientated k-mers: open is missing connections in at least one direction
@@ -383,29 +658,24 @@ class SequenceGraph(APIGraph):
         relevantCkmers = set([c[0] for c in ocKmers_candidateBases])
         #define the set of relevant open orientated k-mers:
         #- open is missing connections in at least one direction
-        #- relevant if no start or end, and in reference sequence
         ocKmers_disconnected = set()
+        numberOfGluedMissingConnections = 0
         for c in ocKmers_candidateBases:
-            #skip start and end
-            if c in self._start or c in self._end:
-                continue            
             c_data = self._orientatedCkmers[c]
+            #at least normal expansion should have been tried
+            if not c_data._expanded:
+                continue
             baseCkmers = set()
             for direction in c_data._orientatedBases:
                 baseCkmers.update(self._orientatedBases[c_data._orientatedBases[direction]]._orientatedCkmers)
-            #skip start and end base
-            if len(self._start.intersection(baseCkmers))>0 or len(self._end.intersection(baseCkmers))>0:
-                continue
             if (len(c_data._incoming)==0 or len(c_data._outgoing)==0):
-                self._selected.add(c)
                 ocKmers_disconnected.add(c)
         self._logger.debug("found %d relevant k-mers with missing connections to other candidates" % 
                            (len(ocKmers_disconnected)))  
         
-        def glue_missing(c, side, maximumDistance: int = 1000, minimumFrequency: int = 2):
+        def glue_missing(c, side, numberOfGluedMissingConnections, maximumDistance: int = 1000, minimumFrequency: int = 2):
             assert side in ["incoming","outgoing"]
             assert c[1] in ["forward","backward"]
-            print("GLUE "+str(c))
             #explore to the right, so get the correct orientated initial k-mer
             if (side=="outgoing" and c[1]=="forward") or (side=="incoming" and c[1]=="backward"):
                 initialKmer = c[0]
@@ -428,8 +698,8 @@ class SequenceGraph(APIGraph):
                                      json = {"kmers": sorted(kmerList)})
                 if response.ok:
                     data = response.json()
-                    kmerFound = [k for k in data["kmers"] if data["kmers"][k]>=minimumFrequency]
-                    if len(leftSplitters.intersection(kmerFound))>0:
+                    kmerFound = [k for k in data["kmers"].keys() if data["kmers"][k]>=minimumFrequency]
+                    if len([k for k in leftSplitters if k in kmerFound])>0:
                         ckmer = haplotyping.General.canonical(newKmer)
                         distance = len(path) - 1
                         if (ckmer==newKmer and side == "outgoing") or (ckmer!=newKmer and side=="incoming"):
@@ -437,82 +707,106 @@ class SequenceGraph(APIGraph):
                         else:
                             c2 = (ckmer,"backward")
                         #for now, only process match
+                        if not c2 in self._orientatedCkmers:
+                            response = requests.get(self._baseUrl+"split/"+self._uid+"/kmer/"+str(c2[0]))
+                            if response.ok:
+                                item = response.json()
+                                self._create_ckmer(item, c2[1])
                         if c2 in self._orientatedCkmers:
+                            gluePath = "".join([path[0]]+[k[-1] for k in path[1:]])
                             if side=="outgoing":
-                                self._orientatedCkmers[c].set_outgoing(c2,distance,0,False)
-                                self._orientatedCkmers[c2].set_incoming(c,distance,0,False)
+                                numberOfGluedMissingConnections+=1  
+                                self._orientatedCkmers[c].set_outgoing(c2,distance,0,False,gluePath)
+                                self._orientatedCkmers[c2].set_incoming(c,distance,0,False,gluePath)
                             else:
-                                self._orientatedCkmers[c].set_incoming(c2,distance,0,False)
-                                self._orientatedCkmers[c2].set_outgoing(c,distance,0,False)
+                                gluePath = haplotyping.General.reverse_complement(gluePath) 
+                                numberOfGluedMissingConnections+=1
+                                self._orientatedCkmers[c].set_incoming(c2,distance,0,False,gluePath)
+                                self._orientatedCkmers[c2].set_outgoing(c,distance,0,False,gluePath)
                         break
                     else:
-                        rightSplitters = list(rightNeighbours.intersection(kmerFound))
+                        rightSplitters = [k for k in rightNeighbours if k in kmerFound or 
+                                          haplotyping.General.reverse_complement(k) in kmerFound]
                         if len(rightSplitters)>1:
                             for newKmer in rightSplitters:
                                 ckmer = haplotyping.General.canonical(newKmer)
-                                distance = len(path)
+                                distance = len(path)                                                             
                                 if (ckmer==newKmer and side == "outgoing") or (ckmer!=newKmer and side=="incoming"):
                                     c2 = (ckmer,"forward")
                                 else:
                                     c2 = (ckmer,"backward")
                                 #for now, only process match
+                                if not c2 in self._orientatedCkmers:
+                                    response = requests.get(self._baseUrl+"split/"+self._uid+"/kmer/"+str(c2[0]))
+                                    if response.ok:
+                                        item = response.json()
+                                        self._create_ckmer(item, c2[1])
                                 if c2 in self._orientatedCkmers:
+                                    gluePath = "".join([path[0]]+[k[-1] for k in path[1:]]+[newKmer[-1]])
                                     if side=="outgoing":
-                                        self._orientatedCkmers[c].set_outgoing(c2,distance,0,False)
-                                        self._orientatedCkmers[c2].set_incoming(c,distance,0,False)
+                                        numberOfGluedMissingConnections+=1
+                                        self._orientatedCkmers[c].set_outgoing(c2,distance,0,False,gluePath)
+                                        self._orientatedCkmers[c2].set_incoming(c,distance,0,False,gluePath)
                                     else:
-                                        self._orientatedCkmers[c].set_incoming(c2,distance,0,False)
-                                        self._orientatedCkmers[c2].set_outgoing(c,distance,0,False)
+                                        gluePath = haplotyping.General.reverse_complement(gluePath) 
+                                        numberOfGluedMissingConnections+=1
+                                        self._orientatedCkmers[c].set_incoming(c2,distance,0,False,gluePath)
+                                        self._orientatedCkmers[c2].set_outgoing(c,distance,0,False,gluePath)  
                             break
-                        elif len(rightSplitters)==0:
+                        elif len(rightSplitters)==0:                            
+                            ckmer = haplotyping.General.canonical(path[-1])
+                            distance = len(path)-1                                                             
+                            if (ckmer==path[-1] and side == "outgoing") or (ckmer!=path[-1] and side=="incoming"):
+                                c2 = (ckmer,"forward")
+                            else:
+                                c2 = (ckmer,"backward")
+                            gluePath = "".join([path[0]]+[k[-1] for k in path[1:]])
+                            if side=="outgoing":
+                                self._orientatedCkmers[c].set_outgoing_dead_end(c2,distance,gluePath)
+                            elif side=="incoming":
+                                gluePath = haplotyping.General.reverse_complement(gluePath) 
+                                self._orientatedCkmers[c].set_incoming_dead_end(c2,distance,gluePath)
                             break
                         else:
                             newKmer = rightSplitters[0]   
                             path.append(newKmer)
                 else:
-                    self._logger.error("request to "+self.baseUrl+" didn't succeed")            
+                    self._logger.error("request to {} didn't succeed".format(self._baseUrl))
+                                                   
+            return numberOfGluedMissingConnections
         
         for c in ocKmers_disconnected:
             c_data = self._orientatedCkmers[c]
             if len(c_data._incoming)==0:
-                glue_missing(c, "incoming")
+                numberOfGluedMissingConnections = glue_missing(c, "incoming", numberOfGluedMissingConnections)
             if len(c_data._outgoing)==0:
-                glue_missing(c, "outgoing")
-        
-        return
-        
-        if len(selectedSequencePositions)<0:
-            assert self._sequencePositions.issuperset(selectedSequencePositions)
-            selectedSequencePositions = sorted(list(selectedSequencePositions))
-            for i in range(1,len(selectedSequencePositions)):
-                j = allSequencePositions.index(selectedSequencePositions[i])
-                assert j>0
-                if allSequencePositions[j-1]==selectedSequencePositions[i-1]:
-                    kmer1 = self._sequence[selectedSequencePositions[i-1]:selectedSequencePositions[i-1]+self._k]
-                    kmer2 = self._sequence[selectedSequencePositions[i]:selectedSequencePositions[i]+self._k]
-                    if kmer1==haplotyping.General.canonical(kmer1):
-                        c1 = (kmer1,"forward")
-                    else:
-                        c1 = (haplotyping.General.canonical(kmer1),"backward")
-                    assert c1 in ocKmers_openRelevant
-                    if kmer2==haplotyping.General.canonical(kmer2):
-                        c2 = (kmer2,"forward")
-                    else:
-                        c2 = (haplotyping.General.canonical(kmer2),"backward")   
-                    assert c2 in ocKmers_openRelevant
-                    distance = selectedSequencePositions[i] - selectedSequencePositions[i-1]
-                    #todo: verify existence and open right side (?)
-                    
-                    self.findRightConnection(kmer1,distance+10)
-                    
-                    self.findRightConnection(haplotyping.General.reverse_complement(kmer2),distance+10)
-                    
-                    self._orientatedCkmers[c1].set_outgoing(c2,distance,0,False) 
-                    self._orientatedCkmers[c2].set_incoming(c1,distance,0,False) 
-                    
-                    
+                numberOfGluedMissingConnections = glue_missing(c, "outgoing", numberOfGluedMissingConnections)
                 
+        self._logger.debug("automatically glued %d direct connections" % (numberOfGluedMissingConnections))
+        #reset distances, they should probably be recomputed with new connections
+        if numberOfGluedMissingConnections>0:            
+            self._resetDistances()
+                    
+    def _visualize_base_label(self, orientatedBase: str):
+        base_label = super(haplotyping.graph.sequence.SequenceGraph, self)._visualize_base_label(orientatedBase)
+        if not self._orientatedBases[orientatedBase]._order==None:
+            base_label = base_label[:-1]
+            base_label +="<font point-size=\"6\">"
+            base_label +=" <font color=\"blue\">pos: "+str(self._orientatedBases[orientatedBase]._order)+"</font>"
+            base_label +="</font>"
+            base_label +=">"
+        return base_label
     
+    def _visualize_node_label(self, orientatedBase: str, orientatedCkmer: str):
+        node_label = super(haplotyping.graph.sequence.SequenceGraph, self)._visualize_node_label(
+            orientatedBase,orientatedCkmer)
+        if not self._orientatedCkmers[orientatedCkmer]._level==None:
+            node_label = node_label[:-1]
+            node_label +="<font point-size=\"8\">"
+            node_label +=" <font color=\"blue\"> "+str(self._orientatedCkmers[orientatedCkmer]._level)+"</font>"
+            node_label +="</font>" + ">"
+        return node_label
+
     class SequenceCkmer(APIGraph.OrientatedCkmer):
         
         def __init__(self, graph: APIGraph, ckmer: str, orientation: str, number: int, split: str):
@@ -522,37 +816,117 @@ class SequenceGraph(APIGraph):
                 graph, ckmer, orientation, number, split)
             #additional parameters
             self._level : int = None
-            self._positions : set = set()            
-            self._candidateConnected : dict = {"incoming": False, "outgoing": False} 
+            self._expanded : bool = False
+            self._position : int = None
+            self._estimatedPositions : set = set()            
+            self._candidateConnected : dict = {"incoming": False, "outgoing": False}
+            for direction in self._orientatedBases.keys():
+                orientatedBaseKey = self._orientatedBases[direction]
+                orientatedBase = self._graph._orientatedBases[orientatedBaseKey]
+                for otherOrientatedCkmerKey in orientatedBase._orientatedCkmers:
+                    if not self._key==otherOrientatedCkmerKey:
+                        if not self._graph._orientatedCkmers[otherOrientatedCkmerKey]._position==None:
+                            self.add_estimatedPositions([self._graph._orientatedCkmers[otherOrientatedCkmerKey]._position])
+                        else:
+                            self.add_estimatedPositions(
+                                self._graph._orientatedCkmers[otherOrientatedCkmerKey]._estimatedPositions)
         
-        def set_incoming(self, orientatedCkmerKey: str, distance: int, number: int, problem: bool):
+        def set_incoming(self, orientatedCkmerKey: str, distance: int, number: int, problem: bool, path: str = None):
             #call parent method
             super(haplotyping.graph.sequence.SequenceGraph.SequenceCkmer, self).set_incoming(
-                orientatedCkmerKey,distance,number,problem)
-            if (self._graph._orientatedCkmers[orientatedCkmerKey]._candidate or 
-                self._graph._orientatedCkmers[orientatedCkmerKey]._candidateConnected["incoming"]):
-                self._set_connected_via_candidate("incoming")
+                orientatedCkmerKey,distance,number,problem,path)
+            if not self._graph._orientatedCkmers[orientatedCkmerKey]._position==None:
+                self.add_estimatedPositions([self._graph._orientatedCkmers[orientatedCkmerKey]._position+distance])
+            else:
+                self.add_estimatedPositions(
+                    [p+distance for p in self._graph._orientatedCkmers[orientatedCkmerKey]._estimatedPositions])
+            if not self._level == None:
+                self._graph._orientatedCkmers[orientatedCkmerKey].set_level(self._level+1)
+            if self._incoming[orientatedCkmerKey]["path"]==None:
+                #check other direction
+                if self._key in self._graph._orientatedCkmers[orientatedCkmerKey]._outgoing.keys():
+                    self._incoming[orientatedCkmerKey]["path"] = (
+                        self._graph._orientatedCkmers[orientatedCkmerKey]._outgoing[self._key]["path"])
+                #try to compute path (can fail, because path not necessarily is covered by k-mer database)
+                else:
+                    self._incoming[orientatedCkmerKey]["path"] = self._graph._findPath(orientatedCkmerKey, self._key, distance)
+            if not (self._graph._ignoreMissingPath and self._incoming[orientatedCkmerKey]["path"]==None):
+                if (self._graph._orientatedCkmers[orientatedCkmerKey]._candidate or 
+                    self._graph._orientatedCkmers[orientatedCkmerKey]._candidateConnected["incoming"]):
+                    self._set_connected_via_candidate("incoming")
+            #consistency check
+            if not self._incoming[orientatedCkmerKey]["path"]==None:
+                path = self._incoming[orientatedCkmerKey]["path"]
+                k = len(self._ckmer)
+                assert len(orientatedCkmerKey[0])==k
+                assert len(path)==k+distance
+                if self._orientation=="forward":
+                    assert path[-k:]==self._ckmer
+                else:
+                    assert path[-k:]==haplotyping.General.reverse_complement(self._ckmer)
+                if orientatedCkmerKey[1]=="forward":
+                    assert path[0:k]==orientatedCkmerKey[0]
+                else:
+                    assert path[0:k]==haplotyping.General.reverse_complement(orientatedCkmerKey[0])
             
-        def set_outgoing(self, orientatedCkmerKey: str, distance: int, number: int, problem: bool):
+        def set_outgoing(self, orientatedCkmerKey: str, distance: int, number: int, problem: bool, path: str = None):
             #call parent method
             super(haplotyping.graph.sequence.SequenceGraph.SequenceCkmer, self).set_outgoing(
-                orientatedCkmerKey,distance,number,problem)
-            if (self._graph._orientatedCkmers[orientatedCkmerKey]._candidate or 
-                self._graph._orientatedCkmers[orientatedCkmerKey]._candidateConnected["outgoing"]):
-                self._set_connected_via_candidate("outgoing")
+                orientatedCkmerKey,distance,number,problem,path)
+            if not self._graph._orientatedCkmers[orientatedCkmerKey]._position==None:
+                self.add_estimatedPositions([self._graph._orientatedCkmers[orientatedCkmerKey]._position-distance])
+            else:
+                self.add_estimatedPositions(
+                    [p-distance for p in self._graph._orientatedCkmers[orientatedCkmerKey]._estimatedPositions])
+            if not self._level == None:
+                self._graph._orientatedCkmers[orientatedCkmerKey].set_level(self._level+1)
+            if self._outgoing[orientatedCkmerKey]["path"]==None:
+                #check other direction
+                if self._key in self._graph._orientatedCkmers[orientatedCkmerKey]._incoming.keys():
+                    self._outgoing[orientatedCkmerKey]["path"] = (
+                        self._graph._orientatedCkmers[orientatedCkmerKey]._incoming[self._key]["path"])
+                #try to compute path (can fail, because path not necessarily is covered by k-mer database)
+                else:
+                    self._outgoing[orientatedCkmerKey]["path"] = self._graph._findPath(self._key, orientatedCkmerKey, distance)
+            if not (self._graph._ignoreMissingPath and self._outgoing[orientatedCkmerKey]["path"]==None):
+                if (self._graph._orientatedCkmers[orientatedCkmerKey]._candidate or 
+                    self._graph._orientatedCkmers[orientatedCkmerKey]._candidateConnected["outgoing"]):
+                    self._set_connected_via_candidate("outgoing")
+            #consistency check
+            if not self._outgoing[orientatedCkmerKey]["path"]==None:
+                path = self._outgoing[orientatedCkmerKey]["path"]
+                k = len(self._ckmer)
+                assert len(orientatedCkmerKey[0])==k
+                assert len(path)==k+distance
+                if self._orientation=="forward":
+                    assert path[0:k]==self._ckmer
+                else:
+                    assert path[0:k]==haplotyping.General.reverse_complement(self._ckmer)
+                if orientatedCkmerKey[1]=="forward":
+                    assert path[-k:]==orientatedCkmerKey[0]
+                else:
+                    assert path[-k:]==haplotyping.General.reverse_complement(orientatedCkmerKey[0])
             
-        def add_positions(self, positions: list):
-            """add positions to k-mer"""
-            self._positions.update([p for p in positions if isinstance(p, int)])
-            if len(self._positions)>0:
-                self.set_order(min(self._positions))
+        def set_expanded(self):
+            self._expanded = True
+            
+        def set_position(self, position: int):
+            """set position for k-mer"""
+            self._position=position
+            self._estimatedPositions = set()
+            self.set_order(self._position)
+                    
+        def add_estimatedPositions(self, positions: list):
+            """add estimations of positions to k-mer"""
+            if self._position==None:
+                self._estimatedPositions.update([p for p in positions if isinstance(p, int)])
+                #if len(self._estimatedPositions)>0:
+                #    self.set_order(min(self._estimatedPositions))
             
         def set_level(self, level: int):
             """update level with new information"""
             #only update if necessary
             if self._level==None or level<self._level:
-                if not self._level==None:
-                    self._graph._logger.debug("change level from "+str(self._level)+" to "+str(level))
                 self._level=int(level)
                 #update levels from connected k-mers
                 for incomingOrientatedCkmerKey in self._incoming.keys():
@@ -564,26 +938,57 @@ class SequenceGraph(APIGraph):
             assert connectionDirection in ["incoming","outgoing"]
             #only update if necessary
             if not self._candidateConnected[connectionDirection] and not self._candidate:
-                if connectionDirection=="incoming":
-                    assert len(self._incoming)>0
-                elif connectionDirection=="outgoing":
-                    assert len(self._outgoing)>0
                 self._candidateConnected[connectionDirection] = True
                 if connectionDirection=="incoming":
                     if self._candidateConnected["outgoing"]:
                         self.set_candidate()
                     for orientatedCkmerKey in self._outgoing.keys():
-                        self._graph._orientatedCkmers[orientatedCkmerKey]._set_connected_via_candidate(connectionDirection)
+                        if not (self._graph._ignoreMissingPath and self._outgoing[orientatedCkmerKey]["path"]==None):
+                            self._graph._orientatedCkmers[orientatedCkmerKey]._set_connected_via_candidate(connectionDirection)
                 elif connectionDirection=="outgoing":
                     if self._candidateConnected["incoming"]:
                         self.set_candidate()
                     for orientatedCkmerKey in self._incoming.keys():
-                        self._graph._orientatedCkmers[orientatedCkmerKey]._set_connected_via_candidate(connectionDirection)
-
+                        if not (self._graph._ignoreMissingPath and self._incoming[orientatedCkmerKey]["path"]==None):
+                            self._graph._orientatedCkmers[orientatedCkmerKey]._set_connected_via_candidate(connectionDirection)
+                    
+        def unset_candidate(self):
+            #only update if necessary
+            if self._candidate:
+                super(haplotyping.graph.sequence.SequenceGraph.SequenceCkmer, self).unset_candidate()
+                #note: don't undon connected_via settings (?)
+            
         def set_candidate(self):
             #only update if necessary
             if not self._candidate:
                 super(haplotyping.graph.sequence.SequenceGraph.SequenceCkmer, self).set_candidate()
+                for orientatedCkmerKey in self._outgoing.keys(): 
+                    if not (self._graph._ignoreMissingPath and self._outgoing[orientatedCkmerKey]["path"]==None):
+                        self._graph._orientatedCkmers[orientatedCkmerKey]._set_connected_via_candidate("incoming")
+                for orientatedCkmerKey in self._incoming.keys():
+                    if not (self._graph._ignoreMissingPath and self._incoming[orientatedCkmerKey]["path"]==None):
+                        self._graph._orientatedCkmers[orientatedCkmerKey]._set_connected_via_candidate("outgoing")
+            #include additional k-mer for base
+            for direction in self._orientatedBases.keys():
+                orientatedBaseKey = self._orientatedBases[direction]
+                orientatedBase = self._graph._orientatedBases[orientatedBaseKey]
+                if len(orientatedBase._orientatedCkmers)<2:
+                    response = requests.get(self._graph._baseUrl+"split/"+self._graph._uid+"/base/"+str(orientatedBaseKey[0]))
+                    if response.ok:
+                        data = response.json()
+                        for entry in data["ckmers"]:
+                            if not entry["ckmer"]==self._ckmer:
+                                for direction in entry["rightSplitBase"].keys():
+                                    if entry["rightSplitBase"][direction]==orientatedBaseKey[0]:
+                                        assert orientatedBaseKey[1] in ["forward","backward"]
+                                        if direction=="right":
+                                            entryDirection = orientatedBaseKey[1]
+                                        else: 
+                                            entryDirection = ("forward" if 
+                                                      orientatedBaseKey[1]!="forward" else "backward") 
+                                        self._graph._create_ckmer(entry,entryDirection)
+                                
+                
                                             
             
 

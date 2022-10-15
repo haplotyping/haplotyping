@@ -19,4 +19,6 @@ setuptools.setup(
     ],
     python_requires=">=3.8",
     test_suite="tests",
+    include_package_data=True,
+    package_data={"": ["data/schema/*.json"]},
 )

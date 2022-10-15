@@ -177,7 +177,7 @@ class ConstructDatabase:
                     self._logger.info("add {} varieties".format(len(varieties)))
                     #ancestors
                     ancestors = pd.DataFrame(extract(package.get_resource("pedigree_ancestors")))
-                    ancestors = ancestors[["variety", "ancestor", "type", "offspring"]]
+                    ancestors = ancestors[["id","variety", "ancestor", "type", "offspring"]]
                     ancestors.to_sql("variety_ancestor", con=self._connection, index=False, if_exists="append")
                     self._logger.info("add {} ancestors".format(len(ancestors)))
                     #synonyms

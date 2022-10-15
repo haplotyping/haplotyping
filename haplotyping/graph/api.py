@@ -1,7 +1,8 @@
 import logging,requests
-import haplotyping
+import haplotyping.graph
+import haplotyping.graph.baseGraph as baseGraph
 
-class APIGraph(haplotyping.baseGraph.Graph):
+class APIGraph(baseGraph.Graph):
     """basic or minimal version of the De Bruijn graph using the dataset 
         defined by uid via API"""
     
@@ -18,8 +19,8 @@ class APIGraph(haplotyping.baseGraph.Graph):
         self._variety : str = None
         self._collection : str = None
         #report to logger
-        self._api_logger.debug("using dataset "+str(self._uid))
-        self._api_logger.debug("using API at "+str(self._baseUrl))
+        self._api_logger.debug("using dataset {}".format(self._uid))
+        self._api_logger.debug("using API at {}".format(self._baseUrl))
         #checks
         self._api_initial_checks()
         
@@ -34,28 +35,28 @@ class APIGraph(haplotyping.baseGraph.Graph):
             data = response.json()
             if data.get("total",0)==1:
                 dataset = data["list"][0]
-                if not dataset["kmer"]:
-                    self._api_logger.error("dataset "+self._uid+" has no k-mer database")
-                if not dataset["split"]:
-                    self._api_logger.error("dataset "+self._uid+" has no split k-mer database")   
+                if not (dataset["type"]=="kmer" or dataset["type"]=="split"):
+                    self._api_logger.error("dataset {} has no k-mer database".format(self._uid))
+                if not (dataset["type"]=="split"):
+                    self._api_logger.error("dataset {} has no splitting k-mer database".format(self._uid))   
                 if dataset["variety"]:
                     self._variety = str(dataset["variety"]["name"])
-                    self._api_logger.debug("set variety to '%s'" % (self._variety))
+                    self._api_logger.debug("set variety to '{}'".format(self._variety))
                 if dataset["collection"]:
                     self._collection = str(dataset["collection"])
-                    self._api_logger.debug("set collection to '%s'" % (self._collection))
+                    self._api_logger.debug("set collection to '{}'".format(self._collection))
                 #get split info
                 response = requests.get(self._baseUrl+"split/"+self._uid+"/info")
                 if response.ok:
                     data = response.json()
                     self._k = int(data["k"])
-                    self._api_logger.debug("set k-mer size to %d" % (self._k))
+                    self._api_logger.debug("set k-mer size to {}".format(self._k))
                 else:
-                    self._api_logger.error("request to "+self._baseUrl+" didn't succeed") 
+                    self._api_logger.error("request to {} didn't succeed".format(self._baseUrl)) 
             else:
-                self._api_logger.error("dataset "+self._uid+" not found")   
+                self._api_logger.error("dataset {} not found".format(self._uid))   
         else:
-            self._api_logger.error("request to "+self._baseUrl+" didn't succeed")
+            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
             
     def getRightNeighbours(self, kmer: str):
         kmerList = []
@@ -67,7 +68,7 @@ class APIGraph(haplotyping.baseGraph.Graph):
             data = response.json()
             return data
         else:
-            self._logger.error("request to "+self.baseUrl+" didn't succeed")
+            self._logger.error("request to "+self._baseUrl+" didn't succeed")
             
     def findRightConnection(self, kmer: str, maximumDistance: int = 100, minimumFrequency: int = 2):
         newKmer = kmer
@@ -101,6 +102,6 @@ class APIGraph(haplotyping.baseGraph.Graph):
                         newKmer = rightSplitters[0]   
                         print(kmerFound)
             else:
-                self._logger.error("request to "+self.baseUrl+" didn't succeed")
+                self._logger.error("request to {} didn't succeed".format(self._baseUrl))
         
       
