@@ -13,7 +13,7 @@ class Storage:
     
     def create_merge_storage(pytablesStorage, numberOfKmers, maximumFrequency, maximumConnectionLength,
                              nCycle=None, nReversal=None, nDirect=None, 
-                             nConnections=None, nPaired=None, deleteDirect=True, deletePaired=True):
+                             nConnections=None, nPaired=None):
         pytablesStorage.create_table(pytablesStorage.root, 
             "cycle",{
             "ckmerLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
@@ -39,14 +39,13 @@ class Storage:
             "forwardBase": haplotyping.index.Database.getTablesUint(numberOfKmers,8),
             "problematic": tables.UInt8Col(pos=9),
         }, "Direct relations", expectedrows=nDirect)
-        if deleteDirect:
-            pytablesStorage.create_table(pytablesStorage.root, 
-                "deleteDirect",{
-                "fromLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
-                "fromDirection": tables.StringCol(itemsize=1,pos=1),
-                "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,2),
-                "toDirection": tables.StringCol(itemsize=1,pos=3),
-            }, "Incorrect direct relations", expectedrows=nDirect)
+        pytablesStorage.create_table(pytablesStorage.root, 
+            "deleteDirect",{
+            "fromLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
+            "fromDirection": tables.StringCol(itemsize=1,pos=1),
+            "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,2),
+            "toDirection": tables.StringCol(itemsize=1,pos=3),
+        }, "Incorrect direct relations", expectedrows=nDirect)
         pytablesStorage.create_table(pytablesStorage.root, 
             "connections",{
             "ckmerLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
@@ -64,12 +63,11 @@ class Storage:
             "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,1),
             "number": haplotyping.index.Database.getTablesUint(maximumFrequency,2),
         }, "Paired relations", expectedrows=nPaired)
-        if deleteDirect:
-            pytablesStorage.create_table(pytablesStorage.root, 
-                "deletePaired",{
-                "fromLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
-                "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,1),
-            }, "Incorrect paired relations", expectedrows=nPaired)
+        pytablesStorage.create_table(pytablesStorage.root, 
+            "deletePaired",{
+            "fromLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
+            "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,1),
+        }, "Incorrect paired relations", expectedrows=nPaired)
         
     def worker_automaton(shutdown_event,queue_automaton,queue_index,queue_finished,k,automatonKmerSize,automatonFile):
         
@@ -734,7 +732,9 @@ class Storage:
                 
                 def store_paired(linkedCkmer0,linkedCkmer1):
                     #only store if potentially necessary
-                    if connections[linkedCkmer0][0]>arrayNumberConnection:
+                    if linkedCkmer0==linkedCkmer1:
+                        pass
+                    elif connections[linkedCkmer0][0]>arrayNumberConnection:
                         pass
                     elif connections[linkedCkmer1][0]>arrayNumberConnection:
                         pass
@@ -743,7 +743,7 @@ class Storage:
                         stored = False
                         for i in range(pairedRow[0]):
                             if pairedRow[1][i][0] == linkedCkmer1:                                    
-                                pairedRow[1][i][0] += 1    
+                                pairedRow[1][i][1] += 1    
                                 stored = True                                
                         if not stored:
                             if pairedRow[0]<arrayNumberConnection:
@@ -1238,9 +1238,6 @@ class Storage:
 
                 #finished
                 pytablesStorageWorker.flush()
-                tableDeleteDirect.cols.fromLink.create_csindex()
-                pytablesStorageWorker.flush()
-                
                 
         def merge_connection_storage(pytablesFileWorker, storageConnectionFiles, mergeStart, mergeNumber, 
                                  numberOfKmers, maximumConnectionLength):
@@ -1381,9 +1378,6 @@ class Storage:
                                     
                 #finished
                 pytablesStorageWorker.flush()
-                tablePaired.cols.fromLink.create_csindex()
-                pytablesStorageWorker.flush()
-                                
                 
                 
         shm = shared_memory.SharedMemory(shm_name)
@@ -1462,15 +1456,17 @@ class Storage:
 
         #create temporary storage with dimensions
         Storage.create_merge_storage(pytablesStorage, numberOfKmers, maximumFrequency, maximumConnectionLength, 
-                                     nCycle, nReversal, nDirect, nConnections, nPaired, False, False)
+                                     nCycle, nReversal, nDirect, nConnections, nPaired)
         tableCycle = pytablesStorage.root.cycle
         tableReversal = pytablesStorage.root.reversal
         tableDirect = pytablesStorage.root.direct
+        tableDeleteDirect = pytablesStorage.root.deleteDirect
         tableConnections = pytablesStorage.root.connections
         tableData = pytablesStorage.root.data
         tablePaired = pytablesStorage.root.paired
-
-        stepSizeStorage = 100000
+        tableDeletePaired = pytablesStorage.root.deletePaired
+        
+        stepSizeStorage = 100 #FIX THIS BACK TO 100000
         maximumCycleLength = 0
         maximumCycleNumber = 0
         maximumReversalLength = 0
@@ -1482,7 +1478,17 @@ class Storage:
         maximumPairedNumber = 0
         
         connectionsDataCounter = 0
-
+        
+        #merge delete entries
+        for i in range(len(sortedMergeFiles)):
+            with tables.open_file(sortedMergeFiles[i]["filename"], mode="r") as pytables_merge:
+                tableDeleteDirect.append(pytables_merge.root.deleteDirect[:])
+                tableDeletePaired.append(pytables_merge.root.deletePaired[:])
+        pytablesStorage.flush()
+        tableDeleteDirect.cols.fromLink.create_csindex()
+        tableDeletePaired.cols.fromLink.create_csindex()
+        pytablesStorage.flush()
+                
         for i in range(len(sortedMergeFiles)):
             with tables.open_file(sortedMergeFiles[i]["filename"], mode="r") as pytables_merge:
                 for j in range(0,sortedMergeFiles[i]["ncycle"],stepSizeStorage):
@@ -1497,7 +1503,7 @@ class Storage:
                     tableReversal.append(reducedReversalDataBlock)
                 for j in range(0,sortedMergeFiles[i]["ndirect"],stepSizeStorage):
                     directDataBlock = pytables_merge.root.direct[j:j+stepSizeStorage]
-                    deleteDataBlock = pytables_merge.root.deleteDirect.read_where(
+                    deleteDataBlock = tableDeleteDirect.read_where(
                         "(fromLink>={}) & (fromLink<={})".format(
                         directDataBlock[0]["fromLink"],directDataBlock[-1]["fromLink"]))
                     deletableIndices = np.where(
@@ -1521,7 +1527,7 @@ class Storage:
                     connectionsDataCounter+=len(reducedDataBlock)
                 for j in range(0,sortedMergeFiles[i]["npaired"],stepSizeStorage):
                     pairedDataBlock = pytables_merge.root.paired[j:j+stepSizeStorage]
-                    deleteDataBlock = pytables_merge.root.deletePaired.read_where(
+                    deleteDataBlock = tableDeletePaired.read_where(
                         "(fromLink>={}) & (fromLink<={})".format(
                         pairedDataBlock[0]["fromLink"],pairedDataBlock[-1]["fromLink"]))
                     deletableIndices = np.where(
