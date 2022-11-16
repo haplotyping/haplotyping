@@ -21,6 +21,7 @@ def year_description(year_min,year_max):
         return str(year_min)+"-"+str(year_max)
 
 def adjust_dataset_response(item):
+    #variety
     if item["variety_uid"]:
         item["variety"] = {
             "uid": item["variety_uid"], 
@@ -35,6 +36,16 @@ def adjust_dataset_response(item):
     del item["variety_origin"]
     del item["variety_year_min"]
     del item["variety_year_max"]
+    #collection
+    if item["collection_uid"]:
+        item["collection"] = {
+            "uid": item["collection_uid"], 
+            "name": item["collection_name"]
+        }
+    else:
+        item["collection"] = None
+    del item["collection_uid"]
+    del item["collection_name"]    
     #finished
     return item
 
@@ -143,7 +154,8 @@ class DatasetList(Resource):
                 total = cursor.fetchone()[0]
                 cursor.execute("SELECT `dataset`.`uid`, \
                                 `dataset`.`type`, \
-                                `collection`.`name` AS `collection`, \
+                                `collection`.`uid` AS `collection_uid`, \
+                                `collection`.`name` AS `collection_name`, \
                                 `variety`.`uid` AS `variety_uid`, \
                                 `variety`.`name` AS `variety_name`, \
                                 `variety`.`origin` AS `variety_origin`, \
@@ -178,7 +190,8 @@ class DatasetId(Resource):
             cursor = db_connection.cursor()
             cursor.execute("SELECT `dataset`.`uid`, \
                             `dataset`.`type`, \
-                            `collection`.`name` AS `collection`, \
+                            `collection`.`uid` AS `collection_uid`, \
+                            `collection`.`name` AS `collection_name`, \
                             `variety`.`uid` AS `variety_uid`, \
                             `variety`.`name` AS `variety_name`, \
                             `variety`.`origin` AS `variety_origin`, \

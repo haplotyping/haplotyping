@@ -3,6 +3,7 @@ from graphviz import Digraph
 import pandas as pd
 import networkit as nk
 import numpy as np
+from typing import Literal
 
 class Graph:
     """basic or minimal version of the De Bruijn graph"""
@@ -17,9 +18,10 @@ class Graph:
         self._missingConnections : dict = {}
         self._selected : set = set()
         self._distances = None
+        self._arms = []
             
     def __repr__(self):
-        ck = sum(self._orientatedCkmers[ck]._candidate for ck in self._orientatedCkmers.keys())
+        ck = sum(self._orientatedCkmers[ck].candidate() for ck in self._orientatedCkmers.keys())
         text = "Graph object with %d candidate k-mers" % (ck)
         return text
         
@@ -35,6 +37,8 @@ class Graph:
             "showPrePostBases": True,
             "showPrePostBasesMaxSteps": 2,
             "showDeadEnds": True,
+            "hideDeadEndBefore": [],
+            "hideDeadEndAfter": [],
             "baseStyleDefault": "filled",
             "baseFillColorDefault": "white",
             "basePenWidthDefault": 1,
@@ -56,6 +60,10 @@ class Graph:
             "nodePenWidthDefault": 1,
             "nodeColorSelected": "blue",
             "nodePenWidthSelected": 3,
+            "nodeFillColorIncomingArm": "lightblue",
+            "nodeColorIncomingArm": "black",
+            "nodeFillColorOutgoingArm": "lightcoral",
+            "nodeColorOutgoingArm": "black",
             "nodeFillColorCandidate": "lightyellow1",
             "nodeColorCandidate": "black",
             "nodeFillColorStartEnd": "yellow",
@@ -68,15 +76,23 @@ class Graph:
             "edgeStyleAuto": "dashed",
             "edgeColorMissingPath": "red", 
             "edgeStyleMissingPath": "dashed",
+            "restrictedListOfCkmers": False,
+            "containerGraph": False,
+            "prefix": "graph"
         }
         for key, value in kwargs.items():
             if key in config.keys():
                 config[key] = value
         
         #create graph
-        g = Digraph("G")
-        graph_label = "Graph" if self._name==None else str(self._name)
-        g.attr(label=graph_label, labelloc="t", nodesep="0", ranksep="0")
+        if config["containerGraph"]:
+            g = config["containerGraph"]
+        else:
+            g = Digraph()
+            graph_label = "Graph"
+            if self._name:
+                graph_label = "{} '{}'".format(graph_label,self._name)
+            g.attr(label=graph_label, labelloc="t", nodesep="0", ranksep="0")
         
         #define base containers and bases
         orientatedBaseContainers = {}
@@ -89,13 +105,21 @@ class Graph:
                     setOrientatedBaseContainer(linkedOrientatedBase, container)
         
         #try to sort orientated bases
-        maxOrientatedBaseOrder = max([self._orientatedBases[orientatedBase]._order or 0 
-                                      for orientatedBase in self._orientatedBases.keys()])
+        maxOrientatedBaseOrder = (0 if len(self._orientatedBases)==0 
+                                  else max([self._orientatedBases[orientatedBase]._order or 0 
+                                      for orientatedBase in self._orientatedBases.keys()]))
         sortedOrientatedBaseList = sorted(self._orientatedBases.keys(), 
                                 key=lambda orientatedBase: maxOrientatedBaseOrder+1 
                                           if self._orientatedBases[orientatedBase]._order==None 
                                           else self._orientatedBases[orientatedBase]._order)
         
+        #restrict bases
+        if config["restrictedListOfCkmers"]:
+            restrictedListOfBases = set()
+            for orientatedCkmer in config["restrictedListOfCkmers"]:
+                restrictedListOfBases.update(self._orientatedCkmers[orientatedCkmer]._orientatedBases.values())
+            sortedOrientatedBaseList = [base for base in sortedOrientatedBaseList if base in restrictedListOfBases]
+            
         #loop over sorted orientated bases
         test = False
         for orientatedBase in sortedOrientatedBaseList:
@@ -111,7 +135,7 @@ class Graph:
                         elif not (self._orientatedBases[orientatedBase]._postEnd==None or 
                                 self._orientatedBases[orientatedBase]._postEnd<=config["showPrePostBasesMaxSteps"]):
                             continue
-                elif self._orientatedBases[orientatedBase]._candidate:
+                elif self._orientatedBases[orientatedBase].candidate():
                     pass
                 else:
                     continue
@@ -119,7 +143,8 @@ class Graph:
             #create container for orientatedBaseContainer (multiple bases can be connected by shared k-mers)
             #and make container visible if it contains multiple bases
             if not orientatedBase in orientatedBaseContainers.keys():
-                orientatedBaseContainerName = "cluster_container_{}_{}".format(orientatedBase[0],orientatedBase[1])
+                orientatedBaseContainerName = "cluster_container_{}_{}_{}".format(config["prefix"],
+                                                          orientatedBase[0],orientatedBase[1])
                 orientatedBaseContainer=g.subgraph(name=orientatedBaseContainerName)
                 with orientatedBaseContainer as obc:
                     obc.attr(style="invis",nodesep="0", ranksep="0")
@@ -136,13 +161,14 @@ class Graph:
             with orientatedBaseContainer as obc:      
                 
                 #add orientated base container
-                with obc.subgraph(name="cluster_"+str(orientatedBase[0])+"_"+str(orientatedBase[1])) as c: 
+                with obc.subgraph(name="cluster_{}_{}_{}".format(config["prefix"],
+                                                         orientatedBase[0],orientatedBase[1])) as c: 
                     #define layout
                     base_style=config["baseStyleDefault"]
                     base_fillcolor=config["baseFillColorDefault"]
                     base_color=config["baseColorDefault"]
                     base_penwidth=config["basePenWidthDefault"]
-                    if self._orientatedBases[orientatedBase]._candidate:
+                    if self._orientatedBases[orientatedBase].candidate():
                         base_style=config["baseStyleCandidate"]
                         base_fillcolor=config["baseFillColorCandidate"]
                         base_color=config["baseColorCandidate"]
@@ -169,9 +195,15 @@ class Graph:
                         node_color=config["nodeColorDefault"]
                         node_penwidth=config["nodePenWidthDefault"]
                         if orientatedCkmer in self._orientatedCkmers.keys():
-                            if self._orientatedCkmers[orientatedCkmer]._candidate:
+                            if self._orientatedCkmers[orientatedCkmer].candidate():
                                 node_fillcolor=config["nodeFillColorCandidate"]
                                 node_color=config["nodeColorCandidate"]
+                            elif self._orientatedCkmers[orientatedCkmer].incomingArmType():
+                                node_fillcolor=config["nodeFillColorIncomingArm"]
+                                node_color=config["nodeColorIncomingArm"]
+                            elif self._orientatedCkmers[orientatedCkmer].outgoingArmType():
+                                node_fillcolor=config["nodeFillColorOutgoingArm"]
+                                node_color=config["nodeColorOutgoingArm"]
                         if orientatedCkmer in self._start or orientatedCkmer in self._end:
                             node_fillcolor=config["nodeFillColorStartEnd"]
                             node_color=config["nodeColorStartEnd"]
@@ -179,14 +211,16 @@ class Graph:
                             node_color=config["nodeColorSelected"]
                             node_penwidth=config["nodePenWidthSelected"]
                         node_label = self._visualize_node_label(orientatedBase, orientatedCkmer)
-                        node_key = (str(orientatedBase[0])+"_"+str(orientatedBase[1])+"_"+
-                                    str(orientatedCkmer[0])+"_"+str(orientatedCkmer[1]))
-                        c.node(node_key,label=node_label, color=node_color, style=node_style, 
+                        node_key = "{}_{}_{}_{}_{}".format(config["prefix"],
+                                orientatedBase[0],orientatedBase[1],orientatedCkmer[0],orientatedCkmer[1])
+                        c.node(node_key, label=node_label, color=node_color, style=node_style, 
                                fillcolor=node_fillcolor, penwidth=str(node_penwidth))
                         if ((config["showAllBases"] or config["showDeadEnds"]) 
+                            and not orientatedCkmer in config["hideDeadEndBefore"]
                             and not self._orientatedCkmers[orientatedCkmer]._incomingDeadEnd==None):
-                            dead_key = (str(orientatedBase[0])+"_"+str(orientatedBase[1])+"_"+
-                                        str(self._orientatedCkmers[orientatedCkmer]._incomingDeadEnd[0]))
+                            dead_key = "{}_{}_{}_{}".format(config["prefix"],
+                                orientatedBase[0],orientatedBase[1],
+                                self._orientatedCkmers[orientatedCkmer]._incomingDeadEnd[0])
                             g.node(dead_key, shape="point")
                             g.edge(dead_key, node_key, constraint="true",
                               label=self._visualize_dead_end_label(
@@ -194,9 +228,11 @@ class Graph:
                                    dir="forward", color=config["edgeColorAuto"], weight="1",
                                    style=config["edgeStyleAuto"], penwidth=str(config["edgePenWidthAuto"]))
                         if ((config["showAllBases"] or config["showDeadEnds"])
+                            and not orientatedCkmer in config["hideDeadEndAfter"]
                             and not self._orientatedCkmers[orientatedCkmer]._outgoingDeadEnd==None):
-                            dead_key = (str(orientatedBase[0])+"_"+str(orientatedBase[1])+"_"+
-                                        str(self._orientatedCkmers[orientatedCkmer]._outgoingDeadEnd[0]))
+                            dead_key = "{}_{}_{}_{}".format(config["prefix"],
+                                orientatedBase[0],orientatedBase[1],
+                                self._orientatedCkmers[orientatedCkmer]._outgoingDeadEnd[0])
                             g.node(dead_key, shape="point")
                             g.edge(node_key, dead_key, constraint="true", 
                               label=self._visualize_dead_end_label(
@@ -216,13 +252,20 @@ class Graph:
                             orientatedCkmerNodes[orientatedCkmer] = {orientatedBase[1]: node_key}
                             
         #try to sort orientated k-mers
-        maxOrientatedCkmerOrder = max([self._orientatedCkmers[orientatedCkmer]._order or 0 
-                                       for orientatedCkmer in self._orientatedCkmers.keys()])
+        maxOrientatedCkmerOrder = (0 if len(self._orientatedBases)==0 
+                                  else max([self._orientatedBases[orientatedBase]._order or 0 
+                                      for orientatedBase in self._orientatedBases.keys()]))
         sortedOrientatedCkmerList = sorted(self._orientatedCkmers.keys(), 
                                 key=lambda orientatedCkmer: maxOrientatedCkmerOrder+1 
                                            if self._orientatedCkmers[orientatedCkmer]._order==None 
                                            else self._orientatedCkmers[orientatedCkmer]._order)
 
+        
+        #restrict k-mersx
+        if config["restrictedListOfCkmers"]:
+            sortedOrientatedCkmerList = [ckmer for ckmer in sortedOrientatedCkmerList 
+                                         if ckmer in config["restrictedListOfCkmers"]]
+        
         #remember edges
         edges = set()
 
@@ -332,37 +375,45 @@ class Graph:
         node_label += ">"
         return node_label
     
-    def unset_start(self, orientatedCkmerKey: str):
-        if orientatedCkmerKey in self._start:
-            self._start.remove(orientatedCkmerKey)
+    def _unsetStart(self, orientatedCkmer: str):
+        if orientatedCkmer in self._start:
+            self._start.remove(orientatedCkmer)
             #note: don't undo preStart (?)
                 
-    def set_start(self, orientatedCkmerKey: str):
-        if not orientatedCkmerKey in self._start:
-            self._start.add(orientatedCkmerKey)
-            orientatedCkmer = self._orientatedCkmers[orientatedCkmerKey]
-            for incomingOrientatedCkmerKey in orientatedCkmer._incoming.keys():
-                self._orientatedCkmers[incomingOrientatedCkmerKey].set_preStart(1)
+    def _setStart(self, orientatedCkmer: str):
+        if not orientatedCkmer in self._start:
+            self._start.add(orientatedCkmer)
+            for incomingOrientatedCkmer in self._orientatedCkmers[orientatedCkmer]._incoming.keys():
+                self._orientatedCkmers[incomingOrientatedCkmer]._setPreStart(1)
             
-    def unset_end(self, orientatedCkmerKey: str):
-        if orientatedCkmerKey in self._end:
-            self._end.remove(orientatedCkmerKey)
+    def _unsetEnd(self, orientatedCkmer: str):
+        if orientatedCkmer in self._end:
+            self._end.remove(orientatedCkmer)
             #note: don't undo postEnd (?)
             
-    def set_end(self, orientatedCkmerKey: str):
-        if not orientatedCkmerKey in self._end:
-            self._end.add(orientatedCkmerKey)
-            orientatedCkmer = self._orientatedCkmers[orientatedCkmerKey]
-            for outgoingOrientatedCkmerKey in orientatedCkmer._outgoing.keys():
-                self._orientatedCkmers[outgoingOrientatedCkmerKey].set_postEnd(1)
+    def _setEnd(self, orientatedCkmer: str):
+        if not orientatedCkmer in self._end:
+            self._end.add(orientatedCkmer)
+            for outgoingOrientatedCkmer in self._orientatedCkmers[orientatedCkmer]._outgoing.keys():
+                self._orientatedCkmers[outgoingOrientatedCkmer]._setPostEnd(1)
     
+    """get orientated candidate k-mers"""
     def getCandidates(self):
         candidates = []
         for orientatedCkmer in self._orientatedCkmers.keys():
-            if self._orientatedCkmers[orientatedCkmer]._candidate:
+            if self._orientatedCkmers[orientatedCkmer].candidate():
                 candidates.append(orientatedCkmer)
         return set(candidates)
     
+    """get orientated candidate bases"""
+    def getCandidateBases(self):
+        candidateBases = set()
+        for orientatedCkmer in self._orientatedCkmers.keys():
+            if self._orientatedCkmers[orientatedCkmer].candidate():
+                candidateBases.update(self._orientatedCkmers[orientatedCkmer]._orientatedBases.values())
+        return candidateBases
+    
+    """get connected sets of orientated candidate k-mers"""
     def getConnectedCandidates(self):
         d = self.getShortestDistances()
         connectedSets = []
@@ -383,28 +434,38 @@ class Graph:
             entry = {"connected": connectedSet, "start": set(), "end": set()}
             connectedList = list(connectedSet)
             for k in connectedList:
-                if max(d[k][connectedList].values)==0:
+                if k in self._start:
                     entry["start"].add(k)
-                if min(d[k][connectedList].values)==0:
+                elif max(d[k][connectedList].values)==0:
+                    self._logger.debug("unexpected start entry {}".format(k))
+                    entry["start"].add(k)
+                if k in self._end:
+                    entry["end"].add(k)
+                elif min(d[k][connectedList].values)==0:
+                    self._logger.debug("unexpected end entry {}".format(k))
                     entry["end"].add(k)
             result.append(entry)
         return result
         
+    """get direct distances between orientated k-mers"""
     def getDirectDistances(self):
         if self._distances == None:
             self._computeDistances()
         return self._distances["directDistance"]
         
+    """get frequencies read evidence of direct connections between orientated k-mers"""
     def getDirectNumbers(self):
         if self._distances == None:
             self._computeDistances()
         return self._distances["directNumber"]    
     
+    """get shortest distances between orientated k-mers"""
     def getShortestDistances(self):
         if self._distances == None:
             self._computeDistances()
         return self._distances["shortest"]
         
+    """get shortest distance between two orientated k-mers"""
     def getShortestDistance(self, fromOrientatedKmers: set, toOrientatedKmers: set):
         if self._distances == None:
             self._computeDistances()
@@ -418,6 +479,77 @@ class Graph:
         else:
             return(sorted(distances)[0])
         
+    def detectArms(self):
+        if len(self._arms)==0:
+            candidates = list(self.getCandidates())
+            candidateBases = list(self.getCandidateBases())
+            dist = self.getShortestDistances()
+            other = set(self._orientatedCkmers.keys()).difference(candidates)
+            incomingArms = {}
+            outgoingArms = {}
+            for orientatedCkmer in other:
+                entryDistances = dist[orientatedCkmer][candidates]
+                incomingDistances = [d for d in entryDistances if d<0]
+                outgoingDistances = [d for d in entryDistances if d>0]
+                if len(incomingDistances)>0:
+                    d = max(incomingDistances)
+                    for candidateCkmer,candidateDistance in entryDistances.items():
+                        if candidateDistance==d:
+                            if candidateCkmer in incomingArms:
+                                incomingArms[candidateCkmer]["size"] = max(incomingArms[candidateCkmer]["size"],d)
+                                incomingArms[candidateCkmer]["number"] = max(incomingArms[candidateCkmer]["number"],
+                                                                              self._orientatedCkmers[orientatedCkmer]._number)
+                                incomingArms[candidateCkmer]["n"]+=1
+                                incomingArms[candidateCkmer]["orientatedBases"].update(
+                                    self._orientatedCkmers[orientatedCkmer]._orientatedBases.values())
+                                incomingArms[candidateCkmer]["orientatedCkmers"].add(orientatedCkmer)
+                            else:
+                                incomingArms[candidateCkmer] = {"size": d, "n": 1, 
+                                        "number": self._orientatedCkmers[orientatedCkmer]._number,
+                                        "orientatedBases": set(
+                                            self._orientatedCkmers[orientatedCkmer]._orientatedBases.values()),
+                                        "orientatedCkmers": set([orientatedCkmer])}
+                if len(outgoingDistances)>0:
+                    d = min(outgoingDistances)
+                    for candidateCkmer,candidateDistance in entryDistances.items():
+                        if candidateDistance==d:
+                            if candidateCkmer in outgoingArms:
+                                outgoingArms[candidateCkmer]["size"] = max(outgoingArms[candidateCkmer]["size"],d)
+                                outgoingArms[candidateCkmer]["number"] = max(outgoingArms[candidateCkmer]["number"],
+                                                                              self._orientatedCkmers[orientatedCkmer]._number)
+                                outgoingArms[candidateCkmer]["n"]+=1
+                                outgoingArms[candidateCkmer]["orientatedBases"].update(
+                                    self._orientatedCkmers[orientatedCkmer]._orientatedBases.values())
+                                outgoingArms[candidateCkmer]["orientatedCkmers"].add(orientatedCkmer)
+                            else:
+                                outgoingArms[candidateCkmer] = {"size": d, "n": 1, 
+                                        "number": self._orientatedCkmers[orientatedCkmer]._number,
+                                        "orientatedBases": set(
+                                            self._orientatedCkmers[orientatedCkmer]._orientatedBases.values()),
+                                        "orientatedCkmers": set([orientatedCkmer])}
+            for candidateCkmer in incomingArms:
+                if candidateCkmer in self._start:
+                    continue
+                elif len(incomingArms[candidateCkmer]["orientatedBases"].difference(candidateBases))>0:
+                    arm = self.Arm(self, candidateCkmer, "incoming")
+                    for orientatedCkmer in incomingArms[candidateCkmer]["orientatedCkmers"]:
+                        arm._add(orientatedCkmer)
+            for candidateCkmer in outgoingArms:
+                if candidateCkmer in self._end:
+                    continue
+                elif len(outgoingArms[candidateCkmer]["orientatedBases"].difference(candidateBases))>0:
+                    arm = self.Arm(self, candidateCkmer, "outgoing")
+                    for orientatedCkmer in outgoingArms[candidateCkmer]["orientatedCkmers"]:
+                        arm._add(orientatedCkmer)
+
+    
+    def resetArms(self):
+        for orientatedCkmer in self._orientatedCkmers:
+            self._orientatedCkmers[orientatedCkmer].incomingArm = None
+            self._orientatedCkmers[orientatedCkmer].outgoingArm = None
+            self._orientatedCkmers[orientatedCkmer]._unsetArm()
+        self._arms = []
+                
     def _resetDistances(self):
         if not self._distances==None:
             self._logger.debug("reset distances for the De Bruijn Graph")  
@@ -470,6 +602,8 @@ class Graph:
             
     class OrientatedCkmer:
         """internal object representing splitting orientated k-mers in the De Bruijn graph"""
+        
+        TYPE = Literal["candidate","incomingArm","outgoingArm"]
 
         def __init__(self, graph, ckmer: str, orientation: str, number: int, split: str):
             """
@@ -491,11 +625,14 @@ class Graph:
             self._number : int = int(number)
             #other variables
             self._key = (self._ckmer,self._orientation)
-            self._candidate : bool = False
+            self._type : TYPE = None
+            self._arm = None
             self._incoming : dict = {}
             self._outgoing : dict = {}
             self._incomingDeadEnd : tuple = None
             self._outgoingDeadEnd : tuple = None
+            self._incomingArm = None
+            self._outgoingArm = None
             self._orientatedBases : dict = {}
             self._order : int = None
             self._preStart : int = None
@@ -517,7 +654,7 @@ class Graph:
                 self._orientatedBases["right"] = orientatedBaseKey
                 if not orientatedBaseKey in self._graph._orientatedBases.keys():
                     orientatedBaseEntry = self._graph.OrientatedBase(self._graph, base, baseOrientation)
-                self._graph._orientatedBases[orientatedBaseKey].add_ckmer(self._ckmer, self._orientation)      
+                self._graph._orientatedBases[orientatedBaseKey]._addOrientatedCkmer(self._ckmer, self._orientation)      
             if (self._split == "both") or (self._split == "left"):
                 base = General.reverse_complement(self._ckmer[1:])
                 baseOrientation = "forward" if self._orientation=="backward" else "backward"
@@ -525,52 +662,60 @@ class Graph:
                 self._orientatedBases["left"] = orientatedBaseKey
                 if not orientatedBaseKey in self._graph._orientatedBases.keys():
                     orientatedBaseEntry = self._graph.OrientatedBase(self._graph, base, baseOrientation)
-                self._graph._orientatedBases[orientatedBaseKey].add_ckmer(self._ckmer, self._orientation)     
+                self._graph._orientatedBases[orientatedBaseKey]._addOrientatedCkmer(self._ckmer, self._orientation)     
             
         def __repr__(self):
             info = []
-            info.append(str(self._number)+"x")
-            info.append("split "+str(self._split))
-            if self._candidate:
-                info.append("candidate")
+            info.append("{}x".format(self._number))
+            info.append("split {}".format(self._split))
+            if self._type:
+                info.append("type: {}".format(self._type))
             if self._order:
-                info.append("order: "+str(self._order))
-            return "OrientatedCkmer("+self._ckmer+" "+self._orientation+"["+(", ".join(info))+"])" 
+                info.append("order: {}".format(self._order))
+            return "OrientatedCkmer({} {}[{}])".format(self._ckmer,self._orientation,", ".join(info))
         
-        def set_incoming_dead_end(self, orientatedCkmerKey, distance: int, path: str):
+        def _setIncomingArm(self, arm):
+            assert self._incomingArm == None
+            self._incomingArm = arm
+        
+        def _setOutgoingArm(self, arm):
+            assert self._outgoingArm == None
+            self._outgoingArm = arm
+            
+        def _setIncomingDeadEnd(self, orientatedCkmer, distance: int, path: str):
             assert len(self._incoming)==0
-            self._incomingDeadEnd = (orientatedCkmerKey, distance, path)
+            self._incomingDeadEnd = (orientatedCkmer, distance, path)
             #consistency check
             if not path==None:
-                assert len(orientatedCkmerKey[0])==self._graph._k
+                assert len(orientatedCkmer[0])==self._graph._k
                 assert len(path)==self._graph._k+distance
                 if self._orientation=="forward":
                     assert path[-self._graph._k:]==self._ckmer
                 else:
                     assert path[-self._graph._k:]==General.reverse_complement(self._ckmer)
-                if orientatedCkmerKey[1]=="forward":
-                    assert path[0:self._graph._k]==orientatedCkmerKey[0]
+                if orientatedCkmer[1]=="forward":
+                    assert path[0:self._graph._k]==orientatedCkmer[0]
                 else:
-                    assert path[0:self._graph._k]==General.reverse_complement(orientatedCkmerKey[0])
+                    assert path[0:self._graph._k]==General.reverse_complement(orientatedCkmer[0])
         
-        def set_outgoing_dead_end(self, orientatedCkmerKey, distance: int, path: str):
+        def _setOutgoingDeadEnd(self, orientatedCkmer, distance: int, path: str):
             assert len(self._outgoing)==0
-            self._outgoingDeadEnd = (orientatedCkmerKey, distance, path)
+            self._outgoingDeadEnd = (orientatedCkmer, distance, path)
             #consistency check
             if not path==None:
-                assert len(orientatedCkmerKey[0])==self._graph._k
+                assert len(orientatedCkmer[0])==self._graph._k
                 assert len(path)==self._graph._k+distance
                 if self._orientation=="forward":
                     assert path[0:self._graph._k]==self._ckmer
                 else:
                     assert path[0:self._graph._k]==General.reverse_complement(self._ckmer)
-                if orientatedCkmerKey[1]=="forward":
-                    assert path[-self._graph._k:]==orientatedCkmerKey[0]
+                if orientatedCkmer[1]=="forward":
+                    assert path[-self._graph._k:]==orientatedCkmer[0]
                 else:
-                    assert path[-self._graph._k:]==General.reverse_complement(orientatedCkmerKey[0])
+                    assert path[-self._graph._k:]==General.reverse_complement(orientatedCkmer[0])
         
-        def set_incoming(self, orientatedCkmerKey, distance: int, number: int, problem: bool = None, path: str = None):
-            assert orientatedCkmerKey in self._graph._orientatedCkmers.keys()
+        def _setIncoming(self, orientatedCkmer, distance: int, number: int, problem: bool = None, path: str = None):
+            assert orientatedCkmer in self._graph._orientatedCkmers
             assert distance>0
             assert number>=0
             assert path == None or len(path)==distance+self._graph._k
@@ -582,15 +727,15 @@ class Graph:
                         shared = self._ckmer[0:self._graph._k-distance]
                     else:
                         shared = General.reverse_complement(self._ckmer)[0:self._graph._k-distance]
-                    if orientatedCkmerKey[1]=="forward":
-                        assert shared==orientatedCkmerKey[0][-len(shared):]
+                    if orientatedCkmer[1]=="forward":
+                        assert shared==orientatedCkmer[0][-len(shared):]
                     else:
-                        assert shared==General.reverse_complement(orientatedCkmerKey[0])[-len(shared):]
+                        assert shared==General.reverse_complement(orientatedCkmer[0])[-len(shared):]
                 #compute path and compare with provided
-                if orientatedCkmerKey[1]=="forward":
-                    computedPath = orientatedCkmerKey[0]
+                if orientatedCkmer[1]=="forward":
+                    computedPath = orientatedCkmer[0]
                 else:
-                    computedPath = General.reverse_complement(orientatedCkmerKey[0])
+                    computedPath = General.reverse_complement(orientatedCkmer[0])
                 if self._orientation=="forward":
                     computedPath = computedPath + self._ckmer[-distance:]
                 else:
@@ -600,30 +745,31 @@ class Graph:
                 else:
                     path = computedPath
             #set or update connection
-            if orientatedCkmerKey in self._outgoing.keys():
-                assert self._incoming[orientatedCkmerKey]["distance"] == distance
-                assert self._incoming[orientatedCkmerKey]["number"] == number
+            if orientatedCkmer in self._outgoing.keys():
+                if not self._incoming[orientatedCkmer]["problem"]:
+                    assert self._incoming[orientatedCkmer]["distance"] == distance
+                    assert self._incoming[orientatedCkmer]["number"] == number
             else:    
-                self._incoming[orientatedCkmerKey] = {
+                self._incoming[orientatedCkmer] = {
                     "distance": distance, "number": number, 
                     "problem": problem, "path": None
                 }
             if not problem==None:
-                self._incoming[orientatedCkmerKey]["problem"] = problem
+                self._incoming[orientatedCkmer]["problem"] = problem
             if not path==None:
-                self._incoming[orientatedCkmerKey]["path"] = path    
+                self._incoming[orientatedCkmer]["path"] = path    
             #update start and end based on connections
-            if orientatedCkmerKey in self._graph._end:
-                self.set_postEnd(1)
-            elif not self._graph._orientatedCkmers[orientatedCkmerKey]._postEnd==None:
-                self.set_postEnd(self._graph._orientatedCkmers[orientatedCkmerKey]._postEnd+1)
+            if orientatedCkmer in self._graph._end:
+                self._setPostEnd(1)
+            elif not self._graph._orientatedCkmers[orientatedCkmer]._postEnd==None:
+                self._setPostEnd(self._graph._orientatedCkmers[orientatedCkmer]._postEnd+1)
             if self._key in self._graph._start:
-                self._graph._orientatedCkmers[orientatedCkmerKey].set_preStart(1)
+                self._graph._orientatedCkmers[orientatedCkmer]._setPreStart(1)
             elif not self._preStart == None:
-                self._graph._orientatedCkmers[orientatedCkmerKey].set_preStart(self._preStart+1)
+                self._graph._orientatedCkmers[orientatedCkmer]._setPreStart(self._preStart+1)
             
-        def set_outgoing(self, orientatedCkmerKey, distance: int, number: int, problem: bool = None, path: str = None):
-            assert orientatedCkmerKey in self._graph._orientatedCkmers.keys()
+        def _setOutgoing(self, orientatedCkmer, distance: int, number: int, problem: bool = None, path: str = None):
+            assert orientatedCkmer in self._graph._orientatedCkmers.keys()
             assert distance>0
             assert number>=0
             assert path == None or len(path)==distance+self._graph._k
@@ -635,84 +781,128 @@ class Graph:
                         shared = self._ckmer[-(self._graph._k-distance):]
                     else:
                         shared = General.reverse_complement(self._ckmer)[-(self._graph._k-distance):]
-                    if orientatedCkmerKey[1]=="forward":
-                        assert shared==orientatedCkmerKey[0][0:len(shared)]
+                    if orientatedCkmer[1]=="forward":
+                        assert shared==orientatedCkmer[0][0:len(shared)]
                     else:
-                        assert shared==General.reverse_complement(orientatedCkmerKey[0])[0:len(shared)]
+                        assert shared==General.reverse_complement(orientatedCkmer[0])[0:len(shared)]
                 #compute path and compare with provided
                 if self._orientation=="forward":
                     computedPath = self._ckmer
                 else:
                     computedPath = General.reverse_complement(self._ckmer)
-                if orientatedCkmerKey[1]=="forward":
-                    computedPath = computedPath + orientatedCkmerKey[0][-distance:]
+                if orientatedCkmer[1]=="forward":
+                    computedPath = computedPath + orientatedCkmer[0][-distance:]
                 else:
-                    computedPath = computedPath + General.reverse_complement(orientatedCkmerKey[0])[-distance:]
+                    computedPath = computedPath + General.reverse_complement(orientatedCkmer[0])[-distance:]
                 if not path == None:
                     assert path == computedPath
                 else:
                     path = computedPath
-            if orientatedCkmerKey in self._outgoing.keys():
-                assert self._outgoing[orientatedCkmerKey]["distance"] == distance
-                assert self._outgoing[orientatedCkmerKey]["number"] == number
+            if orientatedCkmer in self._outgoing.keys():
+                if not self._outgoing[orientatedCkmer]["problem"]:
+                    assert self._outgoing[orientatedCkmer]["distance"] == distance
+                    assert self._outgoing[orientatedCkmer]["number"] == number
             else:    
-                self._outgoing[orientatedCkmerKey] = {
+                self._outgoing[orientatedCkmer] = {
                     "distance": distance, "number": number, 
                     "problem": problem, "path": None
                 }
             if not problem==None:
-                self._outgoing[orientatedCkmerKey]["problem"] = problem
+                self._outgoing[orientatedCkmer]["problem"] = problem
             if not path==None:
-                self._outgoing[orientatedCkmerKey]["path"] = path    
+                self._outgoing[orientatedCkmer]["path"] = path    
             #update start and end based on connections
-            if orientatedCkmerKey in self._graph._start:
-                self.set_preStart(1)
-            elif not self._graph._orientatedCkmers[orientatedCkmerKey]._preStart==None:
-                self.set_preStart(self._graph._orientatedCkmers[orientatedCkmerKey]._preStart+1)
+            if orientatedCkmer in self._graph._start:
+                self._setPreStart(1)
+            elif not self._graph._orientatedCkmers[orientatedCkmer]._preStart==None:
+                self._setPreStart(self._graph._orientatedCkmers[orientatedCkmer]._preStart+1)
             if self._key in self._graph._end:
-                self._graph._orientatedCkmers[orientatedCkmerKey].set_postEnd(1)
+                self._graph._orientatedCkmers[orientatedCkmer]._setPostEnd(1)
             elif not self._postEnd == None:
-                self._graph._orientatedCkmers[orientatedCkmerKey].set_postEnd(self._postEnd+1)
+                self._graph._orientatedCkmers[orientatedCkmer]._setPostEnd(self._postEnd+1)
             
-        def unset_candidate(self):
-            self._candidate = False
-            #note: don't undo base setting(?)
+        def _unsetCandidate(self):
+            if self.candidate():
+                self._type = None
+                for orientatedBase in self._orientatedBases.values():
+                    self._graph._orientatedBases[orientatedBase]._setType()                                
                 
-        def set_candidate(self):
-            self._candidate = True
-            for direction in self._orientatedBases.keys():
-                orientatedBaseKey = self._orientatedBases[direction]
-                self._graph._orientatedBases[orientatedBaseKey].set_candidate()
+        def _setCandidate(self):
+            self._type = "candidate"
+            for orientatedBase in self._orientatedBases.values():
+                self._graph._orientatedBases[orientatedBase]._setType()                                                
                 
-        def set_order(self, order: int):
+        def candidate(self):
+            return self._type=="candidate"
+                
+        def _unsetArm(self):
+            if self.arm():
+                self._type = None
+                for orientatedBase in self._orientatedBases.values():
+                    self._graph._orientatedBases[orientatedBase]._setType() 
+                
+        def _setArm(self, arm):
+            if arm.armType()=="incoming":
+                self._type = "incomingArm"
+                self._arm = arm
+            elif arm.armType()=="outgoing":
+                self._type = "outgoingArm"
+                self._arm = arm
+            for orientatedBase in self._orientatedBases.values():
+                self._graph._orientatedBases[orientatedBase]._setType()
+                
+        def arm(self):
+            return self._type=="incomingArm" or self._type=="outgoingArm"
+                
+        def armKey(self):
+            return self._arm.key() if self.arm() else None
+                
+        def incomingArmType(self):
+            return self._type=="incomingArm"
+                
+        def outgoingArmType(self):
+            return self._type=="outgoingArm"
+                
+        def incomingArm(self):
+            return self._incomingArm
+                
+        def outgoingArm(self):
+            return self._outgoingArm
+                
+        def _setOrder(self, order: int):
             self._order = order
             for direction in self._orientatedBases.keys():
                 orientatedBaseKey = self._orientatedBases[direction]
-                self._graph._orientatedBases[orientatedBaseKey].set_order()
+                self._graph._orientatedBases[orientatedBaseKey]._setOrder()
                 
-        def set_preStart(self, steps: int):
+        def order(self):
+            return self._order
+                
+        def _setPreStart(self, steps: int):
             if (self._preStart == None) or (self._preStart>steps):
                 self._preStart = steps
                 for direction in self._orientatedBases.keys():
                     orientatedBaseKey = self._orientatedBases[direction]
-                    self._graph._orientatedBases[orientatedBaseKey].set_preStart(steps)
-                for incomingOrientatedCkmerKey in self._incoming.keys():
-                    self._graph._orientatedCkmers[incomingOrientatedCkmerKey].set_preStart(steps+1)
+                    self._graph._orientatedBases[orientatedBaseKey]._setPreStart(steps)
+                for incomingOrientatedCkmer in self._incoming.keys():
+                    self._graph._orientatedCkmers[incomingOrientatedCkmer]._setPreStart(steps+1)
                     
-        def set_postEnd(self, steps: int):
+        def _setPostEnd(self, steps: int):
             if (self._postEnd == None) or (self._postEnd>steps):
                 self._postEnd = steps
                 for direction in self._orientatedBases.keys():
                     orientatedBaseKey = self._orientatedBases[direction]
-                    self._graph._orientatedBases[orientatedBaseKey].set_postEnd(steps)
-                for outgoingOrientatedCkmerKey in self._outgoing.keys():
-                    self._graph._orientatedCkmers[outgoingOrientatedCkmerKey].set_postEnd(steps+1)
+                    self._graph._orientatedBases[orientatedBaseKey]._setPostEnd(steps)
+                for outgoingOrientatedCkmer in self._outgoing.keys():
+                    self._graph._orientatedCkmers[outgoingOrientatedCkmer]._setPostEnd(steps+1)
              
             
     class OrientatedBase:
         """
         internal object representing orientated base in the De Bruijn graph
         """
+        
+        TYPE = Literal["candidate","arm"]
         
         def __init__(self, graph, base: str, orientation: str):
             """
@@ -728,7 +918,7 @@ class Graph:
             self._orientation : str = str(orientation)            
             #other variables
             self._key = (self._base,self._orientation)
-            self._candidate : bool = False
+            self._type : TYPE = None
             self._number : int = 0
             self._order : int = None
             self._orientatedCkmers : set = set()
@@ -743,58 +933,131 @@ class Graph:
             
         def __repr__(self):
             info = []
-            info.append(str(self._number)+"x")
-            info.append(str(len(self._orientatedCkmers))+" k-mers")
-            if self._candidate:
-                info.append("candidate")
+            info.append("{}x".format(self._number))
+            info.append("{} k-mers".format(len(self._orientatedCkmers)))
+            if self._type:
+                info.append("type: {}".format(self._type))
             if self._order:
-                info.append("order: "+str(self._order))
-            return "OrientatedBase("+self._base+" "+self._orientation+"["+(", ".join(info))+"])"
+                info.append("order: {}".format(self._order))
+            return "OrientatedBase({} {} [{}])".format(self._base,self._orientation,", ".join(info))
         
-        def set_candidate(self):
-            self._candidate = True
+        def _setType(self):
+            self._type = None
+            for orientatedCkmer in self._orientatedCkmers:
+                if self._graph._orientatedCkmers[orientatedCkmer].candidate():
+                    self._type="candidate"
+                    break
+                elif self._graph._orientatedCkmers[orientatedCkmer].arm():
+                    self._type="arm"
             
-        def set_preStart(self,steps):
+        def candidate(self):
+            return self._type == "candidate"
+            
+        def arm(self):
+            return self._type == "arm"
+            
+        def _setPreStart(self,steps):
             if (self._preStart == None) or (self._preStart>steps):
                 self._preStart = steps
-                for orientatedCkmerKey in self._orientatedCkmers:
-                    self._graph._orientatedCkmers[orientatedCkmerKey].set_preStart(steps)
+                for orientatedCkmer in self._orientatedCkmers:
+                    self._graph._orientatedCkmers[orientatedCkmer]._setPreStart(steps)
 
-        def set_postEnd(self,steps):
+        def _setPostEnd(self,steps):
             if (self._postEnd == None) or (self._postEnd>steps):
                 self._postEnd = steps   
-                for orientatedCkmerKey in self._orientatedCkmers:
-                    self._graph._orientatedCkmers[orientatedCkmerKey].set_postEnd(steps)
+                for orientatedCkmer in self._orientatedCkmers:
+                    self._graph._orientatedCkmers[orientatedCkmer]._setPostEnd(steps)
             
-        def set_order(self):
+        def _setOrder(self):
             self._order = None
-            for orientatedCkmerKey in self._orientatedCkmers:
-                if not self._graph._orientatedCkmers[orientatedCkmerKey]._order == None:
+            for orientatedCkmer in self._orientatedCkmers:
+                if not self._graph._orientatedCkmers[orientatedCkmer]._order == None:
                     if self._order == None:
-                        self._order = self._graph._orientatedCkmers[orientatedCkmerKey]._order
+                        self._order = self._graph._orientatedCkmers[orientatedCkmer]._order
                     else:
-                        self._order = min(self._order, self._graph._orientatedCkmers[orientatedCkmerKey]._order)
+                        self._order = min(self._order, self._graph._orientatedCkmers[orientatedCkmer]._order)
                                            
         
-        def add_ckmer(self, ckmer, orientation):
-            orientatedCkmerKey = (ckmer, orientation)            
-            if orientatedCkmerKey in self._graph._orientatedCkmers.keys():
-                assert orientatedCkmerKey not in self._orientatedCkmers
-                self._orientatedCkmers.add(orientatedCkmerKey)
-                self._number += self._graph._orientatedCkmers[orientatedCkmerKey]._number
-                #check candidate
-                self._candidate = (self._candidate or self._graph._orientatedCkmers[orientatedCkmerKey]._candidate)
+        def _addOrientatedCkmer(self, ckmer, orientation):
+            orientatedCkmer = (ckmer, orientation)            
+            if orientatedCkmer in self._graph._orientatedCkmers.keys():
+                assert orientatedCkmer not in self._orientatedCkmers
+                self._orientatedCkmers.add(orientatedCkmer)
+                self._number += self._graph._orientatedCkmers[orientatedCkmer]._number
+                #check type
+                self._setType()
                 #check order
-                if not self._graph._orientatedCkmers[orientatedCkmerKey]._order == None:
+                if not self._graph._orientatedCkmers[orientatedCkmer]._order == None:
                     if self._order == None:
-                        self._order = self._graph._orientatedCkmers[orientatedCkmerKey]._order
+                        self._order = self._graph._orientatedCkmers[orientatedCkmer]._order
                     else:
-                        self._order = min(self._order, self._graph._orientatedCkmers[orientatedCkmerKey]._order)
+                        self._order = min(self._order, self._graph._orientatedCkmers[orientatedCkmer]._order)
                 #check linked
-                for baseKey in self._graph._orientatedCkmers[orientatedCkmerKey]._orientatedBases.values():
+                for baseKey in self._graph._orientatedCkmers[orientatedCkmer]._orientatedBases.values():
                     if not (baseKey == self._key):
                         self._linked.add(baseKey)
                         self._graph._orientatedBases[baseKey]._linked.add(self._key)
             else:
                 raise Exception("can't add non-existing orientated canonical k-mer")
                             
+    class Arm:
+        """
+        internal object representing arm
+        """
+        
+        TYPE = Literal["incoming","outward"]
+        
+        def __init__(self, graph, orientatedCkmer, type: TYPE):
+            self._type = type
+            self._graph = graph
+            self._orientatedCkmers = set()
+            self._connection = None
+            self._maxFreq = 0
+            self._size = 0
+            self._key = None
+            #mark incoming/outgoing arm
+            assert orientatedCkmer in self._graph._orientatedCkmers
+            if type=="incoming":
+                assert self._graph._orientatedCkmers[orientatedCkmer].candidate()
+                self._graph._orientatedCkmers[orientatedCkmer]._setIncomingArm(self)
+                self._connection = orientatedCkmer                
+            elif type=="outgoing":
+                assert self._graph._orientatedCkmers[orientatedCkmer].candidate()
+                self._graph._orientatedCkmers[orientatedCkmer]._setOutgoingArm(self)
+                self._connection = orientatedCkmer                      
+            #register arm
+            self._graph._arms.append(self)
+            self._key = len(self._graph._arms)
+            
+        def _add(self, orientatedCkmer):
+            assert orientatedCkmer in self._graph._orientatedCkmers
+            if self._type == "incoming":
+                self._graph._orientatedCkmers[orientatedCkmer]._setArm(self)
+            elif self._type == "outgoing":
+                self._graph._orientatedCkmers[orientatedCkmer]._setArm(self)
+            self._orientatedCkmers.add(orientatedCkmer)
+            self._maxFreq = max(self._maxFreq,self._graph._orientatedCkmers[orientatedCkmer]._number)
+            distances = self._graph.getShortestDistances()
+            self._size = max(self._size, distances[orientatedCkmer][self._connection], 
+                             distances[self._connection][orientatedCkmer])
+            
+        def armType(self):
+            return self._type
+        
+        def maxFreq(self):
+            return self._maxFreq
+        
+        def key(self):
+            return self._key
+        
+        def n(self):
+            return len(self._orientatedCkmers)
+        
+        def size(self):
+            return self._size
+        
+        def connection(self):
+            return self._connection
+            
+            
+            

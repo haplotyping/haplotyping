@@ -64,6 +64,7 @@ class API:
         if db_connection is None:
             config = current_app.config.get("config")
             location = current_app.config.get("location")
+            print(os.path.join(location,config["settings"]["sqlite_db"]))
             db_connection = g._database = sqlite3.connect(os.path.join(location,config["settings"]["sqlite_db"]))
         return db_connection
     

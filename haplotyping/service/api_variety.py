@@ -102,7 +102,7 @@ def year_description(year_min,year_max):
     else:
         return str(year_min)+"-"+str(year_max)
     
-def adjust_variety_response(item, collection, dataset, db_connection):
+def adjust_variety_response(item, collection, dataType, db_connection):
     #origin
     item["origin"] = {"uid": item["origin"], "country": item["country"]}
     del item["country"]
@@ -113,7 +113,7 @@ def adjust_variety_response(item, collection, dataset, db_connection):
     del item["year_min"]
     del item["year_max"]
     #datasets
-    item["datasets"] = get_variety_datasets(item["uid"], collection, dataset, db_connection)
+    item["datasets"] = get_variety_datasets(item["uid"], collection, dataType, db_connection)
     for i in range(len(item["datasets"])):
         item["datasets"][i]["collection"] = {
             "uid": item["datasets"][i]["collection_uid"],
@@ -144,7 +144,7 @@ class VarietyList(Resource):
                               help="year of variety (e.g. '1995', '<1995', '>1995', '1990-1995')")
     variety_list.add_argument("collection", type=str, required=False, location="args", 
                               help="variety has dataset from comma separated list of collection uids")
-    variety_list.add_argument("dataset", type=str, required=False, location="args", 
+    variety_list.add_argument("dataType", type=str, required=False, location="args", 
                               help="variety has dataset (of specific type)", choices=["any","none","kmer","split","marker"])
     variety_list.add_argument("hasParents", type=bool, required=False, location="args", 
                               help="parent(s) known for this variety")
@@ -164,7 +164,7 @@ class VarietyList(Resource):
             origin = request.args.get("origin",None)
             year = request.args.get("year",None)
             collection = request.args.get("collection",None)
-            dataset = request.args.get("dataset",None)
+            dataType = request.args.get("dataType",None)
             hasParents = request.args.get("hasParents",None)
             hasOffspring = request.args.get("hasOffspring",None)
             condition_sql = "1"
@@ -202,19 +202,19 @@ class VarietyList(Resource):
                 collection_list = collection.split(",")
                 condition_sql = condition_sql + " AND (`collection`.`uid` IN ("+",".join(["?"]*len(collection_list))+"))"
                 condition_variables.extend(collection_list)
-            if not dataset==None:
-                if dataset=="any":
+            if not dataType==None:
+                if dataType=="any":
                     condition_sql = condition_sql + " AND NOT (`dataset`.`id` IS NULL)"  
-                elif dataset=="none":
+                elif dataType=="none":
                     condition_sql = condition_sql + " AND (`dataset`.`id` IS NULL)"  
-                elif dataset=="kmer":
+                elif dataType=="kmer":
                     condition_sql = condition_sql + " AND ((`dataset`.`type` IS 'kmer') OR (`dataset`.`type` IS 'split'))"  
-                elif dataset=="split":
+                elif dataType=="split":
                     condition_sql = condition_sql + " AND (`dataset`.`type` IS 'split')" 
-                elif dataset=="marker":
+                elif dataType=="marker":
                     condition_sql = condition_sql + " AND (`dataset`.`type` IS 'marker')"
                 else:
-                    abort(422, "incorrect dataset condition "+str(dataset))
+                    abort(422, "incorrect dataType condition "+str(dataset))
             if not hasParents==None:
                 if _make_bool(hasParents):
                     condition_sql = condition_sql + " AND NOT (`ancestor`.`id` IS NULL)"
@@ -258,7 +258,7 @@ class VarietyList(Resource):
             else:
                 resultList = []
             for i in range(len(resultList)):
-                resultList[i] = adjust_variety_response(resultList[i], collection, dataset, db_connection)                
+                resultList[i] = adjust_variety_response(resultList[i], collection, dataType, db_connection)                
             response = {"start": start, "number": number, "total": total, "list": resultList}
             return Response(json.dumps(response), mimetype="application/json") 
         except Exception as e:

@@ -87,7 +87,7 @@ class Reads:
             #this estimation is the splitting k-mer fraction times the estimated number of k-mers in a read
             #the factor two is used for paired reads that did partly overlap
             #keep this number within reason, therefore in the interval between arrayNumberDirect and 
-            #the number of letters to the power 4
+            #the number of letters to the power 4 (256)
             self.arrayNumberConnection = math.ceil(2*(self.numberOfKmers/self.totalNumberOfKmers)*
                                           (1+self.estimatedMaximumReadLength-self.k))
             self.arrayNumberConnection = max(self.arrayNumberDirect,self.arrayNumberConnection)

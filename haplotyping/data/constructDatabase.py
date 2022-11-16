@@ -12,6 +12,7 @@ class ConstructDatabase:
     dbFilename = "db.sqlite"
     identifierBackup = "identifiers.json"
     markerDirectory = "marker"
+    kmerDirectory = "kmer"
     
     def __init__(self, basedir:str, exportdir:str):
         #data
@@ -69,6 +70,9 @@ class ConstructDatabase:
         if os.path.exists(os.path.join(self._exportDir,self.markerDirectory)):
             self._logger.info("remove previous version {}".format(self.markerDirectory))
             shutil.rmtree(os.path.join(self._exportDir,self.markerDirectory))
+        os.mkdir(os.path.join(self._exportDir,self.markerDirectory))
+        if not os.path.exists(os.path.join(self._exportDir,self.kmerDirectory)):
+            os.mkdir(os.path.join(self._exportDir,self.kmerDirectory))
         if os.path.exists(os.path.join(self._exportDir,self.dbFilename)):
             self._logger.info("remove previous version {}".format(self.dbFilename))
             os.remove(os.path.join(self._exportDir,self.dbFilename))
