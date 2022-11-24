@@ -3,19 +3,29 @@ import haplotyping.graph
 import haplotyping.graph.baseGraph as baseGraph
 
 class API():
-    def __init__(self, url: str):
+    def __init__(self, url: str, username: str = None, password: str = None):
         #logger
         self._api_logger = logging.getLogger(__name__)
         #store call parameters
         self._baseUrl : str = str(url)
-            
+        self._username = username
+        self._password = password
+        #set authentication
+        if self._username and self._password:
+            self._apiAuth = requests.auth.HTTPBasicAuth(self._username, self._password)
+        else:
+            self._apiAuth = None
+        #set headers
+        self._apiHeaders = {"accept": "application/json"}
+                
+    
     def _getList(self, request:str, key: str, number: int = 1000):
         start = 0
         result = {}
         while True:
             fullRequest = "{}{}{}start={}&number={}".format(self._baseUrl,
                 request,"&" if "?" in request else "?",start,number)
-            response = requests.get(fullRequest)
+            response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
             if response.ok:
                 data = response.json()
                 total = data.get("total",None)
@@ -35,7 +45,7 @@ class API():
     
     def _getById(self, request, uid, key="uid"):
         fullRequest = "{}{}{}".format(self._baseUrl,request,requests.utils.quote(uid))
-        response = requests.get(fullRequest)
+        response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
         if response.ok:
             data = response.json()
             if key in data:
@@ -49,7 +59,7 @@ class API():
         
     def _getByIds(self, request, uids, key1="uids", key2="uid"):
         fullRequest = "{}{}".format(self._baseUrl,request)
-        response = requests.post(fullRequest, json = {key1: list(uids)})
+        response = requests.post(fullRequest, json = {key1: list(uids)}, auth=self._apiAuth, headers=self._apiHeaders)
         if response.ok:
             data = response.json()
             result = {}
@@ -132,7 +142,6 @@ class API():
             if not parameters[key]==None:
                 request = "{}{}{}={}".format(request,
                          "&" if "?" in request else "?",key,requests.utils.quote(parameters[key]))
-        print(request)
         return self._getList(request,"uid")
     
     def getVarietyById(self, uid):
@@ -144,7 +153,7 @@ class API():
     def getKmerFrequency(self, datasetUid, kmer, mismatches=0):
         fullRequest = "{}kmer/{}/{}{}".format(self._baseUrl, datasetUid, kmer, 
                                               "?mismatches={}".format(int(mismatches)) if mismatches>0 else "")
-        response = requests.get(fullRequest)
+        response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
         if response.ok:
             data = response.json()
             result = data.get("kmers",{})
@@ -157,7 +166,8 @@ class API():
     
     def getKmerFrequencies(self, datasetUid, kmers, mismatches=0):
         fullRequest = "{}kmer/{}".format(self._baseUrl, datasetUid)        
-        response = requests.post(fullRequest, json={"kmers": list(kmers),"mismatches": mismatches})
+        response = requests.post(fullRequest, json={"kmers": list(kmers),"mismatches": mismatches}, 
+                                 auth=self._apiAuth, headers=self._apiHeaders)
         if response.ok:
             data = response.json()
             result = data.get("kmers",{})
@@ -171,7 +181,8 @@ class API():
         
     def getKmerSequence(self, datasetUid, sequence, mismatches=0):
         fullRequest = "{}kmer/{}/sequence".format(self._baseUrl, datasetUid)        
-        response = requests.post(fullRequest, json={"sequence": sequence,"mismatches": mismatches})
+        response = requests.post(fullRequest, json={"sequence": sequence,"mismatches": mismatches}, 
+                                 auth=self._apiAuth, headers=self._apiHeaders)
         if response.ok:
             data = response.json()
             result = data.get("kmers",{})
@@ -182,7 +193,17 @@ class API():
         
     def getMarkerData(self, datasetUid):
         fullRequest = "{}marker/{}/data".format(self._baseUrl, datasetUid)
-        response = requests.get(fullRequest)
+        response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
+        if response.ok:
+            data = response.json()
+            return data
+        else:
+            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+            return None
+        
+    def getSplitInfo(self, datasetUid):
+        fullRequest = "{}split/{}/info".format(self._baseUrl, datasetUid)
+        response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
         if response.ok:
             data = response.json()
             return data
@@ -192,7 +213,7 @@ class API():
         
     def getMarkerInfo(self, datasetUid):
         fullRequest = "{}marker/{}/info".format(self._baseUrl, datasetUid)
-        response = requests.get(fullRequest)
+        response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
         if response.ok:
             data = response.json()
             return data
@@ -202,7 +223,7 @@ class API():
         
     def getMarkerMapping(self, datasetUid):
         fullRequest = "{}marker/{}/mapping".format(self._baseUrl, datasetUid)
-        response = requests.get(fullRequest)
+        response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
         if response.ok:
             data = response.json()
             return data
@@ -215,7 +236,7 @@ class APIGraph(baseGraph.Graph):
     """basic or minimal version of the De Bruijn graph using the dataset 
         defined by uid via API"""
     
-    def __init__(self, url: str, uid: str):
+    def __init__(self, url: str, uid: str, username: str = None, password: str = None):
         """use the API at provided url"""
         #call parent constructor
         super(haplotyping.graph.api.APIGraph, self).__init__()
@@ -224,12 +245,21 @@ class APIGraph(baseGraph.Graph):
         #store call parameters
         self._baseUrl : str = str(url)
         self._uid : str = str(uid)
+        self._username : str = username
+        self._password : str = password
         #initialise
         self._variety : str = None
         self._collection : str = None
         #report to logger
         self._api_logger.debug("using dataset {}".format(self._uid))
         self._api_logger.debug("using API at {}".format(self._baseUrl))
+        #set authentication
+        if self._username and self._password:
+            self._apiAuth = requests.auth.HTTPBasicAuth(self._username, self._password)
+        else:
+            self._apiAuth = None
+        #set headers
+        self._apiHeaders = {"accept": "application/json"}
         #checks
         self._api_initial_checks()
         
@@ -239,7 +269,8 @@ class APIGraph(baseGraph.Graph):
         """
         self._api_logger.debug("get dataset information from API")        
         #get dataset info
-        response = requests.post(self._baseUrl+"dataset/", json = {"uids": [self._uid]})
+        response = requests.post(self._baseUrl+"dataset/", json = {"uids": [self._uid]}, 
+                                 auth=self._apiAuth, headers=self._apiHeaders)
         if response.ok:
             data = response.json()
             if data.get("total",0)==1:
@@ -252,10 +283,15 @@ class APIGraph(baseGraph.Graph):
                     self._variety = str(dataset["variety"]["name"])
                     self._api_logger.debug("set variety to '{}'".format(self._variety))
                 if dataset["collection"]:
-                    self._collection = str(dataset["collection"])
+                    self._collection = str(dataset["collection"]["name"])
                     self._api_logger.debug("set collection to '{}'".format(self._collection))
+                if self._variety:
+                    self._name = "'{}'".format(self._variety)
+                    if self._collection:
+                        self._name = "{} from '{}' collection".format(self._name,self._collection)
                 #get split info
-                response = requests.get(self._baseUrl+"split/"+self._uid+"/info")
+                response = requests.get(self._baseUrl+"split/"+self._uid+"/info", 
+                                        auth=self._apiAuth, headers=self._apiHeaders)
                 if response.ok:
                     data = response.json()
                     self._k = int(data["k"])
@@ -272,7 +308,8 @@ class APIGraph(baseGraph.Graph):
         for b in ["A","C","G","T"]:
             kmerList.append(kmer[1:]+b)
         response = requests.post(self._baseUrl+"kmer/"+self._uid, 
-                                 json = {"kmers": sorted(kmerList)})
+                                 json = {"kmers": sorted(kmerList)}, 
+                                 auth=self._apiAuth, headers=self._apiHeaders)
         if response.ok:
             data = response.json()
             return data
@@ -292,7 +329,8 @@ class APIGraph(baseGraph.Graph):
                         leftSplitters.add(lb+newKmer[1:])
             kmerList = list(rightNeighbours.union(leftSplitters))
             response = requests.post(self._baseUrl+"kmer/"+self._uid, 
-                                 json = {"kmers": sorted(kmerList)})
+                                 json = {"kmers": sorted(kmerList)}, 
+                                     auth=self._apiAuth, headers=self._apiHeaders)
             if response.ok:
                 data = response.json()
                 kmerFound = [k for k in data["kmers"] if data["kmers"][k]>=minimumFrequency]

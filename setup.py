@@ -2,10 +2,13 @@ import setuptools
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
+    
+with open("haplotyping/_version.py", "r") as fh:
+    exec(fh.read())
 
 setuptools.setup(
     name="haplotyping", 
-    version="0.0.1",
+    version=__version__,
     author="Matthijs Brouwer",
     author_email="matthijs.brouwer@wur.nl",
     description="Haplotyping",

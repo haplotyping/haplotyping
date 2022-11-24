@@ -1,5 +1,6 @@
 from haplotyping.general import General
 from graphviz import Digraph
+import html
 import pandas as pd
 import networkit as nk
 import numpy as np
@@ -21,13 +22,17 @@ class Graph:
         self._arms = []
             
     def __repr__(self):
-        ck = sum(self._orientatedCkmers[ck].candidate() for ck in self._orientatedCkmers.keys())
-        text = "Graph object with %d candidate k-mers" % (ck)
+        text = "Graph object"
+        if self._name:
+            text = "{} {}".format(text,self._name)
+        text = "{} with {} candidate k-mers".format(text,len(self.getCandidates()))
         return text
         
-    def set_name(self, name: str):
+    def _setName(self, name: str):
         self._name = name
-        
+    
+    def name(self):
+        return self._name
         
     def visualize(self, *args, **kwargs):
         
@@ -91,7 +96,7 @@ class Graph:
             g = Digraph()
             graph_label = "Graph"
             if self._name:
-                graph_label = "{} '{}'".format(graph_label,self._name)
+                graph_label = "{} {}".format(graph_label,html.escape(self._name))
             g.attr(label=graph_label, labelloc="t", nodesep="0", ranksep="0")
         
         #define base containers and bases
@@ -381,6 +386,7 @@ class Graph:
             #note: don't undo preStart (?)
                 
     def _setStart(self, orientatedCkmer: str):
+        self._orientatedCkmers[orientatedCkmer]._setCandidate()
         if not orientatedCkmer in self._start:
             self._start.add(orientatedCkmer)
             for incomingOrientatedCkmer in self._orientatedCkmers[orientatedCkmer]._incoming.keys():
@@ -392,12 +398,12 @@ class Graph:
             #note: don't undo postEnd (?)
             
     def _setEnd(self, orientatedCkmer: str):
+        self._orientatedCkmers[orientatedCkmer]._setCandidate()
         if not orientatedCkmer in self._end:
             self._end.add(orientatedCkmer)
             for outgoingOrientatedCkmer in self._orientatedCkmers[orientatedCkmer]._outgoing.keys():
                 self._orientatedCkmers[outgoingOrientatedCkmer]._setPostEnd(1)
     
-    """get orientated candidate k-mers"""
     def getCandidates(self):
         candidates = []
         for orientatedCkmer in self._orientatedCkmers.keys():
@@ -414,13 +420,21 @@ class Graph:
         return candidateBases
     
     """get connected sets of orientated candidate k-mers"""
-    def getConnectedCandidates(self):
+    def getConnectedCandidates(self, baseConnected=False):
         d = self.getShortestDistances()
         connectedSets = []
         candidates = self.getCandidates()
         #compute connected candidates
         for k in candidates:    
-            c = set([m for m in candidates if m==k or not d[k][m]==0])
+            if baseConnected:
+                kmerSet = set([k])
+                for orientatedBase in self._orientatedCkmers[k]._orientatedBases.values():
+                    kmerSet.update(self._orientatedBases[orientatedBase]._orientatedCkmers)
+                c = set()
+                for ks in kmerSet:
+                    c.update([m for m in candidates if m==ks or not d[ks][m]==0])
+            else:
+                c = set([m for m in candidates if m==k or not d[k][m]==0]) 
             newConnectedSets = [c]
             for connectedSet in connectedSets:
                 if len(c.intersection(connectedSet))>0:

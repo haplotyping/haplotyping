@@ -64,7 +64,6 @@ class API:
         if db_connection is None:
             config = current_app.config.get("config")
             location = current_app.config.get("location")
-            print(os.path.join(location,config["settings"]["sqlite_db"]))
             db_connection = g._database = sqlite3.connect(os.path.join(location,config["settings"]["sqlite_db"]))
         return db_connection
     
@@ -134,7 +133,9 @@ class API:
                 if app.config["config"]["cache"]["timeout"]:
                     cache_config["CACHE_DEFAULT_TIMEOUT"] = int(app.config["config"]["cache"]["timeout"])
                 if app.config["config"]["cache"]["threshold"]:
-                    cache_config["CACHE_THRESHOLD"] = int(app.config["config"]["cache"]["threshold"])               
+                    cache_config["CACHE_THRESHOLD"] = int(app.config["config"]["cache"]["threshold"])      
+                cache_api_kmer.init_app(app, config=cache_config)
+                cache_api_split.init_app(app, config=cache_config)
             elif (app.config["config"]["cache"]["type"]=="FileSystemCache") and ("dir" in app.config["config"]["cache"]):       
                 logger_api.debug("caching on disk: "+str(app.config["config"]["cache"]["dir"]))
                 cache_config = {
@@ -145,12 +146,22 @@ class API:
                     cache_config["CACHE_DEFAULT_TIMEOUT"] = int(app.config["config"]["cache"]["timeout"])
                 if ("threshold" in app.config["config"]["cache"]) and app.config["config"]["cache"]["threshold"]:
                     cache_config["CACHE_THRESHOLD"] = int(app.config["config"]["cache"]["threshold"]) 
+                #set specific caches    
+                cache_config_kmer = cache_config
+                cache_config_kmer["CACHE_DIR"] = os.path.join(app.config["config"]["cache"]["dir"],"kmer")
+                cache_api_kmer.init_app(app, config=cache_config_kmer)
+                cache_config_split = cache_config
+                cache_config_split["CACHE_DIR"] = os.path.join(app.config["config"]["cache"]["dir"],"split")
+                cache_api_split.init_app(app, config=cache_config_split)                
             else:
-               logger_api.debug("caching disabled") 
+                logger_api.debug("caching disabled")
+                cache_api_kmer.init_app(app, config=cache_config)
+                cache_api_split.init_app(app, config=cache_config)
+        else:
+            cache_api_kmer.init_app(app, config=cache_config)
+            cache_api_split.init_app(app, config=cache_config)
+                            
             
-        
-        cache_api_kmer.init_app(app, config=cache_config)
-        cache_api_split.init_app(app, config=cache_config)
     
         #namespaces
         api.add_namespace(ns_api_tools)

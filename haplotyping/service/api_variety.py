@@ -104,14 +104,22 @@ def year_description(year_min,year_max):
     
 def adjust_variety_response(item, collection, dataType, db_connection):
     #origin
-    item["origin"] = {"uid": item["origin"], "country": item["country"]}
+    if item["origin"]:
+        item["origin"] = {"uid": item["origin"], "country": item["country"]}
+    else:
+        del item["origin"]
     del item["country"]
     #year
-    item["year"] = {"description": year_description(item["year_min"],item["year_max"]), 
-                    "min": item["year_min"], 
-                    "max": item["year_max"]}            
+    if item["year_min"] or item["year_max"]:
+        item["year"] = {"description": year_description(item["year_min"],item["year_max"]), 
+                        "min": item["year_min"], 
+                        "max": item["year_max"]}
+    else:
+        del item["year"]
     del item["year_min"]
     del item["year_max"]
+    if "synonyms" in item and not item["synonyms"]:
+        del item["synonyms"]
     #datasets
     item["datasets"] = get_variety_datasets(item["uid"], collection, dataType, db_connection)
     for i in range(len(item["datasets"])):
@@ -170,8 +178,8 @@ class VarietyList(Resource):
             condition_sql = "1"
             condition_variables = []
             if not name==None:
-                condition_sql = condition_sql + " AND (`variety`.`name` LIKE ?)"
-                condition_variables.append(name)
+                condition_sql = condition_sql + " AND (`variety`.`name` LIKE ?) or (`synonym`.`synonym` LIKE ?)"
+                condition_variables.extend([name,name])
             if not origin==None:
                 origin_list = origin.split(",")
                 condition_sql = condition_sql + " AND (`variety`.`origin` IN ("+",".join(["?"]*len(origin_list))+"))"
@@ -236,12 +244,14 @@ class VarietyList(Resource):
                             LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
                             LEFT JOIN `variety_ancestor` AS `ancestor` ON `variety`.`uid` = `ancestor`.`variety` \
                             LEFT JOIN `variety_ancestor` AS `offspring` ON `variety`.`uid` = `offspring`.`ancestor` \
+                            LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` \
                             WHERE "+condition_sql, tuple(condition_variables))  
             total = cursor.fetchone()[0]
             if start<total:
                 cursor.execute("SELECT `variety`.`uid`, `variety`.`name`, `variety`.`origin`, \
                                 `country`.`name` AS `country`, \
                                 NULL AS `year`, `variety`.`year_min`, `variety`.`year_max`, \
+                                GROUP_CONCAT(DISTINCT `synonym`.`synonym`) AS `synonyms`, \
                                 COUNT(DISTINCT `dataset`.`id`) as `datasets` \
                                 FROM `variety` \
                                 LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
@@ -250,6 +260,7 @@ class VarietyList(Resource):
                                 LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
                                 LEFT JOIN `variety_ancestor` AS `ancestor` ON `variety`.`uid` = `ancestor`.`variety` \
                                 LEFT JOIN `variety_ancestor` AS `offspring` ON `variety`.`uid` = `offspring`.`ancestor` \
+                                LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` \
                                 WHERE "+condition_sql+" \
                                 GROUP BY `variety`.`id` \
                                 ORDER BY `variety`.`name`, `variety`.`uid` \
@@ -280,16 +291,19 @@ class VarietyList(Resource):
                                 LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
                                 AND NOT (`dataset`.`uid` IS NULL) AND NOT (`dataset`.`type` IS NULL) \
                                 LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
+                                LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` \
                                 WHERE "+condition_sql, tuple(condition_variables))  
                 total = cursor.fetchone()[0]
                 cursor.execute("SELECT `variety`.`uid`, `variety`.`name`, `variety`.`origin`, \
                                 `country`.`name` AS `country`, \
                                 NULL AS `year`, `variety`.`year_min`, `variety`.`year_max`, \
+                                GROUP_CONCAT(DISTINCT `synonym`.`synonym`) AS `synonyms`, \
                                 COUNT(DISTINCT `dataset`.`id`) as `datasets` \
                                 FROM `variety` \
                                 LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
                                 AND NOT (`dataset`.`uid` IS NULL) AND NOT (`dataset`.`type` IS NULL) \
                                 LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
+                                LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` \
                                 WHERE "+condition_sql+" \
                                 GROUP BY `variety`.`id` \
                                 ORDER BY `variety`.`name`, `variety`.`uid`",tuple(condition_variables))  
@@ -316,12 +330,14 @@ class VarietyId(Resource):
             cursor = db_connection.cursor()
             cursor.execute("SELECT `variety`.`uid`, `variety`.`name`, `variety`.`origin`, \
                             `country`.`name` AS `country`, \
+                            GROUP_CONCAT(DISTINCT `synonym`.`synonym`) AS `synonyms`, \
                             NULL AS `year`, `variety`.`year_min`, `variety`.`year_max`, \
                             NULL as `datasets` \
                             FROM `variety` \
                             LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
                             AND NOT (`dataset`.`uid` IS NULL) AND NOT (`dataset`.`type` IS NULL) \
                             LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
+                            LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` \
                             WHERE `variety`.`uid` = ? \
                             GROUP BY `variety`.`id`",(uid,))  
             data = cursor.fetchone()
