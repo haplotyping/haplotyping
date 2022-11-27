@@ -38,7 +38,9 @@ def get_variety_datasets(uid, collection, dataset, db_connection):
     cursor.execute("SELECT `dataset`.`uid`, \
                            `dataset`.`type`, \
                            `collection`.`uid` AS `collection_uid`, \
-                           `collection`.`name` AS `collection_name` \
+                           `collection`.`name` AS `collection_name`, \
+                           `collection`.`type` AS `collection_type`, \
+                           `collection`.`experiment` AS `collection_experiment` \
                         FROM `dataset` \
                         LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
                         WHERE "+condition_sql+" ORDER BY `collection`.`name`, `dataset`.`uid`", 
@@ -125,10 +127,14 @@ def adjust_variety_response(item, collection, dataType, db_connection):
     for i in range(len(item["datasets"])):
         item["datasets"][i]["collection"] = {
             "uid": item["datasets"][i]["collection_uid"],
-            "name": item["datasets"][i]["collection_name"]
+            "name": item["datasets"][i]["collection_name"],
+            "type": item["datasets"][i]["collection_type"],
+            "experiment": item["datasets"][i]["collection_experiment"]
         }
         del item["datasets"][i]["collection_uid"]
         del item["datasets"][i]["collection_name"]
+        del item["datasets"][i]["collection_type"]
+        del item["datasets"][i]["collection_experiment"]
     #parents
     item["parents"] = get_variety_parents(item["uid"], db_connection)
     #offspring

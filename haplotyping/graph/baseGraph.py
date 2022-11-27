@@ -81,7 +81,7 @@ class Graph:
             "edgeStyleAuto": "dashed",
             "edgeColorMissingPath": "red", 
             "edgeStyleMissingPath": "dashed",
-            "restrictedListOfCkmers": False,
+            "restrictedListOfOrientatedCkmers": False,
             "containerGraph": False,
             "prefix": "graph"
         }
@@ -119,9 +119,9 @@ class Graph:
                                           else self._orientatedBases[orientatedBase]._order)
         
         #restrict bases
-        if config["restrictedListOfCkmers"]:
+        if config["restrictedListOfOrientatedCkmers"]:
             restrictedListOfBases = set()
-            for orientatedCkmer in config["restrictedListOfCkmers"]:
+            for orientatedCkmer in config["restrictedListOfOrientatedCkmers"]:
                 restrictedListOfBases.update(self._orientatedCkmers[orientatedCkmer]._orientatedBases.values())
             sortedOrientatedBaseList = [base for base in sortedOrientatedBaseList if base in restrictedListOfBases]
             
@@ -266,10 +266,10 @@ class Graph:
                                            else self._orientatedCkmers[orientatedCkmer]._order)
 
         
-        #restrict k-mersx
-        if config["restrictedListOfCkmers"]:
+        #restrict k-mers
+        if config["restrictedListOfOrientatedCkmers"]:
             sortedOrientatedCkmerList = [ckmer for ckmer in sortedOrientatedCkmerList 
-                                         if ckmer in config["restrictedListOfCkmers"]]
+                                         if ckmer in config["restrictedListOfOrientatedCkmers"]]
         
         #remember edges
         edges = set()
@@ -403,6 +403,9 @@ class Graph:
             self._end.add(orientatedCkmer)
             for outgoingOrientatedCkmer in self._orientatedCkmers[orientatedCkmer]._outgoing.keys():
                 self._orientatedCkmers[outgoingOrientatedCkmer]._setPostEnd(1)
+    
+    def getOrientatedCkmers(self):
+        return set(self._orientatedCkmers.keys())
     
     def getCandidates(self):
         candidates = []
@@ -559,9 +562,10 @@ class Graph:
     
     def resetArms(self):
         for orientatedCkmer in self._orientatedCkmers:
-            self._orientatedCkmers[orientatedCkmer].incomingArm = None
-            self._orientatedCkmers[orientatedCkmer].outgoingArm = None
-            self._orientatedCkmers[orientatedCkmer]._unsetArm()
+            self._orientatedCkmers[orientatedCkmer]._incomingArm = None
+            self._orientatedCkmers[orientatedCkmer]._outgoingArm = None
+        for orientatedCkmer in self._orientatedCkmers:
+            self._orientatedCkmers[orientatedCkmer]._unsetArm()          
         self._arms = []
                 
     def _resetDistances(self):
@@ -854,6 +858,7 @@ class Graph:
                 self._type = None
                 for orientatedBase in self._orientatedBases.values():
                     self._graph._orientatedBases[orientatedBase]._setType() 
+                self._arm = None
                 
         def _setArm(self, arm):
             if arm.armType()=="incoming":
@@ -960,6 +965,7 @@ class Graph:
             for orientatedCkmer in self._orientatedCkmers:
                 if self._graph._orientatedCkmers[orientatedCkmer].candidate():
                     self._type="candidate"
+                    self._preStart = None
                     break
                 elif self._graph._orientatedCkmers[orientatedCkmer].arm():
                     self._type="arm"
@@ -971,13 +977,17 @@ class Graph:
             return self._type == "arm"
             
         def _setPreStart(self,steps):
-            if (self._preStart == None) or (self._preStart>steps):
+            if self.candidate():
+                pass
+            elif (self._preStart == None) or (self._preStart>steps):
                 self._preStart = steps
                 for orientatedCkmer in self._orientatedCkmers:
                     self._graph._orientatedCkmers[orientatedCkmer]._setPreStart(steps)
 
         def _setPostEnd(self,steps):
-            if (self._postEnd == None) or (self._postEnd>steps):
+            if self.candidate():
+                pass
+            elif (self._postEnd == None) or (self._postEnd>steps):
                 self._postEnd = steps   
                 for orientatedCkmer in self._orientatedCkmers:
                     self._graph._orientatedCkmers[orientatedCkmer]._setPostEnd(steps)
