@@ -210,6 +210,16 @@ class API():
             self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
             return None
         
+    def getSplitKmer(self, datasetUid, kmer):
+        fullRequest = "{}split/{}/kmer/{}".format(self._baseUrl, datasetUid, kmer)
+        response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
+        if response.ok:
+            data = response.json()
+            return data
+        else:
+            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+            return None
+    
     def getSplitSequence(self, datasetUid, sequence):
         fullRequest = "{}split/{}/kmer/sequence".format(self._baseUrl, datasetUid)        
         response = requests.post(fullRequest, json={"sequence": sequence}, 
