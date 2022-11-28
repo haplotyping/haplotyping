@@ -184,7 +184,7 @@ class VarietyList(Resource):
             condition_sql = "1"
             condition_variables = []
             if not name==None:
-                condition_sql = condition_sql + " AND ((`variety`.`name` LIKE ?) OR (`synonym`.`synonym` LIKE ?))"
+                condition_sql = condition_sql + " AND ((`variety`.`name` LIKE ?) OR (`condition_synonym`.`synonym` LIKE ?))"
                 condition_variables.extend([name,name])
             if not origin==None:
                 origin_list = origin.split(",")
@@ -251,6 +251,8 @@ class VarietyList(Resource):
                             LEFT JOIN `variety_ancestor` AS `ancestor` ON `variety`.`uid` = `ancestor`.`variety` \
                             LEFT JOIN `variety_ancestor` AS `offspring` ON `variety`.`uid` = `offspring`.`ancestor` \
                             LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` \
+                            LEFT JOIN `variety_synonym` AS `condition_synonym` ON `variety`.`uid` = \
+                                        `condition_synonym`.`uid` \
                             WHERE "+condition_sql, tuple(condition_variables))  
             total = cursor.fetchone()[0]
             if start<total:
@@ -267,6 +269,8 @@ class VarietyList(Resource):
                                 LEFT JOIN `variety_ancestor` AS `ancestor` ON `variety`.`uid` = `ancestor`.`variety` \
                                 LEFT JOIN `variety_ancestor` AS `offspring` ON `variety`.`uid` = `offspring`.`ancestor` \
                                 LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` \
+                                LEFT JOIN `variety_synonym` AS `condition_synonym` ON `variety`.`uid` = \
+                                            `condition_synonym`.`uid` \
                                 WHERE "+condition_sql+" \
                                 GROUP BY `variety`.`id` \
                                 ORDER BY `variety`.`name`, `variety`.`uid` \
