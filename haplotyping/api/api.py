@@ -74,23 +74,35 @@ class API():
             return None
         
     
-    """
-    get a dict with all countries
-    """
     def getCountries(self): 
+        """
+            get a dict with all countries
+        
+            :return: all countries
+            :rtype: dict
+        """
         return self._getList("country/","uid")
         
                 
-    """
-    get a dict with all collections
-    """
     def getCollections(self):
+        """
+            get a dict with all collections
+        
+            :return: all collections
+            :rtype: dict
+        """
         return self._getList("collection/","uid")
     
-    """
-    get a dict with (all) datasets
-    """
     def getDatasets(self, **kwargs):
+        """
+            get a dict with (all) datasets
+
+            :param str collection: optional, comma separated list of collection uids
+            :param str dataType: optional, one of "marker", "kmer", "split"
+            :param bool hasVariety: optional, has a linked variety
+            :return: (all) datasets
+            :rtype: dict
+        """
         parameters = {
             "collection": None,
             "dataType": None,
@@ -111,15 +123,39 @@ class API():
         return self._getList(request,"uid")
     
     def getDatasetById(self, uid):
+        """
+            get dataset
+        
+            :param str uid: dataset uid
+            :return: dataset
+            :rtype: dict
+        """
         return self._getById("dataset/",uid)
     
     def getDatasetsById(self, uids):
+        """
+            get datasets
+        
+            :param str uids: list of dataset uids
+            :return: datasets
+            :rtype: dict
+        """
         return self._getByIds("dataset/",uids)
     
-    """
-    get a dict with (all) varieties
-    """
     def getVarieties(self, **kwargs):
+        """
+            get a dict with (all) varieties
+
+            :param str name: optional, name or synonym
+            :param str origin: optional, comma separated list of country codes
+            :param str year: optional, year of variety (e.g. '1995', '<1995', '>1995', '1990-1995')
+            :param str collection: optional, comma separated list of collection uids
+            :param str dataType: optional, one of "marker", "kmer", "split"
+            :param bool hasParents: optional, has defined parents
+            :param bool hasOffspring: optional, has defined offspring
+            :return: (all) varieties
+            :rtype: dict
+        """
         parameters = {
             "name": None,
             "origin": None,

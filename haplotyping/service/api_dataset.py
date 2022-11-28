@@ -25,10 +25,14 @@ def adjust_dataset_response(item):
     if item["variety_uid"]:
         item["variety"] = {
             "uid": item["variety_uid"], 
-            "name": item["variety_name"],
-            "origin": item["variety_origin"],
-            "year": year_description(item["variety_year_min"],item["variety_year_max"])
+            "name": item["variety_name"]
         }
+        if item["variety_origin"]:
+            item["variety"]["origin"] = {"uid": item["variety_origin"], "country": item["variety_country"]}                
+        if item["variety_year_min"] or item["variety_year_max"]:
+            item["variety"]["year"] = {"description": year_description(item["variety_year_min"],item["variety_year_max"]), 
+                                       "min": item["variety_year_min"], 
+                                       "max": item["variety_year_max"]}
     else:
         item["variety"] = None
     del item["variety_uid"]
@@ -105,6 +109,7 @@ class DatasetList(Resource):
             cursor.execute("SELECT COUNT(DISTINCT `dataset`.`id`) AS `number` \
                             FROM `dataset` \
                             LEFT JOIN `variety` ON `dataset`.`variety` = `variety`.`uid` \
+                            LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
                             LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
                             WHERE "+condition_sql, tuple(condition_variables))  
             total = cursor.fetchone()[0]
@@ -116,10 +121,12 @@ class DatasetList(Resource):
                                 `variety`.`uid` AS `variety_uid`, \
                                 `variety`.`name` AS `variety_name`, \
                                 `variety`.`origin` AS `variety_origin`, \
+                                `country`.`name` AS `variety_country`, \
                                 `variety`.`year_min` AS `variety_year_min`, \
                                 `variety`.`year_max` AS `variety_year_max` \
                                 FROM `dataset` \
                                 LEFT JOIN `variety` ON `dataset`.`variety` = `variety`.`uid` \
+                                LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
                                 LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
                                 WHERE "+condition_sql+" \
                                 GROUP BY `dataset`.`id` \
@@ -149,6 +156,7 @@ class DatasetList(Resource):
                 cursor.execute("SELECT COUNT(DISTINCT `dataset`.`id`) AS `number` \
                                 FROM `dataset` \
                                 LEFT JOIN `variety` ON `dataset`.`variety` = `variety`.`uid` \
+                                LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
                                 LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
                                 WHERE "+condition_sql, tuple(condition_variables))  
                 total = cursor.fetchone()[0]
@@ -159,10 +167,12 @@ class DatasetList(Resource):
                                 `variety`.`uid` AS `variety_uid`, \
                                 `variety`.`name` AS `variety_name`, \
                                 `variety`.`origin` AS `variety_origin`, \
+                                `country`.`name` AS `variety_country`, \
                                 `variety`.`year_min` AS `variety_year_min`, \
                                 `variety`.`year_max` AS `variety_year_max` \
                                 FROM `dataset` \
                                 LEFT JOIN `variety` ON `dataset`.`variety` = `variety`.`uid` \
+                                LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
                                 LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
                                 WHERE "+condition_sql+" \
                                 GROUP BY `dataset`.`id` \
@@ -195,10 +205,12 @@ class DatasetId(Resource):
                             `variety`.`uid` AS `variety_uid`, \
                             `variety`.`name` AS `variety_name`, \
                             `variety`.`origin` AS `variety_origin`, \
+                            `country`.`name` AS `variety_country`, \
                             `variety`.`year_min` AS `variety_year_min`, \
                             `variety`.`year_max` AS `variety_year_max` \
                             FROM `dataset` \
                             LEFT JOIN `variety` ON `dataset`.`variety` = `variety`.`uid` \
+                            LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
                             LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
                             WHERE `dataset`.`uid` = ? \
                             GROUP BY `dataset`.`id`",(uid,))  

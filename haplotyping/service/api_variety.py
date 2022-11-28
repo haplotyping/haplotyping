@@ -184,14 +184,14 @@ class VarietyList(Resource):
             condition_sql = "1"
             condition_variables = []
             if not name==None:
-                condition_sql = condition_sql + " AND (`variety`.`name` LIKE ?) or (`synonym`.`synonym` LIKE ?)"
+                condition_sql = condition_sql + " AND ((`variety`.`name` LIKE ?) OR (`synonym`.`synonym` LIKE ?))"
                 condition_variables.extend([name,name])
             if not origin==None:
                 origin_list = origin.split(",")
                 condition_sql = condition_sql + " AND (`variety`.`origin` IN ("+",".join(["?"]*len(origin_list))+"))"
                 condition_variables.extend(origin_list)
             if not year==None:
-                condition_sql = condition_sql + " AND NOT (`variety`.`year_max` IS NULL AND `variety`.`year_min` IS NULL)"
+                condition_sql = condition_sql + " AND (NOT (`variety`.`year_max` IS NULL AND `variety`.`year_min` IS NULL))"
                 if yearPattern.match(year):
                     condition_sql = condition_sql + " AND ((`variety`.`year_max` >= ?) OR (`variety`.`year_max` IS NULL))"
                     condition_sql = condition_sql + " AND ((`variety`.`year_min` <= ?) OR (`variety`.`year_min` IS NULL))"
@@ -238,7 +238,7 @@ class VarietyList(Resource):
                 if _make_bool(hasOffspring):
                     condition_sql = condition_sql + " AND NOT (`offspring`.`id` IS NULL)"
                 else:
-                    condition_sql = condition_sql + " AND (`offspring`.`id` IS NULL)"       
+                    condition_sql = condition_sql + " AND (`offspring`.`id` IS NULL)"     
             db_connection = haplotyping.service.API.get_db_connection()
             db_connection.row_factory = sqlite3.Row
             cursor = db_connection.cursor()
