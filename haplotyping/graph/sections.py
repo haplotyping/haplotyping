@@ -194,6 +194,7 @@ class Sections():
                 "basePenWidthPart": 1,
                 "baseColorPart": "grey",
                 "containerGraph": False,
+                "showAllBases": False,
                 "prefix": "graph",
                 "label": None
             }
@@ -234,6 +235,16 @@ class Sections():
                 orientatedCkmersSections = self.getOrientatedCkmers()
                 for j in range(len(self._graph._arms)):
                     if self._graph._arms[j].connection() in orientatedCkmersSections:
+                        #only if visible
+                        if not config["showAllBases"]:
+                            orientatedCkmer = self._graph._arms[j].connection()
+                            hideArm = False
+                            for orientatedBase in self._graph._orientatedCkmers[orientatedCkmer]._orientatedBases.values():
+                                if not self._graph._orientatedBases[orientatedBase].candidate():
+                                    hideArm = True
+                            if hideArm:
+                                continue
+                        #create arm
                         armGraph=pg.subgraph(name="cluster_graph_arm_{}".format(self._graph._arms[j].key()))
                         with armGraph as ag:
                             arm_name = "Arm {}".format(j+1)
@@ -266,7 +277,7 @@ class Sections():
                 #sections
                 previousPrefix = ""
                 for j in range(self.number()):
-                    sectionItem = self._sectionItems[j]
+                    sectionItem = self.section(j+1)
                     section_prefix = "graph_section_{}".format(j)
                     section_label = "Section {} of {}".format(j+1,self.number())
                     sharedStart = (self._sectionItems[j-1]._orientatedCkmers.intersection(sectionItem._orientatedCkmers) 
@@ -284,48 +295,54 @@ class Sections():
                     for orientatedCkmer in sectionItem._orientatedCkmers:
                         if self._graph._orientatedCkmers[orientatedCkmer].arm():
                             for orientatedBase in self._graph._orientatedCkmers[orientatedCkmer]._orientatedBases.values():
-                                ckmer_key = "{}_{}_{}_{}_{}".format(section_prefix,
+                                #only if visible
+                                if not config["showAllBases"]:
+                                    if not self._graph._orientatedBases[orientatedBase].candidate():
+                                        continue 
+                                #connect arm
+                                ckmerKey = "{}_{}_{}_{}_{}".format(section_prefix,
                                             orientatedBase[0],orientatedBase[1],orientatedCkmer[0],orientatedCkmer[1])
                                 if self._graph._orientatedCkmers[orientatedCkmer].incomingArmType():
-                                    arm_key = "arm_incoming_{}".format(
-                                        self._graph._orientatedCkmers[orientatedCkmer].armKey())
-                                    if not orientatedCkmer in sharedStart:
-                                        pg.edge(arm_key,ckmer_key,style="dashed", 
-                                               color="grey", rankdir="lr", constraint="true")
+                                    for armKey in self._graph._orientatedCkmers[orientatedCkmer].armKey():                     
+                                        fullArmKey = "arm_incoming_{}".format(armKey)
+                                        if not orientatedCkmer in sharedStart:
+                                            pg.edge(fullArmKey,ckmerKey,style="dashed", 
+                                                   color="grey", rankdir="lr", constraint="true")
                                 elif self._graph._orientatedCkmers[orientatedCkmer].outgoingArmType():
-                                    arm_key = "arm_outgoing_{}".format(
-                                        self._graph._orientatedCkmers[orientatedCkmer].armKey())
-                                    if not orientatedCkmer in sharedEnd:
-                                        pg.edge(ckmer_key,arm_key,style="dashed", 
-                                               color="grey", rankdir="lr", constraint="true")
+                                    for armKey in self._graph._orientatedCkmers[orientatedCkmer].armKey():                     
+                                        fullArmKey = "arm_outgoing_{}".format(armKey)
+                                        if not orientatedCkmer in sharedEnd:
+                                            pg.edge(ckmerKey,fullArmKey,style="dashed", 
+                                                   color="grey", rankdir="lr", constraint="true")
+                                #only one connection if multiple bases
                                 break
                         else:
                             incomingArm = self._graph._orientatedCkmers[orientatedCkmer].incomingArm()
                             if incomingArm:
                                 for orientatedBase in \
                                          self._graph._orientatedCkmers[orientatedCkmer]._orientatedBases.values():
-                                    ckmer_key = "{}_{}_{}_{}_{}".format(section_prefix,
+                                    ckmerKey = "{}_{}_{}_{}_{}".format(section_prefix,
                                             orientatedBase[0],orientatedBase[1],orientatedCkmer[0],orientatedCkmer[1])
-                                    arm_key = "arm_incoming_{}".format(incomingArm.key())
+                                    armKey = "arm_incoming_{}".format(incomingArm.key())
                                     if (not orientatedCkmer in sharedStart and 
                                         not len(incomingArm._orientatedCkmers.intersection(
                                             orientatedCkmersSections))>0):
-                                        pg.edge(arm_key,ckmer_key,style="dashed", 
-                                               color="grey", rankdir="lr", constraint="true")
-                                        break
+                                        pg.edge(armKey,ckmerKey,style="dashed", 
+                                           color="grey", rankdir="lr", constraint="true")
+                                    break
                             outgoingArm = self._graph._orientatedCkmers[orientatedCkmer].outgoingArm()
                             if outgoingArm:
                                 for orientatedBase in \
                                          self._graph._orientatedCkmers[orientatedCkmer]._orientatedBases.values():
-                                    ckmer_key = "{}_{}_{}_{}_{}".format(section_prefix,
+                                    ckmerKey = "{}_{}_{}_{}_{}".format(section_prefix,
                                             orientatedBase[0],orientatedBase[1],orientatedCkmer[0],orientatedCkmer[1])
-                                    arm_key = "arm_outgoing_{}".format(outgoingArm.key())
+                                    armKey = "arm_outgoing_{}".format(outgoingArm.key())
                                     if (not orientatedCkmer in sharedEnd and 
                                         not len(outgoingArm._orientatedCkmers.intersection(
                                             orientatedCkmersSections))>0):
-                                        pg.edge(ckmer_key,arm_key,style="dashed", 
-                                               color="grey", rankdir="lr", constraint="true")
-                                        break
+                                        pg.edge(ckmerKey,armKey,style="dashed", 
+                                           color="grey", rankdir="lr", constraint="true")
+                                    break
                     #link start/end sections
                     for orientatedCkmer in sharedStart:
                         for orientatedBase in self._graph._orientatedCkmers[orientatedCkmer]._orientatedBases.values():
@@ -334,7 +351,8 @@ class Sections():
                             key2 = "{}_{}_{}_{}_{}".format(section_prefix,
                                     orientatedBase[0],orientatedBase[1],orientatedCkmer[0],orientatedCkmer[1])
                             pg.edge(key1,key2,style="dashed", color="grey", rankdir="tb", constraint="true")
-                    previousPrefix = section_prefix
+                    previousPrefix = section_prefix                        
+                        
             return g
             
         

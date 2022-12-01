@@ -126,21 +126,14 @@ class API():
         """
             get dataset
         
-            :param str uid: dataset uid
+            :param str/list uid: dataset uid(s)
             :return: dataset
             :rtype: dict
         """
-        return self._getById("dataset/",uid)
-    
-    def getDatasetsById(self, uids):
-        """
-            get datasets
-        
-            :param str uids: list of dataset uids
-            :return: datasets
-            :rtype: dict
-        """
-        return self._getByIds("dataset/",uids)
+        if not isinstance(uid,str):
+            return self._getByIds("dataset/",uid)
+        else:
+            return self._getById("dataset/",uid)
     
     def getVarieties(self, **kwargs):
         """
@@ -180,58 +173,73 @@ class API():
         return self._getList(request,"uid")
     
     def getVarietyById(self, uid):
-        return self._getById("variety/",uid)
-    
-    def getVarietiesById(self, uids):
-        return self._getByIds("variety/",uids)
-    
-    def getKmerFrequency(self, datasetUid, kmer, mismatches=0):
-        fullRequest = "{}kmer/{}/{}{}".format(self._baseUrl, datasetUid, kmer, 
-                                              "?mismatches={}".format(int(mismatches)) if mismatches>0 else "")
-        response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
-        if response.ok:
-            data = response.json()
-            result = data.get("kmers",{})
-            if not kmer in result.keys():
-                result[kmer] = 0
-            return result
+        """
+            get variety
+        
+            :param str/list uid: variety uid(s)
+            :return: variety
+            :rtype: dict
+        """
+        if not isinstance(uid,str):
+            return self._getByIds("variety/",uid)
         else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            return None
+            return self._getById("variety/",uid)
     
-    def getKmerFrequencies(self, datasetUid, kmers, mismatches=0):
-        fullRequest = "{}kmer/{}".format(self._baseUrl, datasetUid)        
-        response = requests.post(fullRequest, json={"kmers": sorted(kmers),"mismatches": mismatches}, 
-                                 auth=self._apiAuth, headers=self._apiHeaders)
-        if response.ok:
-            data = response.json()
-            result = data.get("kmers",{})
-            for kmer in kmers:
+    def getKmerFrequency(self, uid, kmer, mismatches=0):
+        """
+            get k-mer frequency
+        
+            :param str uid: dataset uid
+            :param str/list kmer: k-mer(s)
+            :param int mismatches: optional, number of mismatches
+            :return: k-mer frequencies
+            :rtype: dict
+        """
+        if not isinstance(kmer,str):
+            fullRequest = "{}kmer/{}".format(self._baseUrl, uid)        
+            response = requests.post(fullRequest, json={"kmers": sorted(kmer),"mismatches": mismatches}, 
+                                     auth=self._apiAuth, headers=self._apiHeaders)
+            if response.ok:
+                data = response.json()
+                result = data.get("kmers",{})
+                for k in kmer:
+                    if not k in result.keys():
+                        result[k] = 0
+                return result
+            else:
+                self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+                return None
+        else:
+            fullRequest = "{}kmer/{}/{}{}".format(self._baseUrl, uid, kmer, 
+                                              "?mismatches={}".format(int(mismatches)) if mismatches>0 else "")
+            response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
+            if response.ok:
+                data = response.json()
+                result = data.get("kmers",{})
                 if not kmer in result.keys():
                     result[kmer] = 0
-            return result
-        else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            return None
+                return result
+            else:
+                self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+                return None
+    
+    def getKmerSequence(self, uid, sequence, mismatches=0):
+        """
+            get frequencies for k-mers in sequence
         
-    def getKmerSequence(self, datasetUid, sequence, mismatches=0):
-        fullRequest = "{}kmer/{}/sequence".format(self._baseUrl, datasetUid)        
+            :param str uid: dataset uid
+            :param str sequence: sequence
+            :param int mismatches: optional, number of mismatches
+            :return: k-mer frequencies
+            :rtype: dict
+        """
+        fullRequest = "{}kmer/{}/sequence".format(self._baseUrl, uid)        
         response = requests.post(fullRequest, json={"sequence": sequence,"mismatches": mismatches}, 
                                  auth=self._apiAuth, headers=self._apiHeaders)
         if response.ok:
             data = response.json()
             result = data.get("kmers",{})
             return result
-        else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            return None
-        
-    def getMarkerData(self, datasetUid):
-        fullRequest = "{}marker/{}/data".format(self._baseUrl, datasetUid)
-        response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
-        if response.ok:
-            data = response.json()
-            return data
         else:
             self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
             return None
@@ -247,14 +255,25 @@ class API():
             return None
         
     def getSplitKmer(self, datasetUid, kmer):
-        fullRequest = "{}split/{}/kmer/{}".format(self._baseUrl, datasetUid, kmer)
-        response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
-        if response.ok:
-            data = response.json()
-            return data
+        if not isinstance(kmer,str):
+            fullRequest = "{}split/{}/kmer".format(self._baseUrl, datasetUid)
+            response = requests.post(fullRequest, json={"kmers": sorted(kmer)}, 
+                                     auth=self._apiAuth, headers=self._apiHeaders)
+            if response.ok:
+                data = response.json()
+                return data
+            else:
+                self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+                return None
         else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            return None
+            fullRequest = "{}split/{}/kmer/{}".format(self._baseUrl, datasetUid, kmer)
+            response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
+            if response.ok:
+                data = response.json()
+                return data
+            else:
+                self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+                return None
     
     def getSplitSequence(self, datasetUid, sequence):
         fullRequest = "{}split/{}/kmer/sequence".format(self._baseUrl, datasetUid)        
@@ -268,37 +287,55 @@ class API():
             return None
         
     def getSplitDirect(self, datasetUid, kmer):
-        fullRequest = "{}split/{}/kmer/direct/{}".format(self._baseUrl, datasetUid, kmer)        
-        response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
-        if response.ok:
-            data = response.json()
-            return data
+        if not isinstance(kmer,str):
+            fullRequest = "{}split/{}/kmer/direct".format(self._baseUrl, datasetUid)        
+            response = requests.post(fullRequest, json={"kmers": sorted(kmer)},
+                                     auth=self._apiAuth, headers=self._apiHeaders)
+            if response.ok:
+                data = response.json()
+                return data
+            else:
+                self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+                return None
         else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            return None
+            fullRequest = "{}split/{}/kmer/direct/{}".format(self._baseUrl, datasetUid, kmer)        
+            response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
+            if response.ok:
+                data = response.json()
+                return data
+            else:
+                self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+                return None        
         
-    def getSplitDirects(self, datasetUid, kmers):
-        fullRequest = "{}split/{}/kmer/direct".format(self._baseUrl, datasetUid)        
-        response = requests.post(fullRequest, json={"kmers": sorted(kmers)},
-                                 auth=self._apiAuth, headers=self._apiHeaders)
-        if response.ok:
-            data = response.json()
-            return data
+    def getSplitConnected(self, datasetUid, kmer):
+        if not isinstance(kmer,str):
+            fullRequest = "{}split/{}/kmer/connected".format(self._baseUrl, datasetUid)        
+            response = requests.post(fullRequest, json={"kmers": sorted(kmer)},
+                                     auth=self._apiAuth, headers=self._apiHeaders)
+            if response.ok:
+                data = response.json()
+                return data
+            else:
+                self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+                return None
         else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            return None
+            fullRequest = "{}split/{}/kmer/connected/{}".format(self._baseUrl, datasetUid, kmer)        
+            response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
+            if response.ok:
+                data = response.json()
+                return data
+            else:
+                self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+                return None        
         
-    def getMarkerInfo(self, datasetUid):
-        fullRequest = "{}marker/{}/info".format(self._baseUrl, datasetUid)
-        response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
-        if response.ok:
-            data = response.json()
-            return data
-        else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            return None
+    def getMarkerData(self, uid):
+        """
+            get marker data
         
-    def getMarkerData(self, datasetUid):
+            :param str uid: dataset uid
+            :return: marker data
+            :rtype: dict
+        """
         fullRequest = "{}marker/{}/data".format(self._baseUrl, datasetUid)
         response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
         if response.ok:
@@ -308,8 +345,32 @@ class API():
             self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
             return None
         
-    def getMarkerMapping(self, datasetUid):
-        fullRequest = "{}marker/{}/mapping".format(self._baseUrl, datasetUid)
+    def getMarkerInfo(self, uid):
+        """
+            get marker info
+        
+            :param str uid: dataset uid
+            :return: marker info
+            :rtype: dict
+        """
+        fullRequest = "{}marker/{}/info".format(self._baseUrl, uid)
+        response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
+        if response.ok:
+            data = response.json()
+            return data
+        else:
+            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+            return None
+        
+    def getMarkerMapping(self, uid):
+        """
+            get marker mapping
+        
+            :param str uid: dataset uid
+            :return: marker mapping
+            :rtype: dict
+        """
+        fullRequest = "{}marker/{}/mapping".format(self._baseUrl, uid)
         response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
         if response.ok:
             data = response.json()
@@ -320,6 +381,17 @@ class API():
         
     def getPedigree(self, uids, ancestorSteps: int = 0, offspringSteps: int = 0, 
                     ancestorOffspringSteps: int = 0, offspringAncestorSteps: int = 0):
+        """
+            get pedigree
+        
+            :param str/list uids: dataset uid(s)
+            :param int ancestorSteps: optional, number of ancestor steps
+            :param int offspringSteps: optional, number of offspring steps
+            :param int ancestorOffspringSteps: optional, number of offspring steps for ancestors
+            :param int offspringAncestorSteps: optional, number of ancestor steps for offspring
+            :return: varieties
+            :rtype: dict
+        """
         try:
             if isinstance(uids,str):
                 uids = [uids]
@@ -343,17 +415,17 @@ class API():
                 if steps==0 or len(uids)==0:
                     return {}
                 else:
-                    subResult = self.getVarietiesById(uids)
+                    subResult = self.getVarietyById(uids)
                     subResult.update(getAncestors(flattenParents(subResult.values()),steps-1))
                     return subResult        
             def getOffspring(uids, steps):
                 if steps==0 or len(uids)==0:
                     return {}
                 else:
-                    subResult = self.getVarietiesById(uids)
+                    subResult = self.getVarietyById(uids)
                     subResult.update(getOffspring(flattenOffspring(subResult.values()),steps-1))
                     return subResult        
-            result = self.getVarietiesById(uids)
+            result = self.getVarietyById(uids)
             ancestorResult = getAncestors(flattenParents(result.values()), ancestorSteps)
             ancestorOffspringResult = getOffspring(flattenOffspring(ancestorResult.values()), ancestorOffspringSteps)
             offspringResult = getOffspring(flattenOffspring(result.values()), offspringSteps)
@@ -367,6 +439,15 @@ class API():
             self._api_logger.error("getting pedigree didn't succeed")
             
     def visualizeVarieties(self, varieties: dict, selected: list = None, coloring: dict = None):
+        """
+            get visualization for set of varieties (pedigree)
+        
+            :param dict varieties: varieties
+            :param list selected: optional, list of varieties to be marked as selected
+            :param dict coloring: optional, for each color a list of varieties to be marked with this color
+            :return: visualization
+            :rtype: graphviz object
+        """
         varietyColoring = {}
         selectedColor = "lightblue"
         defaultColor = "azure"

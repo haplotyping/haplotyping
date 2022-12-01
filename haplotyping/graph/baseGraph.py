@@ -407,6 +407,20 @@ class Graph:
     def getOrientatedCkmers(self):
         return set(self._orientatedCkmers.keys())
     
+    def getStartCandidates(self):
+        candidates = []
+        for orientatedCkmer in self._orientatedCkmers.keys():
+            if orientatedCkmer in self._start and self._orientatedCkmers[orientatedCkmer].candidate():
+                candidates.append(orientatedCkmer)
+        return set(candidates)
+    
+    def getEndCandidates(self):
+        candidates = []
+        for orientatedCkmer in self._orientatedCkmers.keys():
+            if orientatedCkmer in self._end and self._orientatedCkmers[orientatedCkmer].candidate():
+                candidates.append(orientatedCkmer)
+        return set(candidates)
+    
     def getCandidates(self):
         candidates = []
         for orientatedCkmer in self._orientatedCkmers.keys():
@@ -482,8 +496,10 @@ class Graph:
             self._computeDistances()
         return self._distances["shortest"]
         
-    """get shortest distance between two orientated k-mers"""
     def getShortestDistance(self, fromOrientatedKmers: set, toOrientatedKmers: set):
+        """
+        get the shortest distance between two sets of orientated k-mers
+        """
         if self._distances == None:
             self._computeDistances()
         distances = []
@@ -496,7 +512,13 @@ class Graph:
         else:
             return(sorted(distances)[0])
         
+    def getArms(self):
+        return self._arms
+    
     def detectArms(self):
+        """
+        detect arms
+        """
         if len(self._arms)==0:
             candidates = list(self.getCandidates())
             candidateBases = list(self.getCandidateBases())
@@ -644,7 +666,7 @@ class Graph:
             #other variables
             self._key = (self._ckmer,self._orientation)
             self._type : TYPE = None
-            self._arm = None
+            self._arm = []
             self._incoming : dict = {}
             self._outgoing : dict = {}
             self._incomingDeadEnd : tuple = None
@@ -858,15 +880,21 @@ class Graph:
                 self._type = None
                 for orientatedBase in self._orientatedBases.values():
                     self._graph._orientatedBases[orientatedBase]._setType() 
-                self._arm = None
+                self._arm = []
                 
         def _setArm(self, arm):
             if arm.armType()=="incoming":
                 self._type = "incomingArm"
-                self._arm = arm
+                if len(self._arm)>0:
+                    for otherArm in self._arm:
+                        assert otherArm.armType()=="incoming"
+                self._arm.append(arm)
             elif arm.armType()=="outgoing":
                 self._type = "outgoingArm"
-                self._arm = arm
+                if len(self._arm)>0:
+                    for otherArm in self._arm:
+                        assert otherArm.armType()=="outgoing"
+                self._arm.append(arm)
             for orientatedBase in self._orientatedBases.values():
                 self._graph._orientatedBases[orientatedBase]._setType()
                 
@@ -874,7 +902,10 @@ class Graph:
             return self._type=="incomingArm" or self._type=="outgoingArm"
                 
         def armKey(self):
-            return self._arm.key() if self.arm() else None
+            if self.arm():
+                return [arm.key() for arm in self._arm]
+            else:
+                return None
                 
         def incomingArmType(self):
             return self._type=="incomingArm"
@@ -1052,6 +1083,16 @@ class Graph:
             #register arm
             self._graph._arms.append(self)
             self._key = len(self._graph._arms)
+            
+        def __repr__(self):
+            if self._type=="incoming":
+                text = "Incoming Arm"
+            elif self._type=="outgoing":
+                text = "Outgoing Arm"
+            else:
+                text = "Arm"
+            text = "{}, {} entries, maximum frequency {}".format(text,self._size,self._maxFreq)
+            return text
             
         def _add(self, orientatedCkmer):
             assert orientatedCkmer in self._graph._orientatedCkmers
