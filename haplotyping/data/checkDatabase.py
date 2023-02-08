@@ -101,7 +101,7 @@ class CheckDatabase:
             self._connection.commit()
             
     def _check_kmers(self):
-        query = """SELECT * FROM `collection` WHERE `type` = 'kmer' ORDER BY `id`"""
+        query = """SELECT * FROM `collection` WHERE `type` = 'wgs' OR `type` = 'baits' ORDER BY `id`"""
         self._cursor.execute(query)
         collections = self._cursor.fetchall()        
         for row in collections:

@@ -19,7 +19,7 @@
       "type": "string",
       "constraints": {
         "required": true,
-        "enum": ["wgs","bait"]
+        "enum": ["wgs","baits"]
       }
     },
     {

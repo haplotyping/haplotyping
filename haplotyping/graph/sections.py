@@ -1,5 +1,6 @@
 import logging,requests,re, html
 import haplotyping.graph.baseGraph as baseGraph
+from haplotyping.graph.api import APIGraph
 from haplotyping.general import General
 from graphviz import Digraph
 
@@ -16,6 +17,9 @@ class Sections():
         
         self._graph = graph
         self._parts = []
+        
+        self._datasetFrequencies = None
+        self._datasetVarieties = None
         
         #create sections
         for baseConnectedCandidates in self._graph.getConnectedCandidates(True):
@@ -34,6 +38,15 @@ class Sections():
             if self._graph._orientatedCkmers[orientatedCkmer].candidate():
                 candidates.append(orientatedCkmer)
         return set(candidates)
+    
+    def processDatasetFrequencies(self):
+        if isinstance(self._graph, APIGraph):
+            self._datasetFrequencies = self._graph.getDatasetFrequencies()
+            self._datasetVarieties = self._graph.getDatasetVarieties()      
+            for part in self._parts:
+                part._processDatasetFrequencies()                
+        else:
+            self._logger.warning("unsupported for this graph type")
         
     def _createSections(self, connectedCandidates):
         #compute section start entries (not every connected start is necessarily a section start)
@@ -58,7 +71,7 @@ class Sections():
                 self._logger.debug("ignore {} start entries, continue with {} for sections".format(
                     len(problematicStartEntries),len(startEntries)))
         #now try to create sections       
-        part = self.Part(self._graph)   
+        part = self.Part(self)   
         partOrientatedCkmers = set()
         sectionItem = self.SectionItem(startEntries, connectedCandidates["start"], connectedCandidates["end"],
                                        connectedCandidates["connected"],self._graph)
@@ -115,17 +128,21 @@ class Sections():
     
     class Part():
         
-        def __init__(self, graph):
+        def __init__(self, sections):
             """
             construct part
             """
             #logger
             self._logger = logging.getLogger(__name__)
             
-            self._graph = graph
+            self._sections = sections
+            self._graph = sections._graph
             self._sectionItems = []
             self._order : int = None
             self._pathNumber : int = None
+                
+            self._datasets = set()
+            self._varieties = set()
                 
         def __repr__(self):
             text = "Part graph"
@@ -158,11 +175,25 @@ class Sections():
                 if orientatedCkmer in sectionItem._end["ckmers"]:
                     self._pathNumber += numbers[orientatedCkmer]            
             
-        def number(self):
+        def _processDatasetFrequencies(self, ignoreDatasets=[]):
+            for sectionItem in self._sectionItems:
+                for sectionItemPath in sectionItem._paths:
+                    orientatedCkmers = sectionItemPath.getOrientatedCkmers()
+                    sectionItemPath._datasets = set(self._sections._datasetFrequencies.index)
+                    for orientatedCkmer in orientatedCkmers:
+                        ckmerDatasets=self._sections._datasetFrequencies.index[
+                            self._sections._datasetFrequencies[orientatedCkmer[0]]>0]
+                        sectionItemPath._datasets = sectionItemPath._datasets.intersection(ckmerDatasets)
+                    sectionItemPath._varieties = set([self._sections._datasetVarieties[ds]["uid"] 
+                                                      for ds in sectionItemPath._datasets 
+                                                      if ds in self._sections._datasetVarieties])
+                    print(len(sectionItemPath._datasets))
+        
+        def sectionNumber(self):
             return len(self._sectionItems)
         
         def section(self, i):
-            if i>0 and i<=self.number():
+            if i>0 and i<=self.sectionNumber():
                 return self._sectionItems[i-1]
         
         def getOrientatedCkmers(self):
@@ -213,11 +244,11 @@ class Sections():
             with partGraph as pg:
                 if config["label"]:
                     graph_label = config["label"]
-                    graph_label = "{} with {} section{}".format(graph_label, self.number(), 
-                                                                "s" if self.number()>1 else "")
+                    graph_label = "{} with {} section{}".format(graph_label, self.sectionNumber(), 
+                                                                "s" if self.sectionNumber()>1 else "")
                 else:
-                    graph_label = "{} section{}".format(self.number(),
-                                                                "s" if self.number()>1 else "")
+                    graph_label = "{} section{}".format(self.sectionNumber(),
+                                                                "s" if self.sectionNumber()>1 else "")
                     if self._graph._name:
                         graph_label = "{} for Graph {}".format(graph_label,self._graph._name)
                 graph_label = ("<" + 
@@ -276,14 +307,14 @@ class Sections():
                                                        self._graph._arms[j].key()), shape="point")
                 #sections
                 previousPrefix = ""
-                for j in range(self.number()):
+                for j in range(self.sectionNumber()):
                     sectionItem = self.section(j+1)
                     section_prefix = "graph_section_{}".format(j)
-                    section_label = "Section {} of {}".format(j+1,self.number())
+                    section_label = "Section {} of {}".format(j+1,self.sectionNumber())
                     sharedStart = (self._sectionItems[j-1]._orientatedCkmers.intersection(sectionItem._orientatedCkmers) 
                                    if j>0 else set())
                     sharedEnd = (self._sectionItems[j+1]._orientatedCkmers.intersection(sectionItem._orientatedCkmers) 
-                                   if j<(self.number()-1) else set())
+                                   if j<(self.sectionNumber()-1) else set())
                     kwargs["containerGraph"] = pg
                     kwargs["prefix"] = section_prefix
                     kwargs["label"] = section_label
@@ -382,7 +413,10 @@ class Sections():
             self._requiredPathNumber : int = None            
             
             self._checkBackwardList = set()
-            self._checkForwardList = {}           
+            self._checkForwardList = {} 
+            
+            self._datasets = set()
+            self._varieties = set()
             
             #compute connected bases
             for connectedCkmer in connectedCkmers:
@@ -618,6 +652,8 @@ class Sections():
                 self._required = False
                 self._optional = False
                 self._graph = graph
+                self._datasets = set()
+                self._varieties = set()
                 
             def distance(self):
                 return self._distance

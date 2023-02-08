@@ -186,10 +186,10 @@ class KmerPath(Resource):
             if data:
                 if not data["collection_location"]==None:
                     location_kmc = os.path.join(haplotyping.service.API.get_data_kmer_location(),
-                                                data["collection_location"],data["dataset_location"],"kmer.kmc")
+                                   data["collection_location"],data["dataset_location"],"kmer.kmc")
                 else:
                     location_kmc = os.path.join(haplotyping.service.API.get_data_kmer_location(),
-                                                data["dataset_location"],"kmer.kmc")
+                                   data["dataset_location"],"kmer.kmc")
                 kmc_query_library = haplotyping.service.API.get_kmc_query_library()
                 kmc_query_binary_location = haplotyping.service.API.get_kmc_query_binary_location()
                 #construct path
@@ -205,9 +205,12 @@ class KmerPath(Resource):
                         if not data:
                             abort(500,"no response using kmc query library for "+str(kmerList))
                     elif kmc_query_binary_location:
-                        kmc_query_binary_location_query = os.path.join(kmc_query_binary_location,"kmc_query")
-                        kmc_query_binary_location_analysis = os.path.join(kmc_query_binary_location,"kmc_analysis")
-                        data = KmerKMC.kmc_binary_frequencies(kmc_query_binary_location_query,location_kmc,kmerList,0)
+                        kmc_query_binary_location_query = os.path.join(
+                            kmc_query_binary_location,"kmc_query")
+                        kmc_query_binary_location_analysis = os.path.join(
+                            kmc_query_binary_location,"kmc_analysis")
+                        data = KmerKMC.kmc_binary_frequencies(
+                            kmc_query_binary_location_query,location_kmc,kmerList,0)
                         if not data:
                             abort(500,"no response using kmc query binary for "+str(kmerList))
                     else:
@@ -226,7 +229,7 @@ class KmerPath(Resource):
                     else:
                         return None
                     if kmer2==path[-len(kmer2):]:
-                        return Response(json.dumps(path), mimetype="application/json")                    
+                        return Response(json.dumps(path), mimetype="application/json")
                 else:
                     return None
             else:
@@ -239,8 +242,10 @@ class KmerPath(Resource):
 class KmerMultiple(Resource):            
                 
     dataset_kmers = namespace.model("k-mer list to get frequencies", {
-        "kmers": fields.List(fields.String, attribute="items", required=True, description="list of k-mers"),
-        "mismatches": fields.Integer(min=0,max=2, required=False, description="maximum number of mismatches")
+        "kmers": fields.List(fields.String, attribute="items", default=[],
+                            required=True, description="list of k-mers"),
+        "mismatches": fields.Integer(min=0,max=2, default=0, 
+                            required=False, description="maximum number of mismatches")
     })
                 
     @namespace.doc(description="Get k-mer frequencies from dataset defined by uid")
@@ -285,9 +290,14 @@ class KmerMultiple(Resource):
 class KmerSequence(Resource):            
                 
     sequence_data = namespace.model("sequence to get k-mer frequencies", {"sequence": 
-                                            fields.String(required=True, description="sequence"),
-                                    "mismatches": fields.Integer(min=0,max=2, required=False, 
-                                                                 description="maximum number of mismatches")})
+                                            fields.String(required=False, default="", 
+                                            description="sequence"),
+                                    "sequences": fields.List(fields.String, attribute="items", 
+                                            required=False, default=[],
+                                            description="list of sequences"),           
+                                    "mismatches": fields.Integer(min=0, max=2, 
+                                            default=0, required=False, 
+                                            description="maximum number of mismatches")})
     
     @namespace.doc(description="Get k-mer frequencies for a sequence from dataset defined by uid")
     @namespace.doc(params={"uid": "unique identifier dataset"})
@@ -296,16 +306,29 @@ class KmerSequence(Resource):
     def post(self,uid):  
         mm = min(2,max(0,namespace.payload.get("mismatches",0)))
         sequence = namespace.payload.get("sequence","")
-        kmers = []
+        sequences = namespace.payload.get("sequences",[])
+        def getKmers(k,sequence,sequences):
+            kmers = []
+            if k>0:
+                for i in range(len(sequence)-(k-1)):
+                    kmer = sequence[i:i+k]
+                    if not kmer in kmers:
+                        kmers.append(kmer)
+                for item in sequences:
+                    for i in range(len(item)-(k-1)):
+                        kmer = item[i:i+k]
+                        if not kmer in kmers:
+                            kmers.append(kmer)
+            return kmers
         try:
             data = _getDataset(uid)
             if data:
                 if not data["collection_location"]==None:
                     location_kmc = os.path.join(haplotyping.service.API.get_data_kmer_location(),
-                                                data["collection_location"],data["dataset_location"],"kmer.kmc")
+                                     data["collection_location"],data["dataset_location"],"kmer.kmc")
                 else:
                     location_kmc = os.path.join(haplotyping.service.API.get_data_kmer_location(),
-                                                data["dataset_location"],"kmer.kmc")
+                                     data["dataset_location"],"kmer.kmc")
                 kmc_query_library = haplotyping.service.API.get_kmc_query_library()
                 kmc_query_binary_location = haplotyping.service.API.get_kmc_query_binary_location()
                 if kmc_query_library:
@@ -313,17 +336,20 @@ class KmerSequence(Resource):
                     if not response:
                         abort(500,"no response using kmc query library")
                     k = response["info"].get("kmer_length",0)
-                    kmers = [sequence[i:i+k] for i in range(len(sequence)-(k-1)) if k>0]
+                    kmers = getKmers(k,sequence,sequences)
                     response = KmerKMC.kmc_library(kmc_query_library,location_kmc,kmers,mm)
                     if not response:
                         abort(500,"no response using kmc query library for "+str(kmers))
                 elif kmc_query_binary_location:
-                    kmc_query_binary_location_query = os.path.join(kmc_query_binary_location,"kmc_query")
-                    kmc_query_binary_location_analysis = os.path.join(kmc_query_binary_location,"kmc_analysis")
+                    kmc_query_binary_location_query = os.path.join(
+                        kmc_query_binary_location,"kmc_query")
+                    kmc_query_binary_location_analysis = os.path.join(
+                        kmc_query_binary_location,"kmc_analysis")
                     info = KmerKMC.kmc_binary_info(kmc_query_binary_location_analysis,location_kmc)
                     k = info.get("kmer_length",0)
-                    kmers = [sequence[i:i+k] for i in range(len(sequence)-(k-1)) if k>0]
-                    response = KmerKMC.kmc_binary_frequencies(kmc_query_binary_location_query,location_kmc,kmers,mm)
+                    kmers = getKmers(k,sequence,sequences)
+                    response = KmerKMC.kmc_binary_frequencies(
+                        kmc_query_binary_location_query,location_kmc,kmers,mm)
                     response["info"] = info;
                     if not response:
                         abort(500,"no response using kmc query binary for "+str(kmers))

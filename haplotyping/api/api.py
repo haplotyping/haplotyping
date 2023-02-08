@@ -438,7 +438,7 @@ class API():
         except:
             self._api_logger.error("getting pedigree didn't succeed")
             
-    def visualizeVarieties(self, varieties: dict, selected: list = None, coloring: dict = None):
+    def visualizeVarieties(self, varieties: dict, selected: list = None, coloring: dict = None, name=None):
         """
             get visualization for set of varieties (pedigree)
         
@@ -472,8 +472,13 @@ class API():
                         varietyColoring[uid] = selectedColor
         except:
             self._api_logger.error("incorrect definition selected or coloring")
+        pedigree_title = "Pedigree"
+        if not name==None:
+            pedigree_title = name
+        pedigree_title = "<<font point-size=\"14\">{}</font>>".format(html.escape(pedigree_title))
+        
         g = Digraph("Pedigree")
-        g.attr(label="Pedigree", labelloc="t", nodesep="0", ranksep="1")
+        g.attr(label=pedigree_title, labelloc="t", nodesep="0", ranksep="1")
         for uid in varieties.keys():
             variety = varieties[uid]
             node_title="<"

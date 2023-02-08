@@ -152,6 +152,8 @@ class VarietyList(Resource):
                               help="paging")
     variety_list.add_argument("name", type=str, required=False, location="args", 
                               help="name of variety")
+    variety_list.add_argument("nameContains", type=str, required=False, location="args", 
+                              help="name of variety contains (only if no name condition)")
     variety_list.add_argument("origin", type=str, required=False, location="args", 
                               help="comma separated list of country codes")
     variety_list.add_argument("year", type=str, required=False, location="args", 
@@ -175,6 +177,7 @@ class VarietyList(Resource):
             start = int(request.args.get("start",0))
             number = int(request.args.get("number",10))        
             name = request.args.get("name",None)
+            nameContains = request.args.get("nameContains",None)
             origin = request.args.get("origin",None)
             year = request.args.get("year",None)
             collection = request.args.get("collection",None)

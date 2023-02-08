@@ -137,7 +137,7 @@ class ConstructDatabase:
                                 "uid" VARCHAR(13) NULL,
                                 "resource" VARCHAR(255) NULL,
                                 "internal_id" INTEGER NOT NULL,
-                                "type" VARCHAR(6) CHECK("type" IN ("marker","kmer") ) NOT NULL,
+                                "type" VARCHAR(6) CHECK("type" IN ("marker","wgs","baits") ) NOT NULL,
                                 "name" VARCHAR(255) NULL,
                                 "experiment" VARCHAR(255) NULL,
                                 "location" VARCHAR(255) NULL,
@@ -298,6 +298,7 @@ class ConstructDatabase:
                     return
                 #process sequence data
                 if package.has_resource("sequences"):
+                    collectionList = {}
                     sequences = pd.DataFrame(extract(package.get_resource("sequences")))                    
                     if len(sequences)>0:
                         for experiment_id in set(sequences["experiment_id"]):
@@ -305,7 +306,8 @@ class ConstructDatabase:
                             for id,row in sequences[sequences["experiment_id"]==experiment_id].iterrows():
                                 variety = varieties.loc[row["variety_id"]]
                                 if variety["uid"]:
-                                    if collectionId==None:
+                                    #use seperate collection for each sequence type
+                                    if (len(collectionList)==0) or not row["type"] in collectionList:
                                         experiment_name = experiments.loc[experiment_id]["name"]
                                         locationResource = metadata.get("location","")
                                         locationResource = "" if locationResource==None else locationResource
@@ -313,9 +315,13 @@ class ConstructDatabase:
                                         locationExperiment = "" if locationExperiment==None else locationExperiment
                                         location = os.path.join(locationResource,locationExperiment)
                                         (collectionId,collectionUid) = self._createCollection(
-                                             resourceName, experiment_id, "kmer",
+                                             resourceName, experiment_id, row["type"],
                                              metadata.get("name",resourceName), experiment_name, location)
-                                    self._createDataset(variety["uid"],collectionId,collectionUid,
+                                        collectionList[row["type"]] = {"collectionId": collectionId, 
+                                                                       "collectionUid": collectionUid}
+                                    self._createDataset(variety["uid"],
+                                                        collectionList[row["type"]]["collectionId"],
+                                                        collectionList[row["type"]]["collectionUid"],
                                                         row["variety_id"],row["location"])
 
                 #process marker data
