@@ -15,8 +15,8 @@ def _make_bool(text):
 
 def get_variety_datasets(uid, collection, dataset, db_connection):
     condition_variables = [uid]
-    condition_sql = "`dataset`.`variety` = ? \
-                        AND (NOT `dataset`.`uid` IS NULL) AND (NOT `dataset`.`type` IS NULL)"
+    condition_sql = """`dataset`.`variety` = ? 
+                        AND (NOT `dataset`.`uid` IS NULL) AND (NOT `dataset`.`type` IS NULL)"""
     if not collection==None:
         collection_list = collection.split(",")
         condition_sql = condition_sql + " AND (`collection`.`uid` IN ("+",".join(["?"]*len(collection_list))+"))"
@@ -35,15 +35,15 @@ def get_variety_datasets(uid, collection, dataset, db_connection):
         else:
             abort(422, "incorrect dataset condition "+str(dataset))
     cursor = db_connection.cursor()
-    cursor.execute("SELECT `dataset`.`uid`, \
-                           `dataset`.`type`, \
-                           `collection`.`uid` AS `collection_uid`, \
-                           `collection`.`name` AS `collection_name`, \
-                           `collection`.`type` AS `collection_type`, \
-                           `collection`.`experiment` AS `collection_experiment` \
-                        FROM `dataset` \
-                        LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
-                        WHERE "+condition_sql+" ORDER BY `collection`.`name`, `dataset`.`uid`", 
+    cursor.execute("""SELECT `dataset`.`uid`, 
+                           `dataset`.`type`, 
+                           `collection`.`uid` AS `collection_uid`, 
+                           `collection`.`name` AS `collection_name`, 
+                           `collection`.`type` AS `collection_type`, 
+                           `collection`.`experiment` AS `collection_experiment` 
+                        FROM `dataset` 
+                        LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` 
+                        WHERE """+condition_sql+""" ORDER BY `collection`.`name`, `dataset`.`uid`""", 
                    tuple(condition_variables)) 
     return [dict(row) for row in cursor.fetchall()]  
 
@@ -76,19 +76,19 @@ def offspring_list(offspringData):
         
 def get_variety_parents(uid, db_connection):
     cursor = db_connection.cursor()
-    cursor.execute("SELECT `variety_ancestor`.*, `variety`.`name` FROM `variety_ancestor` \
-                    LEFT JOIN `variety` ON `variety_ancestor`.`ancestor` = `variety`.`uid` \
-                    WHERE `variety_ancestor`.`variety` = ? \
-                    ORDER BY `variety_ancestor`.`type` DESC",(uid,)) 
+    cursor.execute("""SELECT `variety_ancestor`.*, `variety`.`name` FROM `variety_ancestor` 
+                    LEFT JOIN `variety` ON `variety_ancestor`.`ancestor` = `variety`.`uid` 
+                    WHERE `variety_ancestor`.`variety` = ? 
+                    ORDER BY `variety_ancestor`.`type` DESC""",(uid,)) 
     parentData = [dict(row) for row in cursor.fetchall()]
     return parents_tree(None,parentData)
 
 def get_variety_offspring(uid, db_connection):
     cursor = db_connection.cursor()
-    cursor.execute("SELECT `variety_ancestor`.*, `variety`.`name` FROM `variety_ancestor` \
-                    LEFT JOIN `variety` ON `variety_ancestor`.`variety` = `variety`.`uid` \
-                    WHERE `variety_ancestor`.`ancestor` = ? \
-                    ORDER BY `variety`.`name`, `variety`.`uid`",(uid,)) 
+    cursor.execute("""SELECT `variety_ancestor`.*, `variety`.`name` FROM `variety_ancestor` 
+                    LEFT JOIN `variety` ON `variety_ancestor`.`variety` = `variety`.`uid` 
+                    WHERE `variety_ancestor`.`ancestor` = ? 
+                    ORDER BY `variety`.`name`, `variety`.`uid`""",(uid,)) 
     offspringData = [dict(row) for row in cursor.fetchall()]
     return offspring_list(offspringData)
 
@@ -245,39 +245,39 @@ class VarietyList(Resource):
             db_connection = haplotyping.service.API.get_db_connection()
             db_connection.row_factory = sqlite3.Row
             cursor = db_connection.cursor()
-            cursor.execute("SELECT COUNT(DISTINCT `variety`.`id`) AS `number` \
-                            FROM `variety` \
-                            LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
-                            AND NOT `dataset`.`uid` IS NULL AND NOT `dataset`.`type` IS NULL \
-                            LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
-                            LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
-                            LEFT JOIN `variety_ancestor` AS `ancestor` ON `variety`.`uid` = `ancestor`.`variety` \
-                            LEFT JOIN `variety_ancestor` AS `offspring` ON `variety`.`uid` = `offspring`.`ancestor` \
-                            LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` \
-                            LEFT JOIN `variety_synonym` AS `condition_synonym` ON `variety`.`uid` = \
-                                        `condition_synonym`.`uid` \
-                            WHERE "+condition_sql, tuple(condition_variables))  
+            cursor.execute("""SELECT COUNT(DISTINCT `variety`.`id`) AS `number` 
+                            FROM `variety` 
+                            LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` 
+                            AND NOT `dataset`.`uid` IS NULL AND NOT `dataset`.`type` IS NULL 
+                            LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` 
+                            LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` 
+                            LEFT JOIN `variety_ancestor` AS `ancestor` ON `variety`.`uid` = `ancestor`.`variety` 
+                            LEFT JOIN `variety_ancestor` AS `offspring` ON `variety`.`uid` = `offspring`.`ancestor` 
+                            LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` 
+                            LEFT JOIN `variety_synonym` AS `condition_synonym` ON `variety`.`uid` = 
+                                        `condition_synonym`.`uid` 
+                            WHERE """ + condition_sql, tuple(condition_variables))  
             total = cursor.fetchone()[0]
             if start<total:
-                cursor.execute("SELECT `variety`.`uid`, `variety`.`name`, `variety`.`origin`, \
-                                `country`.`name` AS `country`, \
-                                NULL AS `year`, `variety`.`year_min`, `variety`.`year_max`, \
-                                GROUP_CONCAT(DISTINCT `synonym`.`synonym`) AS `synonyms`, \
-                                COUNT(DISTINCT `dataset`.`id`) as `datasets` \
-                                FROM `variety` \
-                                LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
-                                AND NOT `dataset`.`uid` IS NULL AND NOT `dataset`.`type` IS NULL\
-                                LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` \
-                                LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
-                                LEFT JOIN `variety_ancestor` AS `ancestor` ON `variety`.`uid` = `ancestor`.`variety` \
-                                LEFT JOIN `variety_ancestor` AS `offspring` ON `variety`.`uid` = `offspring`.`ancestor` \
-                                LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` \
-                                LEFT JOIN `variety_synonym` AS `condition_synonym` ON `variety`.`uid` = \
-                                            `condition_synonym`.`uid` \
-                                WHERE "+condition_sql+" \
-                                GROUP BY `variety`.`id` \
-                                ORDER BY `variety`.`name`, `variety`.`uid` \
-                                LIMIT ?,?",tuple(condition_variables + [start,number]))  
+                cursor.execute("""SELECT `variety`.`uid`, `variety`.`name`, `variety`.`origin`, 
+                                `country`.`name` AS `country`, 
+                                NULL AS `year`, `variety`.`year_min`, `variety`.`year_max`, 
+                                GROUP_CONCAT(DISTINCT `synonym`.`synonym`) AS `synonyms`, 
+                                COUNT(DISTINCT `dataset`.`id`) as `datasets` 
+                                FROM `variety` 
+                                LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` 
+                                AND NOT `dataset`.`uid` IS NULL AND NOT `dataset`.`type` IS NULL
+                                LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` 
+                                LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` 
+                                LEFT JOIN `variety_ancestor` AS `ancestor` ON `variety`.`uid` = `ancestor`.`variety` 
+                                LEFT JOIN `variety_ancestor` AS `offspring` ON `variety`.`uid` = `offspring`.`ancestor` 
+                                LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` 
+                                LEFT JOIN `variety_synonym` AS `condition_synonym` ON `variety`.`uid` = 
+                                            `condition_synonym`.`uid` 
+                                WHERE """+condition_sql+""" 
+                                GROUP BY `variety`.`id` 
+                                ORDER BY `variety`.`name`, `variety`.`uid` 
+                                LIMIT ?,?""",tuple(condition_variables + [start,number]))  
                 resultList = [dict(row) for row in cursor.fetchall()]
             else:
                 resultList = []
@@ -299,27 +299,27 @@ class VarietyList(Resource):
                 db_connection = haplotyping.service.API.get_db_connection()
                 db_connection.row_factory = sqlite3.Row
                 cursor = db_connection.cursor()
-                cursor.execute("SELECT COUNT(DISTINCT `variety`.`id`) AS `number` \
-                                FROM `variety` \
-                                LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
-                                AND NOT (`dataset`.`uid` IS NULL) AND NOT (`dataset`.`type` IS NULL) \
-                                LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
-                                LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` \
-                                WHERE "+condition_sql, tuple(condition_variables))  
+                cursor.execute("""SELECT COUNT(DISTINCT `variety`.`id`) AS `number` 
+                                FROM `variety` 
+                                LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` 
+                                AND NOT (`dataset`.`uid` IS NULL) AND NOT (`dataset`.`type` IS NULL) 
+                                LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` 
+                                LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` 
+                                WHERE """+condition_sql, tuple(condition_variables))  
                 total = cursor.fetchone()[0]
-                cursor.execute("SELECT `variety`.`uid`, `variety`.`name`, `variety`.`origin`, \
-                                `country`.`name` AS `country`, \
-                                NULL AS `year`, `variety`.`year_min`, `variety`.`year_max`, \
-                                GROUP_CONCAT(DISTINCT `synonym`.`synonym`) AS `synonyms`, \
-                                COUNT(DISTINCT `dataset`.`id`) as `datasets` \
-                                FROM `variety` \
-                                LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
-                                AND NOT (`dataset`.`uid` IS NULL) AND NOT (`dataset`.`type` IS NULL) \
-                                LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
-                                LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` \
-                                WHERE "+condition_sql+" \
-                                GROUP BY `variety`.`id` \
-                                ORDER BY `variety`.`name`, `variety`.`uid`",tuple(condition_variables))  
+                cursor.execute("""SELECT `variety`.`uid`, `variety`.`name`, `variety`.`origin`, 
+                                `country`.`name` AS `country`, 
+                                NULL AS `year`, `variety`.`year_min`, `variety`.`year_max`, 
+                                GROUP_CONCAT(DISTINCT `synonym`.`synonym`) AS `synonyms`, 
+                                COUNT(DISTINCT `dataset`.`id`) as `datasets` 
+                                FROM `variety` 
+                                LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` 
+                                AND NOT (`dataset`.`uid` IS NULL) AND NOT (`dataset`.`type` IS NULL) 
+                                LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` 
+                                LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` 
+                                WHERE """+condition_sql+""" 
+                                GROUP BY `variety`.`id` 
+                                ORDER BY `variety`.`name`, `variety`.`uid`""",tuple(condition_variables))  
                 resultList = [dict(row) for row in cursor.fetchall()]
             else:
                 total = 0
@@ -341,18 +341,18 @@ class VarietyId(Resource):
             db_connection = haplotyping.service.API.get_db_connection()
             db_connection.row_factory = sqlite3.Row
             cursor = db_connection.cursor()
-            cursor.execute("SELECT `variety`.`uid`, `variety`.`name`, `variety`.`origin`, \
-                            `country`.`name` AS `country`, \
-                            GROUP_CONCAT(DISTINCT `synonym`.`synonym`) AS `synonyms`, \
-                            NULL AS `year`, `variety`.`year_min`, `variety`.`year_max`, \
-                            NULL as `datasets` \
-                            FROM `variety` \
-                            LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` \
-                            AND NOT (`dataset`.`uid` IS NULL) AND NOT (`dataset`.`type` IS NULL) \
-                            LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` \
-                            LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` \
-                            WHERE `variety`.`uid` = ? \
-                            GROUP BY `variety`.`id`",(uid,))  
+            cursor.execute("""SELECT `variety`.`uid`, `variety`.`name`, `variety`.`origin`, 
+                            `country`.`name` AS `country`, 
+                            GROUP_CONCAT(DISTINCT `synonym`.`synonym`) AS `synonyms`, 
+                            NULL AS `year`, `variety`.`year_min`, `variety`.`year_max`, 
+                            NULL as `datasets` 
+                            FROM `variety` 
+                            LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` 
+                            AND NOT (`dataset`.`uid` IS NULL) AND NOT (`dataset`.`type` IS NULL) 
+                            LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` 
+                            LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` 
+                            WHERE `variety`.`uid` = ? 
+                            GROUP BY `variety`.`id`""",(uid,))  
             data = cursor.fetchone()
             if data:
                 response = adjust_variety_response(dict(data), None, None, db_connection)
