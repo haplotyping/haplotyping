@@ -28,7 +28,7 @@ setuptools.setup(
       "waitress >= 2.1.2",
       "flask-caching >= 2.0.1",
       "openpyxl >= 3.0.10",
-      "frictionless >= 4.40.8"
+      "frictionless >= 5.5.5"
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
