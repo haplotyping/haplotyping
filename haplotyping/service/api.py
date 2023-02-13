@@ -204,7 +204,7 @@ class API:
             rootLocation = "../"*len(re.findall(pattern, path))
             pathSplits = path.split("/")
             operation = pathSplits[0]
-            if (operation=="variety") and (len(pathSplits)>0):
+            if (len(pathSplits)>1):
                 identifier = pathSplits[1]
             else:
                 identifier = None

@@ -35,15 +35,17 @@ class CollectionList(Resource):
             cursor.execute("SELECT COUNT(*) AS `number` FROM `collection`")  
             total = cursor.fetchone()[0]
             if start<total:
-                cursor.execute("SELECT `collection`.`uid`, `collection`.`name`,\
-                                       `collection`.`experiment`, `collection`.`type`,\
-                                       COUNT(DISTINCT(`dataset`.`id`)) AS `datasets`\
-                                FROM `collection`\
-                                INNER JOIN `dataset` ON `collection`.`id` = `dataset`.`collection_id`\
-                                AND NOT `dataset`.`uid` IS NULL\
-                                AND NOT `dataset`.`type` IS NULL\
-                                GROUP BY `collection`.`id` ORDER BY `name`,\
-                                `collection`.`type`, `collection`.`id` LIMIT ?,?",(start,number,))  
+                cursor.execute("""SELECT `collection`.`uid`, `collection`.`name`,
+                                       `collection`.`experiment`, `collection`.`type`,
+                                       COUNT(DISTINCT(`dataset`.`id`)) AS `datasets`,
+                                       COUNT(DISTINCT(`variety`.`id`)) AS `varieties`
+                                FROM `collection`
+                                INNER JOIN `dataset` ON `collection`.`id` = `dataset`.`collection_id`
+                                LEFT JOIN `variety` ON `dataset`.`variety` = `variety`.`uid`
+                                AND NOT `dataset`.`uid` IS NULL
+                                AND NOT `dataset`.`type` IS NULL
+                                GROUP BY `collection`.`id` ORDER BY `collection`.`name`,
+                                `collection`.`type`, `collection`.`id` LIMIT ?,?""",(start,number,))  
                 resultList = [dict(row) for row in cursor.fetchall()]
             else:
                 resultList = []
@@ -51,4 +53,33 @@ class CollectionList(Resource):
             return Response(json.dumps(response), mimetype="application/json") 
         except Exception as e:
             abort(e.code if hasattr(e,"code") else 500, str(e))
+            
+@namespace.route("/<uid>")
+@namespace.doc(params={"uid": "unique identifier collection"})
+class CollectionId(Resource):
+    
+    @namespace.doc(description="Get collection by uid")
+    def get(self,uid):
+        try:
+            db_connection = haplotyping.service.API.get_db_connection()
+            db_connection.row_factory = sqlite3.Row
+            cursor = db_connection.cursor()
+            cursor.execute("""SELECT `collection`.`uid`, `collection`.`name`,
+                                       `collection`.`experiment`, `collection`.`type`,
+                                       COUNT(DISTINCT(`dataset`.`id`)) AS `datasets`,
+                                       COUNT(DISTINCT(`variety`.`id`)) AS `varieties`
+                                FROM `collection`
+                                INNER JOIN `dataset` ON `collection`.`id` = `dataset`.`collection_id`
+                                LEFT JOIN `variety` ON `dataset`.`variety` = `variety`.`uid`
+                                AND NOT `dataset`.`uid` IS NULL
+                                AND NOT `dataset`.`type` IS NULL
+                                WHERE `collection`.`uid` = ?
+                                GROUP BY `collection`.`id`""",(uid,))  
+            data = cursor.fetchone()
+            if data:
+                return Response(json.dumps(dict(data)), mimetype="application/json")
+            else:
+                abort(404, "no collection with uid "+str(uid))
+        except Exception as e:
+            abort(e.code if hasattr(e,"code") else 500, str(e))            
 
