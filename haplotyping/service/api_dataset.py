@@ -38,6 +38,7 @@ def adjust_dataset_response(item):
     del item["variety_uid"]
     del item["variety_name"]
     del item["variety_origin"]
+    del item["variety_country"]
     del item["variety_year_min"]
     del item["variety_year_max"]
     #collection
