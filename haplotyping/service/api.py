@@ -3,7 +3,7 @@ from multiprocessing import Process,get_start_method
 from flask import Flask, Blueprint, Response, render_template, current_app, g, request
 from flask_restx import Api, Resource
 from werkzeug.middleware.proxy_fix import ProxyFix
-import json, sqlite3
+import json, sqlite3, re
 from waitress import serve
 
 import haplotyping
@@ -52,7 +52,8 @@ class API:
             try:
                 process_api = Process(target=self.process_api_messages, args=[])
                 #start everything
-                logger_server.info("start server on port {:s}".format(self.config["api"].get("port","8080")))
+                logger_server.info("start server on port {:s}".format(
+                    self.config["api"].get("port","8080")))
                 process_api.start()
                 #wait until ends  
                 process_api.join()
@@ -64,8 +65,8 @@ class API:
         if db_connection is None:
             config = current_app.config.get("config")
             location = current_app.config.get("location")
-            print(os.path.join(location,config["settings"]["sqlite_db"]))
-            db_connection = g._database = sqlite3.connect(os.path.join(location,config["settings"]["sqlite_db"]))
+            db_connection = g._database = sqlite3.connect(
+                os.path.join(location,config["settings"]["sqlite_db"]))
         return db_connection
     
     def get_kmc_query_library():
@@ -134,7 +135,9 @@ class API:
                 if app.config["config"]["cache"]["timeout"]:
                     cache_config["CACHE_DEFAULT_TIMEOUT"] = int(app.config["config"]["cache"]["timeout"])
                 if app.config["config"]["cache"]["threshold"]:
-                    cache_config["CACHE_THRESHOLD"] = int(app.config["config"]["cache"]["threshold"])               
+                    cache_config["CACHE_THRESHOLD"] = int(app.config["config"]["cache"]["threshold"])      
+                cache_api_kmer.init_app(app, config=cache_config)
+                cache_api_split.init_app(app, config=cache_config)
             elif (app.config["config"]["cache"]["type"]=="FileSystemCache") and ("dir" in app.config["config"]["cache"]):       
                 logger_api.debug("caching on disk: "+str(app.config["config"]["cache"]["dir"]))
                 cache_config = {
@@ -145,12 +148,22 @@ class API:
                     cache_config["CACHE_DEFAULT_TIMEOUT"] = int(app.config["config"]["cache"]["timeout"])
                 if ("threshold" in app.config["config"]["cache"]) and app.config["config"]["cache"]["threshold"]:
                     cache_config["CACHE_THRESHOLD"] = int(app.config["config"]["cache"]["threshold"]) 
+                #set specific caches    
+                cache_config_kmer = cache_config
+                cache_config_kmer["CACHE_DIR"] = os.path.join(app.config["config"]["cache"]["dir"],"kmer")
+                cache_api_kmer.init_app(app, config=cache_config_kmer)
+                cache_config_split = cache_config
+                cache_config_split["CACHE_DIR"] = os.path.join(app.config["config"]["cache"]["dir"],"split")
+                cache_api_split.init_app(app, config=cache_config_split)                
             else:
-               logger_api.debug("caching disabled") 
+                logger_api.debug("caching disabled")
+                cache_api_kmer.init_app(app, config=cache_config)
+                cache_api_split.init_app(app, config=cache_config)
+        else:
+            cache_api_kmer.init_app(app, config=cache_config)
+            cache_api_split.init_app(app, config=cache_config)
+                            
             
-        
-        cache_api_kmer.init_app(app, config=cache_config)
-        cache_api_split.init_app(app, config=cache_config)
     
         #namespaces
         api.add_namespace(ns_api_tools)
@@ -173,7 +186,7 @@ class API:
                     api._schema["basePath"] = api.base_path
                     api.__schema__["basePath"] = api.base_path
 
-        parser = api.parser()
+        #parser = api.parser()
 
         #--- database ---    
         @app.teardown_appcontext
@@ -185,8 +198,24 @@ class API:
 
         #--- site ---
         @app.route("/")
-        def index():
-            return render_template("index.html")
+        @app.route("/<path:path>")
+        def index(path=""):
+            pattern = re.compile(r"[^\/]+\/")
+            rootLocation = "../"*len(re.findall(pattern, path))
+            pathSplits = path.split("/")
+            operation = pathSplits[0]
+            if (len(pathSplits)>1):
+                identifier = pathSplits[1]
+            else:
+                identifier = None
+            variables = {
+                "path": path,
+                "operation": operation,
+                "identifier": identifier,
+                "rootLocation": rootLocation
+            }
+            return render_template("index.html", **variables)
+        
         
         #--- start webserver ---
         #app.run(host=self.config["api"].get("host", "::"), port=self.config["api"].get("port", "8080"), 

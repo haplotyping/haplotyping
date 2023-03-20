@@ -144,7 +144,6 @@ class Split:
                 "rightSplitBase": {
                 },
                 "direct": {
-                    "link": int(row[4][0]),
                     "left": {
                         "distinct": int(row[4][1][0]),
                         "number": int(row[4][1][1])

@@ -38,7 +38,7 @@ class SplitKmerInfo(Resource):
     
     @namespace.doc(description="Get information describing dataset defined by uid")
     @namespace.doc(params={"uid": "unique identifier dataset"})
-    @cache.cached(key_prefix="split_", make_cache_key=_make_cache_key)
+    @cache.cached(make_cache_key=_make_cache_key)
     def get(self,uid):
         try:
             data = _getDataset(uid)
@@ -61,7 +61,7 @@ class SplitKmerSingle(Resource):
     
     @namespace.doc(description="Get splitting k-mer information from dataset defined by uid for specified k-mer")
     @namespace.doc(params={"uid": "unique identifier dataset","kmer": "splitting k-mer"})
-    @cache.cached(key_prefix="split_", make_cache_key=_make_cache_key)
+    @cache.cached(make_cache_key=_make_cache_key)
     def get(self,uid,kmer):
         try:
             data = _getDataset(uid)
@@ -89,7 +89,7 @@ class SplitKmerMultiple(Resource):
     @namespace.doc(description="Get splitting k-mer information for a list of k-mers from dataset defined by uid")
     @namespace.doc(params={"uid": "unique identifier dataset"})
     @namespace.expect(dataset_kmers)
-    @cache.cached(key_prefix="split_", make_cache_key=_make_cache_key)
+    @cache.cached(make_cache_key=_make_cache_key)
     def post(self,uid):
         kmers = namespace.payload.get("kmers",[])
         try:
@@ -113,7 +113,7 @@ class SplitKmerDirectSingle(Resource):
     
     @namespace.doc(description="Get direct connections splitting k-mer from dataset defined by uid for specified k-mer")
     @namespace.doc(params={"uid": "unique identifier dataset","kmer": "splitting k-mer"})
-    @cache.cached(key_prefix="split_", make_cache_key=_make_cache_key)
+    @cache.cached(make_cache_key=_make_cache_key)
     def get(self,uid,kmer):
         try:
             data = _getDataset(uid)
@@ -141,7 +141,7 @@ class SplitKmerDirectMultiple(Resource):
     @namespace.doc(description="Get direct connections splitting k-mer for a list of k-mers from dataset defined by uid")
     @namespace.doc(params={"uid": "unique identifier dataset"})
     @namespace.expect(dataset_kmers)
-    @cache.cached(key_prefix="split_", make_cache_key=_make_cache_key)
+    @cache.cached(make_cache_key=_make_cache_key)
     def post(self,uid):
         kmers = namespace.payload.get("kmers",[])
         try:
@@ -165,7 +165,7 @@ class SplitKmerConnectedSingle(Resource):
     
     @namespace.doc(description="Get connected splitting k-mers from dataset defined by uid containing specified k-mer")
     @namespace.doc(params={"uid": "unique identifier dataset","kmer": "splitting k-mer"})
-    @cache.cached(key_prefix="split_", make_cache_key=_make_cache_key)
+    @cache.cached(make_cache_key=_make_cache_key)
     def get(self,uid,kmer):
         try:
             data = _getDataset(uid)
@@ -193,7 +193,7 @@ class SplitKmerConnectedMultiple(Resource):
     @namespace.doc(description="Get connected splitting k-mers for a list of k-mers from dataset defined by uid")
     @namespace.doc(params={"uid": "unique identifier dataset"})
     @namespace.expect(dataset_kmers)
-    @cache.cached(key_prefix="split_", make_cache_key=_make_cache_key)
+    @cache.cached(make_cache_key=_make_cache_key)
     def post(self,uid):
         kmers = namespace.payload.get("kmers",[])
         try:
@@ -221,7 +221,7 @@ class SplitKmerSequence(Resource):
     @namespace.doc(description="Get splitting k-mer information for a sequence from dataset defined by uid")
     @namespace.doc(params={"uid": "unique identifier dataset"})
     @namespace.expect(sequence_data)
-    @cache.cached(key_prefix="split_", make_cache_key=_make_cache_key)
+    @cache.cached(make_cache_key=_make_cache_key)
     def post(self,uid):
         sequence = namespace.payload.get("sequence","")
         try:
@@ -245,7 +245,7 @@ class SplitBaseSingle(Resource):
     
     @namespace.doc(description="Get splitting k-mer base information from dataset defined by uid for specified k-mer base")
     @namespace.doc(params={"uid": "unique identifier dataset","base": "splitting k-mer base"})
-    @cache.cached(key_prefix="split_", make_cache_key=_make_cache_key)
+    @cache.cached(make_cache_key=_make_cache_key)
     def get(self,uid,base):
         try:
             data = _getDataset(uid)
@@ -273,7 +273,7 @@ class SplitBaseMultiple(Resource):
     @namespace.doc(description="Get splitting k-mer base information for a list of k-mer bases from dataset defined by uid")
     @namespace.doc(params={"uid": "unique identifier dataset"})
     @namespace.expect(dataset_bases)
-    @cache.cached(key_prefix="split_", make_cache_key=_make_cache_key)
+    @cache.cached(make_cache_key=_make_cache_key)
     def post(self,uid):
         bases = namespace.payload.get("bases",[])
         try:

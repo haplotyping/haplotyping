@@ -1,8 +1,7 @@
 import os, logging, tempfile
-import gzip,csv
+import gzip,csv,json
 from openpyxl import load_workbook
-from frictionless import Resource, Schema, Field, Package, Layout
-from frictionless.plugins.excel import ExcelDialect
+from frictionless import Resource, Schema, Package, Dialect, formats
 from frictionless import validate, extract
 import pandas as pd, numpy as np, textwrap
 from shutil import copyfile
@@ -169,7 +168,8 @@ class ValidateGeneral:
             schemaFilename = os.path.join(self._schemaPath,schema)
             if os.access(schemaFilename, os.R_OK):
                 self._report.addReportDebug(resourceName,"validate using schema '{}'".format(schema)) 
-                resourceSchema = Schema(schemaFilename)
+                with open(schemaFilename, "r") as f:                 
+                    resourceSchema = Schema.from_descriptor(json.load(f))
             else:
                 self._report.addReportError(resourceName,"could not read schema '{}'".format(schemaFilename))
         else:
@@ -193,10 +193,9 @@ class ValidateGeneral:
             self._report.addReportError(resourceName,"sheet '{}' not available".format(sheetName))
         else:
             self._report.addReportDebug(resourceName,"define resource '{}'".format(sheetName))
-            resource = Resource(basepath=self._dataPath, path=self._resourceFilename, hashing="", 
-                                                dialect=ExcelDialect(sheet=sheetName, preserve_formatting=False))  
-            if headerRows>1:
-                resource.layout=Layout(header_rows=[headerRows])
+            dialect = Dialect(header_rows=[headerRows])
+            dialect.add_control(formats.ExcelControl(sheet=sheetName, preserve_formatting=False))
+            resource = Resource(basepath=self._dataPath, path=self._resourceFilename, dialect=dialect)  
             #set name and remove if exists
             if self._package.has_resource(resourceName):
                 self._package.remove_resource(resourceName)
@@ -209,7 +208,8 @@ class ValidateGeneral:
                 schemaFilename = os.path.join(self._schemaPath,schema)
                 if os.access(schemaFilename, os.R_OK):
                     self._report.addReportDebug(resourceName,"validate using schema '{}'".format(schema)) 
-                    resource.schema = Schema(schemaFilename)
+                    with open(schemaFilename, "r") as f:       
+                        resource.schema = Schema.from_descriptor(json.load(f))
                 else:
                     self._report.addReportError(resourceName,"could not read schema '{}'".format(schemaFilename))
             else:
@@ -439,13 +439,13 @@ class ValidateGeneral:
         """
         def createFrictionlessData(fdata):
             list = []
-            for task in fdata["tasks"]:
-                for error in task["errors"]:
-                    list.append({"resource": task["resource"]["name"],
-                                 "rowPosition": error.get("rowPosition",None), 
-                                 "fieldPosition": error.get("fieldPosition",None),
-                                 "code": error.get("code",None),
-                                 "description": error.get("description",None)})
+            for task in fdata.tasks:
+                for error in task.errors:
+                    list.append({"resource": task.name,
+                                 "rowPosition": error.get_defined("rowPosition"), 
+                                 "fieldPosition": error.get_defined("fieldPosition"),
+                                 "code": error.get_defined("code"),
+                                 "description": error.get_defined("description")})
             return pd.DataFrame(list)
         def excelCoordinates(row, col):
             try:
@@ -470,7 +470,7 @@ class ValidateGeneral:
         for report in self._report.reports:
             isNotValid=((not self._report[report]["valid"]) or 
                         ("frictionless" in self._report[report].keys() and 
-                         (not self._report[report]["frictionless"]["valid"])))
+                         (not self._report[report]["frictionless"].valid)))
             reportDetails = {"name": report, 
                              "valid": False if isNotValid else True,
                              "warnings": [], "errors": [], "frictionless": []}  

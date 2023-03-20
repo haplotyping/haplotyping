@@ -12,7 +12,8 @@
       }
     },
     {
-      "name": "value"
+      "name": "value",
+      "type": "any"
     }
   ],
   "primaryKey": [

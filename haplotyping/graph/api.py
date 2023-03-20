@@ -1,221 +1,13 @@
 import logging,requests
 import haplotyping.graph
 import haplotyping.graph.baseGraph as baseGraph
-
-class API():
-    def __init__(self, url: str):
-        #logger
-        self._api_logger = logging.getLogger(__name__)
-        #store call parameters
-        self._baseUrl : str = str(url)
-            
-    def _getList(self, request:str, key: str, number: int = 1000):
-        start = 0
-        result = {}
-        while True:
-            fullRequest = "{}{}{}start={}&number={}".format(self._baseUrl,
-                request,"&" if "?" in request else "?",start,number)
-            response = requests.get(fullRequest)
-            if response.ok:
-                data = response.json()
-                total = data.get("total",None)
-                items = data.get("list",[])
-                for item in items:
-                    uid = item.get(key,None)
-                    if uid:
-                        del item[key]
-                        result[uid] = item
-                if start+number>=total:
-                    return result
-                else:
-                    start+=number
-            else:
-                self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-                return None
-    
-    def _getById(self, request, uid, key="uid"):
-        fullRequest = "{}{}{}".format(self._baseUrl,request,requests.utils.quote(uid))
-        response = requests.get(fullRequest)
-        if response.ok:
-            data = response.json()
-            if key in data:
-                del data[key]
-                return data
-            else:
-                return None
-        else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            return None
-        
-    def _getByIds(self, request, uids, key1="uids", key2="uid"):
-        fullRequest = "{}{}".format(self._baseUrl,request)
-        response = requests.post(fullRequest, json = {key1: list(uids)})
-        if response.ok:
-            data = response.json()
-            result = {}
-            items = data.get("list",[])
-            for item in items:
-                uid = item.get(key2,None)
-                if uid:
-                    del item[key2]
-                    result[uid] = item
-            return result
-        else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            return None
-        
-    
-    """
-    get a dict with all countries
-    """
-    def getCountries(self): 
-        return self._getList("country/","uid")
-        
-                
-    """
-    get a dict with all collections
-    """
-    def getCollections(self):
-        return self._getList("collection/","uid")
-    
-    """
-    get a dict with (all) datasets
-    """
-    def getDatasets(self, **kwargs):
-        parameters = {
-            "collection": None,
-            "dataType": None,
-            "hasVariety": None
-        }
-        request = "dataset/"
-        for key, value in kwargs.items():
-            if key in parameters.keys():
-                if isinstance(value,bool):
-                    parameters[key] = "true" if value else "false"
-                elif isinstance(value,list):
-                    parameters[key] = ",".join(value)
-                else:
-                    parameters[key] = value
-            if not parameters[key]==None:
-                request = "{}{}{}={}".format(request,
-                         "&" if "?" in request else "?",key,requests.utils.quote(parameters[key]))
-        return self._getList(request,"uid")
-    
-    def getDatasetById(self, uid):
-        return self._getById("dataset/",uid)
-    
-    def getDatasetsById(self, uids):
-        return self._getByIds("dataset/",uids)
-    
-    """
-    get a dict with (all) varieties
-    """
-    def getVarieties(self, **kwargs):
-        parameters = {
-            "name": None,
-            "origin": None,
-            "year": None,
-            "collection": None,
-            "dataType": None,
-            "hasParents": None,
-            "hasOffspring": None
-        }
-        request = "variety/"
-        for key, value in kwargs.items():
-            if key in parameters.keys():
-                if isinstance(value,bool):
-                    parameters[key] = "true" if value else "false"
-                elif isinstance(value,list):
-                    parameters[key] = ",".join(value)
-                else:
-                    parameters[key] = value
-            if not parameters[key]==None:
-                request = "{}{}{}={}".format(request,
-                         "&" if "?" in request else "?",key,requests.utils.quote(parameters[key]))
-        print(request)
-        return self._getList(request,"uid")
-    
-    def getVarietyById(self, uid):
-        return self._getById("variety/",uid)
-    
-    def getVarietiesById(self, uids):
-        return self._getByIds("variety/",uids)
-    
-    def getKmerFrequency(self, datasetUid, kmer, mismatches=0):
-        fullRequest = "{}kmer/{}/{}{}".format(self._baseUrl, datasetUid, kmer, 
-                                              "?mismatches={}".format(int(mismatches)) if mismatches>0 else "")
-        response = requests.get(fullRequest)
-        if response.ok:
-            data = response.json()
-            result = data.get("kmers",{})
-            if not kmer in result.keys():
-                result[kmer] = 0
-            return result
-        else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            return None
-    
-    def getKmerFrequencies(self, datasetUid, kmers, mismatches=0):
-        fullRequest = "{}kmer/{}".format(self._baseUrl, datasetUid)        
-        response = requests.post(fullRequest, json={"kmers": list(kmers),"mismatches": mismatches})
-        if response.ok:
-            data = response.json()
-            result = data.get("kmers",{})
-            for kmer in kmers:
-                if not kmer in result.keys():
-                    result[kmer] = 0
-            return result
-        else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            return None
-        
-    def getKmerSequence(self, datasetUid, sequence, mismatches=0):
-        fullRequest = "{}kmer/{}/sequence".format(self._baseUrl, datasetUid)        
-        response = requests.post(fullRequest, json={"sequence": sequence,"mismatches": mismatches})
-        if response.ok:
-            data = response.json()
-            result = data.get("kmers",{})
-            return result
-        else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            return None
-        
-    def getMarkerData(self, datasetUid):
-        fullRequest = "{}marker/{}/data".format(self._baseUrl, datasetUid)
-        response = requests.get(fullRequest)
-        if response.ok:
-            data = response.json()
-            return data
-        else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            return None
-        
-    def getMarkerInfo(self, datasetUid):
-        fullRequest = "{}marker/{}/info".format(self._baseUrl, datasetUid)
-        response = requests.get(fullRequest)
-        if response.ok:
-            data = response.json()
-            return data
-        else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            return None
-        
-    def getMarkerMapping(self, datasetUid):
-        fullRequest = "{}marker/{}/mapping".format(self._baseUrl, datasetUid)
-        response = requests.get(fullRequest)
-        if response.ok:
-            data = response.json()
-            return data
-        else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            return None
-    
+import pandas as pd
     
 class APIGraph(baseGraph.Graph):
     """basic or minimal version of the De Bruijn graph using the dataset 
         defined by uid via API"""
     
-    def __init__(self, url: str, uid: str):
+    def __init__(self, url: str, uid: str, username: str = None, password: str = None):
         """use the API at provided url"""
         #call parent constructor
         super(haplotyping.graph.api.APIGraph, self).__init__()
@@ -224,12 +16,26 @@ class APIGraph(baseGraph.Graph):
         #store call parameters
         self._baseUrl : str = str(url)
         self._uid : str = str(uid)
+        self._varietyUid : str = None
+        self._username : str = username
+        self._password : str = password
         #initialise
         self._variety : str = None
         self._collection : str = None
+        self._datasetFrequencyCkmers = set()
+        self._datasetFrequencies = {}
+        self._datasetVarieties = {}
+        self._datasetUids = set()
         #report to logger
         self._api_logger.debug("using dataset {}".format(self._uid))
         self._api_logger.debug("using API at {}".format(self._baseUrl))
+        #set authentication
+        if self._username and self._password:
+            self._apiAuth = requests.auth.HTTPBasicAuth(self._username, self._password)
+        else:
+            self._apiAuth = None
+        #set headers
+        self._apiHeaders = {"accept": "application/json"}
         #checks
         self._api_initial_checks()
         
@@ -239,7 +45,8 @@ class APIGraph(baseGraph.Graph):
         """
         self._api_logger.debug("get dataset information from API")        
         #get dataset info
-        response = requests.post(self._baseUrl+"dataset/", json = {"uids": [self._uid]})
+        response = requests.post(self._baseUrl+"dataset/", json = {"uids": [self._uid]}, 
+                                 auth=self._apiAuth, headers=self._apiHeaders)
         if response.ok:
             data = response.json()
             if data.get("total",0)==1:
@@ -250,12 +57,18 @@ class APIGraph(baseGraph.Graph):
                     self._api_logger.error("dataset {} has no splitting k-mer database".format(self._uid))   
                 if dataset["variety"]:
                     self._variety = str(dataset["variety"]["name"])
+                    self._varietyUid = str(dataset["variety"]["uid"])
                     self._api_logger.debug("set variety to '{}'".format(self._variety))
                 if dataset["collection"]:
-                    self._collection = str(dataset["collection"])
+                    self._collection = str(dataset["collection"]["name"])
                     self._api_logger.debug("set collection to '{}'".format(self._collection))
+                if self._variety:
+                    self._name = "'{}'".format(self._variety)
+                    if self._collection:
+                        self._name = "{} from '{}' collection".format(self._name,self._collection)
                 #get split info
-                response = requests.get(self._baseUrl+"split/"+self._uid+"/info")
+                response = requests.get(self._baseUrl+"split/"+self._uid+"/info", 
+                                        auth=self._apiAuth, headers=self._apiHeaders)
                 if response.ok:
                     data = response.json()
                     self._k = int(data["k"])
@@ -267,47 +80,72 @@ class APIGraph(baseGraph.Graph):
         else:
             self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
             
-    def getRightNeighbours(self, kmer: str):
-        kmerList = []
-        for b in ["A","C","G","T"]:
-            kmerList.append(kmer[1:]+b)
-        response = requests.post(self._baseUrl+"kmer/"+self._uid, 
-                                 json = {"kmers": sorted(kmerList)})
-        if response.ok:
-            data = response.json()
-            return data
-        else:
-            self._logger.error("request to "+self._baseUrl+" didn't succeed")
-            
-    def findRightConnection(self, kmer: str, maximumDistance: int = 100, minimumFrequency: int = 2):
-        newKmer = kmer
-        for i in range(maximumDistance):
-            rightNeighbours = set()
-            leftSplitters = set()
-            for rb in ["A","C","G","T"]:
-                rightNeighbours.add(newKmer[1:]+rb)
-            if i>0:
-                for lb in ["A","C","G","T"]:
-                    if not lb==newKmer[0]:
-                        leftSplitters.add(lb+newKmer[1:])
-            kmerList = list(rightNeighbours.union(leftSplitters))
-            response = requests.post(self._baseUrl+"kmer/"+self._uid, 
-                                 json = {"kmers": sorted(kmerList)})
+    def getDatasetVarieties(self):
+        return self._datasetVarieties
+    
+    def getDatasetFrequencies(self, datasetUids: list = None):
+        #compute dataset uids
+        if datasetUids==None:
+            datasetUids = set()
+            start = 0
+            number = 1000
+            while True:
+                response = requests.get("{}dataset?hasVariety=true&dataType=kmer&start={}&number={}".format(
+                    self._baseUrl, start, number))
+                if response.ok:
+                    data = response.json()
+                    total = data.get("total",0)
+                    for item in data["list"]:
+                        datasetUids.add(item["uid"])
+                    if start+number>=total:
+                        break
+                    else:
+                        start+=number
+                else:
+                    self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))            
+        candidateKmers = [k[0] for k in self.getCandidates()] 
+        recompute = False
+        if len(set(datasetUids).difference(self._datasetUids))>0:
+            recompute = True
+        elif len(set(candidateKmers).difference(self._datasetFrequencyCkmers))>0:
+            recompute = True
+        if recompute:
+            self._api_logger.debug("recompute frequency for {} k-mers in {} datasets".format(
+                len(candidateKmers),len(datasetUids)))
+            self._datasetFrequencyCkmers = set(candidateKmers)
+            self._datasetFrequencies = {}
+            self._datasetVarieties = {}
+            self._datasetUids = set()
+            #get dataset info
+            fullRequest = "{}dataset/".format(self._baseUrl)
+            response = requests.post(fullRequest, json = {"uids": sorted(list(datasetUids))}, 
+                                     auth=self._apiAuth, headers=self._apiHeaders)
             if response.ok:
                 data = response.json()
-                kmerFound = [k for k in data["kmers"] if data["kmers"][k]>=minimumFrequency]
-                if len(leftSplitters.intersection(kmerFound))>0:
-                    return [newKmer]
-                else:
-                    rightSplitters = list(rightNeighbours.intersection(kmerFound))
-                    if len(rightSplitters)>1:
-                        return sorted(rightSplitters)
-                    elif len(rightSplitters)==0:
-                        return None
-                    else:
-                        newKmer = rightSplitters[0]   
-                        print(kmerFound)
+                result = {}
+                items = data.get("list",[])
+                for item in items:
+                    dsUid = item["uid"]
+                    if "variety" in item.keys():
+                        self._datasetVarieties[dsUid] = item["variety"]
+                    
             else:
-                self._logger.error("request to {} didn't succeed".format(self._baseUrl))
-        
-      
+                self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+            #get frequencies
+            for dsUid in datasetUids:                
+                fullRequest = "{}kmer/{}".format(self._baseUrl, dsUid)        
+                response = requests.post(fullRequest, json={"kmers": sorted(candidateKmers),"mismatches": 0}, 
+                                             auth=self._apiAuth, headers=self._apiHeaders)
+                if response.ok:
+                    data = response.json()
+                    self._datasetFrequencies[dsUid] = data.get("kmers",{})
+                    for k in candidateKmers:
+                        if not k in self._datasetFrequencies[dsUid].keys():
+                            self._datasetFrequencies[dsUid][k] = 0
+                else:
+                    self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+            #register datasets
+            self._datasetUids.update(datasetUids)
+        #return result
+        return pd.DataFrame(self._datasetFrequencies).transpose()
+                
