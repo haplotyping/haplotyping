@@ -1,13 +1,14 @@
 import logging, h5py, tables, gzip, time
-import os, sys, math, signal
+import os, sys, math, signal, psutil
 import re, haplotyping
 import numpy as np
 import haplotyping.index.storage
 import haplotyping.index.splits
 import multiprocessing as mp
+from threading import Event
 from queue import Empty
 
-class Reads:
+class Direct:
     
     """
     Internal use, parse read files and store results in database
@@ -24,8 +25,8 @@ class Reads:
         if len(unpairedReadFiles)>0:
             self._logger.info("parse "+str(len(unpairedReadFiles))+" unpaired readfile(s)")
         if len(pairedReadFiles)>0:
-            self._logger.info("parse "+str(2*len(pairedReadFiles))+" paired readfile(s)")
-        
+            self._logger.info("parse "+str(2*len(pairedReadFiles))+" paired readfile(s)")                
+                    
         self.debug = debug
         self.keepTemporaryFiles = keepTemporaryFiles
         self.filenameBase = filenameBase
@@ -34,12 +35,9 @@ class Reads:
         self.k = h5file["/config"].attrs["k"]
         self.automatonKmerSize = h5file["/config"].attrs["automatonKmerSize"]
         self.maximumFrequency = h5file["/config"].attrs["maximumFrequency"]
+        self.minimumFrequency = h5file["/config"].attrs["minimumFrequency"]
+        self.maximumMemory = h5file["/config"].attrs["maximumMemory"]
         self.maximumProcesses = h5file["/config"].attrs["maximumProcesses"]
-        self.maximumProcessesAutomaton = h5file["/config"].attrs["maximumProcessesAutomaton"]
-        self.maximumProcessesIndex = h5file["/config"].attrs["maximumProcessesIndex"]
-        self.maximumProcessesMatches = h5file["/config"].attrs["maximumProcessesMatches"]
-        self.maximumProcessesConnections = h5file["/config"].attrs["maximumProcessesConnections"]
-        self.maximumProcessesMerges = h5file["/config"].attrs["maximumProcessesMerges"]
         self.numberOfKmers = h5file["/split/ckmer"].shape[0]
         self.totalNumberOfKmers = h5file["/config"].attrs["totalNumberOfKmers"]
         self.h5file = h5file
@@ -58,48 +56,31 @@ class Reads:
         #estimated size
         self.estimatedMaximumReadLength = 0
         
-        #get config
-        self.minimumFrequency = h5file["/config"].attrs["minimumFrequency"]
-        
         #check existence group
         if not "/relations" in h5file:
             h5file.create_group("/relations")
-        if not "/connections" in h5file:
-            h5file.create_group("/connections")    
         
-        #create relations and connections datasets
+        #create relations datasets
         if "/relations/direct" in h5file:
             self._logger.warning("direct relation dataset already exists in hdf5 storage")
         elif "/relations/cycle" in h5file:
             self._logger.warning("cycle relation dataset already exists in hdf5 storage")
         elif "/relations/reversal" in h5file:
             self._logger.warning("reversal relation dataset already exists in hdf5 storage")
-        elif "/connections/list" in h5file:
-            self._logger.warning("connections list dataset already exists in hdf5 storage")
         else:
-            #estimate number of splitting k-mers in the read
-            self.estimatedMaximumReadLength = self._quickEstimateReadLength()
             #theoretical maximum is 2 * #letters, however read-errors will introduce additional connections
             #partly they will be pre-filtered, but a buffer seems sensible (?)
             self.arrayNumberDirect = 2*len(haplotyping.index.Database.letters)
             h5file["/config/"].attrs["arrayNumberDirect"] = self.arrayNumberDirect
-            #estimate number of connections as two times the estimated number of splitting k-mers in a read
-            #this estimation is the splitting k-mer fraction times the estimated number of k-mers in a read
-            #the factor two is used for paired reads that did partly overlap
-            #keep this number within reason, therefore in the interval between arrayNumberDirect and 
-            #the number of letters to the power 4 (256)
-            self.arrayNumberConnection = math.ceil(2*(self.numberOfKmers/self.totalNumberOfKmers)*
-                                          (1+self.estimatedMaximumReadLength-self.k))
-            self.arrayNumberConnection = max(self.arrayNumberDirect,self.arrayNumberConnection)
-            self.arrayNumberConnection = min(self.arrayNumberConnection,len(haplotyping.index.Database.letters)**4)
-            h5file["/config/"].attrs["arrayNumberConnection"] = self.arrayNumberConnection
+                                    
             #process
             try:                                                
                 #create automaton and index
-                automatonFile = filenameBase+".automaton.splits"
-                indexFile = filenameBase+".index.splits"
-                haplotyping.index.splits.Splits.createAutomatonWithIndex(
-                    self.h5file, indexFile, automatonFile, self.automatonKmerSize)
+                automatonKmerSize = (math.ceil((self.k+1)/2) 
+                                     if self.automatonKmerSize==0 else min(self.k,self.automatonKmerSize))  
+                self.automatonKmerSize = automatonKmerSize
+                (automatonMemory,indexFile, automatonFile) = haplotyping.index.splits.Splits.createAutomatonWithIndex(
+                    self.h5file, filenameBase, automatonKmerSize)
                 #process
                 pytablesFile = filenameBase+"_tmp_direct_connections_merge.h5"
                 if os.path.exists(pytablesFile):
@@ -107,7 +88,7 @@ class Reads:
                 self._logger.debug("store temporary in "+pytablesFile)    
                 #create datasets
                 with tables.open_file(pytablesFile, mode="w", title="Temporary storage") as self.pytablesStorage:
-                    self._processReadFiles(indexFile, automatonFile)
+                    self._processReadFiles(indexFile, automatonFile, automatonMemory)
                     self._store()
                     self.h5file.flush()     
             except Exception as e:
@@ -116,13 +97,19 @@ class Reads:
                 try:
                     if not self.keepTemporaryFiles:
                         os.remove(pytablesFile)
-                        os.remove(automatonFile)
-                        os.remove(indexFile)
                 except:
                     self._logger.error("problem removing files")    
 
-    def _processReadFiles(self, indexFile, automatonFile):
+    def _processReadFiles(self, indexFile, automatonFile, automatonMemory):
         
+        def collect_queue(queue_entry):
+            time.sleep(0.1)
+            while True:
+                try:
+                    item = queue_entry.get(block=True, timeout=1)
+                except Empty:
+                    break
+            
         def close_queue(queue_entry):
             time.sleep(0.1)
             queue_entry.close()
@@ -144,21 +131,145 @@ class Reads:
             #now also close this queue
             close_queue(queue_entry)
             return entries
-            
+        
+        def processMemory():
+            process = psutil.Process(os.getpid())
+            memory = process.memory_info().rss
+            for child in process.children(recursive=True):
+                memory += child.memory_info().rss
+            return memory
+                
+        def estimateIndexMemory(nWorkersAutomaton,workerAutomatonMemory,nWorkersMatches,
+                           workerMatchesMemory,nWorkersIndex,workerIndexMemory):
+            return ((nWorkersAutomaton*workerAutomatonMemory) + 
+                    (nWorkersMatches*workerMatchesMemory) + 
+                    (nWorkersIndex*workerIndexMemory))
+                
         #get method
         self._logger.debug("using method '{}' for multiprocessing".format(mp.get_start_method()))
+        process = psutil.Process(os.getpid())
+        self._logger.debug("initially used memory {} MB".format(math.ceil(processMemory()/1048576)))
         
-        #create shared memory k-mer index (to confirm results from automaton)
+        self._logger.debug("memory info: {}".format(psutil.Process(os.getpid()).memory_info()))
+        
+        #compute size shared memory k-mer index (to confirm results from automaton)
         shm_index_size = os.path.getsize(indexFile)
-        shm_index = mp.shared_memory.SharedMemory(create=True, size=shm_index_size)
-        with open(indexFile, "r") as f:
-            shm_index.buf[0:shm_index_size] = bytes(f.read(),"utf-8")
-        self._logger.debug("created shared memory {} MB k-mer index".format(round(shm_index_size/1048576)))
-            
-        #create shared memory k-mer type, number and bases
+        self._logger.debug("size shared memory {} MB k-mer index".format(math.ceil(shm_index_size/1048576)))
+                    
+        #compute size shared memory k-mer type, number and bases
         shm_kmer_link = np.dtype(haplotyping.index.Database.getUint(self.numberOfKmers)).type
         shm_kmer_number = np.dtype(haplotyping.index.Database.getUint(self.maximumFrequency)).type
         shm_kmer_size = self.numberOfKmers*(1+shm_kmer_number(0).nbytes+(2*shm_kmer_link(0).nbytes))
+        self._logger.debug("size shared memory {} MB k-mer properties".format(math.ceil(shm_kmer_size/1048576)))
+        
+        #shutdown
+        shutdown_event = mp.Event()
+        
+        qsize = 10000
+        queue_start = mp.Queue(qsize)
+        queue_automaton = mp.Queue(qsize)
+        queue_index = mp.Queue(qsize)
+        queue_matches = mp.Queue(qsize)
+        queue_finished = mp.Queue()
+        queue_storageDirect = mp.Queue()
+        
+        #estimate worker automaton memory
+        workerAutomatonMemory = automatonMemory
+        #estimate worker matches memory
+        workerMatchesDtypeEntry = haplotyping.index.storage.Storage.worker_matches_dtype(
+            self.numberOfKmers,self.maximumFrequency,self.estimatedMaximumReadLength,self.arrayNumberDirect)
+        workerMatchesMemory = self.numberOfKmers * np.dtype(workerMatchesDtypeEntry).itemsize
+        #estimate worker index memory (shared)
+        workerIndexMemory = 0
+        workerSharedMemory = (shm_kmer_size+shm_index_size)
+        
+        self._logger.debug("estimated shared memory: {} MB".format(math.ceil(workerSharedMemory/1048576)))
+        self._logger.debug("estimated memory automaton worker: {} MB".format(math.ceil(workerAutomatonMemory/1048576)))
+        self._logger.debug("estimated memory index worker: {} MB".format(math.ceil(workerIndexMemory/1048576)))
+        self._logger.debug("estimated memory matches worker: {} MB".format(math.ceil(workerMatchesMemory/1048576)))
+        
+        #worker requirements
+        nWorkers = max(3,mp.cpu_count()-1) if self.maximumProcesses==0 else self.maximumProcesses - 1
+        
+        #memory requirements
+        if self.maximumMemory>0:
+            maximumMemory = min(psutil.virtual_memory().available + process.memory_info().rss, self.maximumMemory)
+        else:
+            maximumMemory = round(0.95*psutil.virtual_memory().available) + process.memory_info().rss    
+            
+            
+        #compute maximum number of automaton workers (high memory usage)
+        #assume that ideal ratio workers is 1:2:4 (to be verified/computed?)
+        nWorkersAutomaton = max(1,min(math.floor(nWorkers/3),
+                                      math.floor((maximumMemory-workerSharedMemory)/
+                                             estimateIndexMemory(1,workerAutomatonMemory,
+                                                                 2,workerMatchesMemory,
+                                                                 4,workerIndexMemory))))
+        #auto distribute other workers within limits
+        nWorkersMatches = math.floor((nWorkers - nWorkersAutomaton)/2)
+        nWorkersIndex = nWorkers - nWorkersAutomaton - nWorkersMatches        
+        #increment if processes available
+        nWorkersLeft = nWorkers - nWorkersAutomaton - nWorkersMatches - nWorkersIndex
+        while(nWorkersLeft>0):
+            if(nWorkersLeft>0):
+                nWorkersMatches+=1
+                nWorkersLeft-=1
+            if(nWorkersLeft>0):
+                nWorkersIndex+=1
+                nWorkersLeft-=1                                         
+        #reduce to fit memory requirements   
+        while (estimatedMemory := estimateIndexMemory(nWorkersAutomaton,workerAutomatonMemory,
+                             nWorkersMatches,workerMatchesMemory,
+                             nWorkersIndex,workerIndexMemory)) + workerSharedMemory > maximumMemory:
+            if (nWorkersAutomaton==1) and (nWorkersMatches==1) and (nWorkersIndex==1):
+                raise Exception("not enough memory available, required: {} MB".format(round(estimatedMemory/1048576)))
+            elif (nWorkersAutomaton==1) and (nWorkersMatches==1):
+                nWorkersIndex -= 1
+            elif (nWorkersMatches>nWorkersAutomaton):
+                nWorkersMatches -= 1
+                nWorkersIndex = nWorkersIndex+1
+            else:
+                nWorkersAutomaton-=1
+                nWorkersIndex = nWorkersIndex+1
+        #don't oversize the index workers, maximum two times matches workers
+        nWorkersIndex = min(nWorkersIndex,2*nWorkersMatches)
+        #final calculation memory estimation
+        estimatedMemory = estimateIndexMemory(nWorkersAutomaton,workerAutomatonMemory,
+                             nWorkersMatches,workerMatchesMemory,nWorkersIndex,workerIndexMemory) + workerSharedMemory
+        
+        self._logger.debug("start {} processes to parse reads with reduced automaton".format(nWorkersAutomaton))
+        self._logger.debug("start {} processes to check index".format(nWorkersIndex))
+        self._logger.debug("start {} processes to process matches".format(nWorkersMatches))
+        self._logger.debug("estimated total memory usage: {} MB".format(math.ceil(estimatedMemory/1048576)))
+                
+        original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        pool_automaton = mp.Pool(nWorkersAutomaton, haplotyping.index.storage.Storage.worker_automaton, 
+                             (shutdown_event,queue_start,queue_automaton,queue_index,queue_finished,
+                              self.k,self.automatonKmerSize,automatonFile,))
+        #first start automatonss, one at a time, because of memory peak
+        startedAutomaton = 0
+        queue_start.put("automaton")
+        while not (startedAutomaton==nWorkersAutomaton):
+            try:
+                item = queue_finished.get(block=True, timeout=1)
+                if item=="automaton:started":
+                    startedAutomaton+=1
+                    self._logger.debug("{} of {} automatons started".format(startedAutomaton,nWorkersAutomaton))
+                    if startedAutomaton<nWorkersAutomaton:
+                        queue_start.put("automaton")
+                else:
+                    self._logger.error("unexpected start value in finished queue: {}".format(item))
+            except:
+                pass
+            time.sleep(1)
+            
+        #create shared memory k-mer index (to confirm results from automaton)
+        shm_index = mp.shared_memory.SharedMemory(create=True, size=shm_index_size)
+        with open(indexFile, "r") as f:
+            shm_index.buf[0:shm_index_size] = bytes(f.read(),"utf-8")
+        self._logger.debug("created shared memory {} MB k-mer index".format(math.ceil(shm_index_size/1048576)))
+        
+        #create shared memory k-mer type, number and bases
         shm_kmer = mp.shared_memory.SharedMemory(create=True, size=shm_kmer_size)
         kmer_properties = np.ndarray((self.numberOfKmers,), dtype=[("type","S1"),("number",shm_kmer_number),
                            ("left",shm_kmer_link),("right",shm_kmer_link)], buffer=shm_kmer.buf)
@@ -166,62 +277,20 @@ class Reads:
         stepSizeStorage=1000000
         for i in range(0,self.numberOfKmers,stepSizeStorage):
             ckmers = self.h5file["/split/ckmer"][i:min(self.numberOfKmers,i+stepSizeStorage)]
-            for row in ckmers:
-                kmer_properties[ckmerLink] = (row[1],row[2],row[3][0],row[3][1],)
-                ckmerLink+=1
-        self._logger.debug("created shared memory {} MB k-mer properties".format(round(shm_kmer_size/1048576)))
+            stepData = [(row[1],row[2],row[3][0],row[3][1],) for row in ckmers]
+            kmer_properties[ckmerLink:ckmerLink+len(stepData)] = stepData
+            ckmerLink+=len(stepData)
+            del stepData
+        self._logger.debug("created shared memory {} MB k-mer properties".format(math.ceil(shm_kmer_size/1048576)))
 
-        shutdown_event = mp.Event()
-        
-        qsize = 10000
-        queue_automaton = mp.Queue(qsize)
-        queue_index = mp.Queue(qsize)
-        queue_matches = mp.Queue(qsize)
-        queue_connections = mp.Queue(qsize)
-        queue_finished = mp.Queue()
-        queue_storageDirect = mp.Queue()
-        queue_storageConnections = mp.Queue()
-        
-        #auto distribute within limits
-        nWorkers = self.maximumProcesses - 1
-        nWorkersAutomaton = min(self.maximumProcessesAutomaton,math.floor(nWorkers/4))
-        nWorkersMatches = min(self.maximumProcessesMatches,math.floor((nWorkers - nWorkersAutomaton)/3))
-        nWorkersIndex = min(self.maximumProcessesIndex,math.floor((nWorkers - nWorkersAutomaton - nWorkersMatches)/2))
-        nWorkersConnections = min(self.maximumProcessesConnections,
-                                  (nWorkers - nWorkersAutomaton - nWorkersMatches - nWorkersIndex))
-        
-        nWorkersLeft = nWorkers - nWorkersAutomaton - nWorkersMatches - nWorkersIndex - nWorkersConnections
-        while(nWorkersLeft>0):
-            if(nWorkersLeft>0 and nWorkersMatches<self.maximumProcessesMatches):
-                nWorkersMatches+=1
-            if(nWorkersLeft>0 and nWorkersIndex<self.maximumProcessesIndex):
-                nWorkersIndex+=1
-            newWorkersLeft = nWorkers - nWorkersAutomaton - nWorkersMatches - nWorkersIndex - nWorkersConnections
-            if nWorkersLeft<newWorkersLeft:
-                nWorkersLeft=newWorkersLeft
-            else:
-                break
-
-        self._logger.debug("start {} processes to parse reads with reduced automaton".format(nWorkersAutomaton))
-        self._logger.debug("start {} processes to check matches with index".format(nWorkersIndex))
-        self._logger.debug("start {} processes to process matches".format(nWorkersMatches))
-        self._logger.debug("start {} processes to process connections".format(nWorkersConnections))
-        
-        original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
-        pool_automaton = mp.Pool(nWorkersAutomaton, haplotyping.index.storage.Storage.worker_automaton, 
-                             (shutdown_event,queue_automaton,queue_index,queue_finished,
-                              self.k,self.automatonKmerSize,automatonFile,))
+        #now start other workers
         pool_index = mp.Pool(nWorkersIndex, haplotyping.index.storage.Storage.worker_index, 
                              (shutdown_event,queue_index,queue_matches,queue_finished,
                               self.k,shm_index.name))
         pool_matches = mp.Pool(nWorkersMatches, haplotyping.index.storage.Storage.worker_matches, 
-                               (shutdown_event,queue_matches,queue_connections,queue_storageDirect,queue_finished,
+                               (shutdown_event,queue_matches,queue_storageDirect,queue_finished,
                                 self.filenameBase,self.numberOfKmers,self.maximumFrequency,
                                 self.estimatedMaximumReadLength,self.arrayNumberDirect))
-        pool_connections = mp.Pool(nWorkersConnections, haplotyping.index.storage.Storage.worker_connections, 
-                               (shutdown_event,queue_connections,queue_storageConnections,queue_finished,
-                                self.filenameBase,self.numberOfKmers,
-                                self.arrayNumberConnection,self.maximumFrequency,shm_kmer.name))
         signal.signal(signal.SIGINT, original_sigint_handler)
 
         try:
@@ -233,6 +302,7 @@ class Reads:
                 ds = self.h5file["/config/"].create_dataset("unpairedReads",(len(self.unpairedReadFiles),),
                                                   dtype=np.dtype(dtypeList),chunks=None)
                 for i in range(len(self.unpairedReadFiles)):
+                    self._logger.debug("process {}".format(os.path.basename(self.unpairedReadFiles[i])))
                     (readLength,readNumber,processTime) = self._processReadFile(self.unpairedReadFiles[i], 
                                                                    queue_automaton, queue_index, queue_matches)
                     ds[i] = (self.unpairedReadFiles[i],
@@ -247,6 +317,8 @@ class Reads:
                 ds = self.h5file["/config/"].create_dataset("pairedReads",(len(self.pairedReadFiles),),
                                                   dtype=np.dtype(dtypeList),chunks=None)
                 for i in range(len(self.pairedReadFiles)):
+                    self._logger.debug("process {} and {}".format(os.path.basename(self.pairedReadFiles[i][0]),
+                                                           os.path.basename(self.pairedReadFiles[i][1])))
                     (readLength,readNumber,processTime) = self._processPairedReadFiles(self.pairedReadFiles[i][0],
                                                                      self.pairedReadFiles[i][1], 
                                                                      queue_automaton, queue_index, queue_matches)
@@ -256,8 +328,7 @@ class Reads:
                 self._logger.error("pairedReads already (partly) processed")                    
             
             #now wait until queues are empty
-            while not (queue_automaton.empty() and queue_index.empty() and queue_matches.empty() 
-                       and queue_connections.empty()):
+            while not (queue_automaton.empty() and queue_index.empty() and queue_matches.empty()):
                 time.sleep(1)
                 
             #then trigger stopping by sending enough Nones
@@ -267,16 +338,13 @@ class Reads:
                 queue_index.put(None)
             for i in range(pool_matches._processes):
                 queue_matches.put(None)
-            for i in range(pool_connections._processes):
-                queue_connections.put(None)
                 
             #now wait until everyone is finished
             finishedAutomaton=0
             finishedIndex=0
             finishedMatches=0
-            finishedConnections=0
             while not (finishedAutomaton==nWorkersAutomaton and finishedIndex==nWorkersIndex
-                       and finishedMatches==nWorkersMatches and finishedConnections==nWorkersConnections):
+                       and finishedMatches==nWorkersMatches):
                 try:
                     item = queue_finished.get(block=True, timeout=1)
                     if item=="automaton":
@@ -285,8 +353,6 @@ class Reads:
                         finishedIndex+=1
                     elif item=="matches":
                         finishedMatches+=1
-                    elif item=="connections":
-                        finishedConnections+=1
                     else:
                         self._logger.error("unexpected value in finished queue: {}".format(item))
                 except:
@@ -294,25 +360,26 @@ class Reads:
                 time.sleep(1)
                 
         except KeyboardInterrupt:
-            original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
             self._logger.debug("caught KeyboardInterrupt")
+            #collect from queue
+            collect_queue(queue_automaton)
+            collect_queue(queue_index)
+            collect_queue(queue_matches)
             #shutdown directly
             shutdown_event.set()
             #release memory
             shm_index.close()
             shm_index.unlink()
-            signal.signal(signal.SIGINT, original_sigint_handler)
+            os.exit()
         finally:
             #terminate pools
             pool_automaton.terminate()
             pool_index.terminate()
             pool_matches.terminate()
-            pool_connections.terminate()
             #close queus workers
             close_queue(queue_automaton)
             close_queue(queue_index)
             close_queue(queue_matches)
-            close_queue(queue_connections)
             #shutdown
             shutdown_event.set()
             #join pools
@@ -324,16 +391,15 @@ class Reads:
             shm_index.unlink()
             #collect created files 
             storageDirectFiles = collect_and_close_queue(queue_storageDirect)
-            storageConnectionsFiles = collect_and_close_queue(queue_storageConnections)
-
+            
         #now all files are created, so merging can start
         self._logger.debug("merge {} files with direct connections".format(len(storageDirectFiles)))
-        self._logger.debug("merge {} files with additional connections".format(len(storageConnectionsFiles)))
             
         #reset shutdown event
         shutdown_event.clear()
         
-        nWorkersMerges = min(self.maximumProcessesMerges,self.maximumProcesses - 1)
+        #assume memory is no problem
+        nWorkersMerges = max(1,mp.cpu_count()-1) if self.maximumProcesses==0 else self.maximumProcesses - 1
         self._logger.debug("start {} processes to merge stored data".format(nWorkersMerges))
         
         queue_ranges = mp.Queue(nWorkersMerges)
@@ -341,10 +407,10 @@ class Reads:
         original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
         pool_merges = mp.Pool(nWorkersMerges, haplotyping.index.storage.Storage.worker_merges, 
                                (shutdown_event,queue_ranges,queue_merges,
-                                storageDirectFiles,storageConnectionsFiles,
+                                storageDirectFiles,
                                 self.filenameBase,self.numberOfKmers,
                                 self.maximumFrequency,self.minimumFrequency,
-                                self.arrayNumberConnection,shm_kmer.name))
+                                shm_kmer.name))
         signal.signal(signal.SIGINT, original_sigint_handler)
         
         try:
@@ -365,8 +431,6 @@ class Reads:
             if not self.keepTemporaryFiles:
                 for item in storageDirectFiles:
                     os.remove(item)
-                for item in storageConnectionsFiles:
-                    os.remove(item)
                 
             #collect created merges
             mergeFiles = []
@@ -386,8 +450,7 @@ class Reads:
             
             #combine
             haplotyping.index.storage.Storage.combine_merges(
-                mergeFiles, self.pytablesStorage, self.numberOfKmers,self.maximumFrequency, 
-                self.arrayNumberConnection)
+                mergeFiles, self.pytablesStorage, self.numberOfKmers,self.maximumFrequency)
             
             #clean
             if not self.keepTemporaryFiles:
@@ -395,13 +458,12 @@ class Reads:
                     os.remove(item)
                 
         except KeyboardInterrupt:
-            original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
             self._logger.debug("caught KeyboardInterrupt")
             shutdown_event.set()
             #release memory
             shm_kmer.close()
             shm_kmer.unlink()
-            signal.signal(signal.SIGINT, original_sigint_handler)
+            os.exit()
         finally:
             #terminate pool
             pool_merges.terminate()
@@ -476,22 +538,22 @@ class Reads:
                     readLengthMaximum=(max(len(sequence0),len(sequence1)) if readLengthMaximum==None 
                                        else max(readLengthMaximum,len(sequence0),len(sequence1)))
                     readNumber+=2  
-                    if sequence1[0:31] in sequence0:
+                    if sequence1[0:self.k] in sequence0:
                         pos = sequence0.find(sequence1[0:self.k])
                         rpos = sequence0.rfind(sequence1[0:self.k])
                         if pos==rpos:
                             match = sequence0[pos:]
                             if sequence1[0:len(match)]==match:
                                 #process as single read because of minimal glue match of size k
-                                queue_automaton.put((sequence0[0:pos]+sequence1,))
+                                queue_automaton.put(sequence0[0:pos]+sequence1) 
                             else:
-                                queue_automaton.put((sequence0,sequence1,))
+                                queue_automaton.put((sequence0,sequence1,))                                
                         else:
-                            queue_automaton.put((sequence0,sequence1,))
+                            queue_automaton.put((sequence0,sequence1,))                            
                     else:
-                        queue_automaton.put((sequence0,sequence1,))
+                        queue_automaton.put((sequence0,sequence1,))                        
                     if readNumber%1000000==0:
-                        self._logger.debug("- processed {} paired reads".format(readNumber)) 
+                        self._logger.debug("- processed {} paired reads".format(readNumber))                     
                 else:
                     break
             endTime = time.time()

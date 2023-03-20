@@ -4,7 +4,7 @@ import multiprocessing as mp
 
 import haplotyping
 import haplotyping.index.splits
-import haplotyping.index.reads
+import haplotyping.index.direct
 
 class Database:
     
@@ -39,33 +39,14 @@ class Database:
         Adjusting this number will change the amount of read error based results but 
         can also introduce gaps; With higher read depth or lower error rate, this number can possibly be increased
         
-    maximumProcesses: int, optional, default is 5
-        The maximum number of processes including main process, should be at least 5
+    maximumMemory: int, default is 0 (for no maximum)
+        Maximum memory size, reduces the number of processes if too much memory is needed
         
-    maximumProcessesAutomaton: int, optional, default is 1
-        The maximum number of processes used for direct parsing of reads using the automaton
-        Because shared memory can't be used, multiple copies of the automaton have to be in memory
-        Be carefull if available memory is limited
-    
-    maximumProcessesIndex: int, optional
-        The maximum number of processes used for creating a (partial) index from the matches
-        Making use of shared memory to load index
+    maximumProcesses: int, default is 0 (for no maximum)
+        The maximum number of processes including main process, should be at least 4
         
-    maximumProcessesMatches: int, optional
-        The maximum number of processes used for creating a (partial) index from the matches
-        Collecting and organising data is done mostly in memory
-        Be carefull if available memory is limited
-    
-    maximumProcessesConnections: int, optional
-        The maximum number of processes used for creating a (partial) index from the matches
-        Collecting and organising data is done mostly in memory
-        Be carefull if available memory is limited
-    
-    maximumProcessesMerges: int, optional
-        The maximum number of processes used for merging operations
-    
-    automatonKmerSize: int optional, default is None
-        The used reduced k-mer size, if undefined automatically set to just above half the k-mer size
+    automatonKmerSize: int optional, default is 0 (for automatically)
+        The used reduced k-mer size, maximum is the k-mer size
         
     onlySplittingKmers: bool, optional, default is False
         Only the first step will be executed, using a single process.
@@ -87,13 +68,9 @@ class Database:
                  sortedIndexFile: str,
                  readFiles=[], pairedReadFiles=[],
                  minimumFrequency: int = 2,
-                 maximumProcesses: int = 5,
-                 maximumProcessesAutomaton: int = 1,
-                 maximumProcessesIndex: int = None,
-                 maximumProcessesMatches: int = None,
-                 maximumProcessesConnections: int = None,
-                 maximumProcessesMerges: int = None,
-                 automatonKmerSize: int = None,
+                 maximumMemory: int = 0,
+                 maximumProcesses: int = 0,
+                 automatonKmerSize: int = 0,
                  onlySplittingKmers: bool = False,
                  debug: bool = False,
                  keepTemporaryFiles: bool=False):  
@@ -119,32 +96,20 @@ class Database:
         
         #store variables
         self.k=k
-        self.automatonKmerSize=math.ceil((self.k+1)/2) if automatonKmerSize==None else math.min(self.k,automatonKmerSize)
         self.name=name
-        self.minimumFrequency = minimumFrequency
         self.debug = debug
+        self.automatonKmerSize = automatonKmerSize
+        self.minimumFrequency = minimumFrequency
         self.keepTemporaryFiles = keepTemporaryFiles
         self.filenameBase = filenameBase
+        self.maximumMemory = maximumMemory
         self.maximumProcesses = maximumProcesses
-        self.maximumProcessesAutomaton = (maximumProcesses if maximumProcessesAutomaton==None 
-                                          else maximumProcessesAutomaton)
-        self.maximumProcessesIndex = (maximumProcesses if maximumProcessesIndex==None 
-                                      else maximumProcessesIndex)
-        self.maximumProcessesMatches = (maximumProcesses if maximumProcessesMatches==None 
-                                        else maximumProcessesMatches)
-        self.maximumProcessesConnections = (maximumProcesses if maximumProcessesConnections==None 
-                                            else maximumProcessesConnections)
-        self.maximumProcessesMerges = (maximumProcesses if maximumProcessesMerges==None 
-                                       else maximumProcessesMerges)
-        
+                
         #check boundaries number of processes
-        assert self.maximumProcesses>=5
-        assert self.maximumProcessesAutomaton>=1
-        assert self.maximumProcessesMatches>=1
-        assert self.maximumProcessesIndex>=1
-        assert self.maximumProcessesConnections>=1
-        assert self.maximumProcessesMerges>=1
-        
+        assert self.automatonKmerSize>=0 and self.automatonKmerSize<=self.k
+        assert self.maximumMemory>=0
+        assert self.maximumProcesses>=0
+                
         if (not onlySplittingKmers) and (len(readFiles)==0) and (len(pairedReadFiles)==0):
             self._logger.error("no read files provided")
         else:                
@@ -161,6 +126,7 @@ class Database:
                     shutil.copyfile(filename_splits, filename)
 
             #use tables for temporary file, and h5py for final
+            #don't use libver="latest" before checking other tools!
             with h5py.File(filename,"a") as h5file:
 
                 #set or check config
@@ -169,26 +135,20 @@ class Database:
                     h5file["/config"].attrs["k"] = self.k
                     h5file["/config"].attrs["version"] = self.version
                     h5file["/config"].attrs["automatonKmerSize"] = self.automatonKmerSize
-                    h5file["/config"].attrs["name"] = self.name
-                    h5file["/config"].attrs["debug"] = self.debug
                     h5file["/config"].attrs["minimumFrequency"] = self.minimumFrequency
                     h5file.flush()
                 else:
                     assert h5file["/config"].attrs["k"] == self.k
                     assert h5file["/config"].attrs["version"] == self.version
                     assert h5file["/config"].attrs["automatonKmerSize"] == self.automatonKmerSize
-                    assert h5file["/config"].attrs["name"] == self.name
-                    assert h5file["/config"].attrs["debug"] == self.debug
                     assert h5file["/config"].attrs["minimumFrequency"] == self.minimumFrequency
                     
                 #these settings are allowed to change in secondary runs
+                h5file["/config"].attrs["name"] = self.name
+                h5file["/config"].attrs["debug"] = self.debug
+                h5file["/config"].attrs["maximumMemory"] = self.maximumMemory
                 h5file["/config"].attrs["maximumProcesses"] = self.maximumProcesses
-                h5file["/config"].attrs["maximumProcessesAutomaton"] = self.maximumProcessesAutomaton
-                h5file["/config"].attrs["maximumProcessesIndex"] = self.maximumProcessesIndex
-                h5file["/config"].attrs["maximumProcessesMatches"] = self.maximumProcessesMatches
-                h5file["/config"].attrs["maximumProcessesConnections"] = self.maximumProcessesConnections
-                h5file["/config"].attrs["maximumProcessesMerges"] = self.maximumProcessesMerges
-
+                
                 #get splitting k-mers from index   
                 if not ("/split" in h5file and "/histogram" in h5file):
                     if not os.path.exists(sortedIndexFile):
@@ -208,7 +168,7 @@ class Database:
                 if (not onlySplittingKmers) and ("/split" in h5file) and ("/histogram" in h5file):
                     if not ("/relations" in h5file and "/connections" in h5file):
                         self._logger.debug("parse read files and store distances in database")
-                        haplotyping.index.reads.Reads(readFiles,pairedReadFiles, h5file, 
+                        haplotyping.index.direct.Direct(readFiles,pairedReadFiles, h5file, 
                                                       self.filenameBase, self.debug, self.keepTemporaryFiles)
                         h5file.flush()
                         #backup

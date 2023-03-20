@@ -1,7 +1,8 @@
 import haplotyping.index.database
 from multiprocessing import shared_memory, current_process
 from queue import Empty
-import os, re, pickle, tables, statistics, logging
+import ahocorasick
+import os, re, pickle, tables, statistics, logging, time, psutil
 import numpy as np, math
 from contextlib import ExitStack
 
@@ -11,9 +12,8 @@ class Storage:
     Internal use, storage and processing
     """
     
-    def create_merge_storage(pytablesStorage, numberOfKmers, maximumFrequency, maximumConnectionLength,
-                             nCycle=None, nReversal=None, nDirect=None, 
-                             nConnections=None, nPaired=None):
+    def create_merge_storage(pytablesStorage, numberOfKmers, maximumFrequency,
+                             nCycle=None, nReversal=None, nDirect=None):
         pytablesStorage.create_table(pytablesStorage.root, 
             "cycle",{
             "ckmerLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
@@ -46,47 +46,23 @@ class Storage:
             "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,2),
             "toDirection": tables.StringCol(itemsize=1,pos=3),
         }, "Incorrect direct relations", expectedrows=nDirect)
-        pytablesStorage.create_table(pytablesStorage.root, 
-            "connections",{
-            "ckmerLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
-            "dataLink": haplotyping.index.Database.getTablesUint(numberOfKmers,1),
-            "length": haplotyping.index.Database.getTablesUint(maximumConnectionLength,2),
-            "number": haplotyping.index.Database.getTablesUint(maximumFrequency,3),
-            "direct": tables.UInt8Col(pos=4),
-        }, "Indirect relations", expectedrows=nConnections)
-        pytablesStorage.create_earray(pytablesStorage.root, 
-            "data",haplotyping.index.Database.getTablesUintAtom(numberOfKmers),(0,), 
-            "Data", expectedrows=nConnections)
-        pytablesStorage.create_table(pytablesStorage.root, 
-            "paired",{
-            "fromLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
-            "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,1),
-            "number": haplotyping.index.Database.getTablesUint(maximumFrequency,2),
-        }, "Paired relations", expectedrows=nPaired)
-        pytablesStorage.create_table(pytablesStorage.root, 
-            "deletePaired",{
-            "fromLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
-            "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,1),
-        }, "Incorrect paired relations", expectedrows=nPaired)
         
-    def worker_automaton(shutdown_event,queue_automaton,queue_index,queue_finished,k,automatonKmerSize,automatonFile):
+    def worker_automaton(shutdown_event,queue_start,queue_automaton,queue_index,
+                         queue_finished,k,automatonKmerSize,automatonFile):
         
-        logger = logging.getLogger(__name__)
-        
+        logger = logging.getLogger("{}.worker.automaton".format(__name__))
+                
         def compute_matches(sequence,automatonSplits):
             rsequence = haplotyping.General.reverse_complement(sequence)
-            boundary = (len(sequence)-k+automatonKmerSize-1)
-            correction_reverse = len(sequence) + automatonKmerSize - 1 - k
+            boundary = len(sequence)-k+automatonKmerSize
+            correction_reverse = boundary - 1
             correction_forward = automatonKmerSize - 1
             #use automaton to check reverse complement sequence
-            rdict = {correction_reverse - end_index: (number, startLinks,)
-                     for (end_index, (number,startLinks)) in automatonSplits.iter(rsequence) 
-                     if end_index <= boundary}
-            if len(rdict.keys())>0:
-                #use automaton to check sequence
-                flist = [(end_index - correction_forward, number, startLinks)
-                         for (end_index, (number,startLinks)) in automatonSplits.iter(sequence)
-                         if end_index <= boundary]
+            rdict = {(correction_reverse - end_index): (number, startLinks,)
+                     for (end_index, (number,startLinks)) in automatonSplits.iter(rsequence,0,boundary)}
+            if len(rdict)>0:
+                flist = [(end_index - correction_forward, number, startLinks,)
+                         for (end_index, (number,startLinks)) in automatonSplits.iter(sequence,0,boundary)]
                 #combine results
                 clist = [(pos, (number, startLinks,) ,rdict[pos]) 
                          for (pos, number, startLinks) in flist 
@@ -95,39 +71,67 @@ class Storage:
                 clist = []
             return clist
         
-        #load automaton into memory
-        with open(automatonFile, "rb") as f:
-            automatonSplits = pickle.load(f)
-        logger.debug("automaton: fsm loaded from {} MB".format(round(os.stat(automatonFile).st_size/1048576)))
+        try:
             
-        while not shutdown_event.is_set():
-            try:
-                item = queue_automaton.get(block=True, timeout=1)
-                if item==None:
-                    break
-                elif isinstance(item,tuple) and len(item)==2:
-                    queue_index.put((
-                        (item[0],compute_matches(item[0],automatonSplits),),
-                        (item[1],compute_matches(item[1],automatonSplits),),
-                    ))
+            #wait for permission to start loading automaton
+            while True:
+                try:
+                    item = queue_start.get(block=True, timeout=1)
+                    if item=="automaton":
+                        break
+                    else:
+                        logger.error("automaton ({}): unexpected start value in queue: {}".format(os.getpid(),item))
+                except:
                     pass
-                elif isinstance(item,str):
-                    queue_index.put((
-                        (item,compute_matches(item,automatonSplits),),
-                    ))
-            except Empty:
-                continue
-        del automatonSplits
-        logger.debug("automaton: fsm released")
+                time.sleep(1)
+            
+            logger.debug("automaton ({}): load automaton from {}".format(os.getpid(),automatonFile))
+            
+            #load automaton into memory
+            automatonSplits = ahocorasick.load(automatonFile,pickle.loads)
+            logger.debug("automaton ({}): fsm loaded from {} MB".format(
+                os.getpid(),math.ceil(os.stat(automatonFile).st_size/1048576)))
+
+            process = psutil.Process(os.getpid())
+            logger.debug("automaton ({}): used memory {} MB".format(
+                os.getpid(),math.ceil(process.memory_info().rss/1048576)))
+            
+            #finished loading automaton
+            queue_finished.put("automaton:started")
+
+            while not shutdown_event.is_set():
+                try:
+                    item = queue_automaton.get(block=True, timeout=1)
+                    if item==None:
+                        logger.debug("autmaton ({}): none item".format(os.getpid()))
+                        break
+                    elif isinstance(item,tuple) and len(item)==2:
+                        queue_index.put((
+                            (item[0],compute_matches(item[0],automatonSplits),),
+                            (item[1],compute_matches(item[1],automatonSplits),),
+                        ))
+                    elif isinstance(item,str):
+                        queue_index.put((
+                            (item,compute_matches(item,automatonSplits),),
+                        ))
+                except Empty:
+                    logger.debug("automaton ({}): empty".format(os.getpid()))
+                    time.sleep(5)
+                    continue
+        except Exception as ex:
+            logger.error("automaton ({}): problem with worker: {}".format(os.getpid(),ex))
+        finally:
+            del automatonSplits
+            logger.debug("automaton ({}): fsm released".format(os.getpid()))
         queue_finished.put("automaton")
             
                 
     
     def worker_index(shutdown_event,queue_index,queue_matches,queue_finished,k,shm_name):
 
-        logger = logging.getLogger(__name__)
+        logger = logging.getLogger("{}.worker.index".format(__name__))
         problemPattern = re.compile(r"["+"".join(haplotyping.index.Database.letters)+
-                                         "][^"+"".join(haplotyping.index.Database.letters)+"]+")
+                                         "][^"+"".join(haplotyping.index.Database.letters)+"]+")   
         
         def problemStartPositions(sequence):
             problemStartPositions = []        
@@ -135,21 +139,21 @@ class Storage:
                 problemStartPositions.append(m.span()[0]+1)
             return problemStartPositions
 
-        def compute_matches(sequence,clist):
+        def compute_matches(sequence,clist):            
             history = {}
             matchesList = []
             problems = problemStartPositions(sequence)
             relevantProblem = None if len(problems)==0 else problems[0]
             matches = []
-            
             previousLink = -1
             previousPos = -1
-            
             positions = []
+            totalChecks=len(clist)
+            totalMatches=0
             for pos, (forward_number,forward_startLinks), (reverse_number,reverse_startLinks) in clist:
                 positions.append(pos)
                 #check if really match
-                kmer = sequence[pos:pos+k]            
+                kmer = sequence[pos:pos+k]  
                 #only possible if is reversed
                 if forward_number==0:  
                     if reverse_number==0:
@@ -164,7 +168,8 @@ class Storage:
                             foundMatch = False
                             for i in range(startLinks,endLinks):
                                 indexLink = i*k
-                                if rkmer==shm.buf[indexLink:indexLink+k].tobytes().decode():
+                                nkmer = shm.buf[indexLink:indexLink+k].tobytes().decode()
+                                if rkmer==nkmer:
                                     link = i
                                     orientation = "r"
                                     foundMatch = True
@@ -183,7 +188,8 @@ class Storage:
                             foundMatch = False
                             for i in range(startLinks,endLinks):
                                 indexLink = i*k
-                                if kmer==shm.buf[indexLink:indexLink+k].tobytes().decode():
+                                nkmer = shm.buf[indexLink:indexLink+k].tobytes().decode()
+                                if kmer==nkmer:
                                     link = i
                                     orientation = "c"
                                     foundMatch = True
@@ -198,7 +204,8 @@ class Storage:
                             endLinks = forward_startLinks+forward_number
                             for i in range(startLinks,endLinks):
                                 indexLink = i*k
-                                if kmer==shm.buf[indexLink:indexLink+k].tobytes().decode():
+                                nkmer = shm.buf[indexLink:indexLink+k].tobytes().decode()
+                                if kmer==nkmer:
                                     link = i
                                     orientation = "c"
                                     foundMatch = True
@@ -213,7 +220,8 @@ class Storage:
                             foundMatch = False
                             for i in range(startLinks,endLinks):
                                 indexLink = i*k
-                                if rkmer==shm.buf[indexLink:indexLink+k].tobytes().decode():
+                                nkmer = shm.buf[indexLink:indexLink+k].tobytes().decode()
+                                if rkmer==nkmer:
                                     link = i
                                     orientation = "r"
                                     foundMatch = True
@@ -225,7 +233,7 @@ class Storage:
                 #check if a problem did occur between last match and current
                 if relevantProblem and len(matches)>0 and pos>relevantProblem:
                     matchesList.append(matches)
-                    matches=[]  
+                    matches=[]                  
                 matches.append([pos,link,orientation])
                 previousPos = pos
                 previousLink = link
@@ -238,28 +246,42 @@ class Storage:
                             break                   
             if len(matches)>0:
                 matchesList.append(matches)
-            return (matchesList, len(matchesList)==1)
+                totalMatches+=len(matches)
+            return (matchesList, len(matchesList)==1, totalChecks, totalMatches)
+        
+        #stats
+        totalChecks = 0
+        totalMatches = 0
         
         shm = shared_memory.SharedMemory(shm_name)
-        logger.debug("index: shared memory of {} MB used".format(round(shm.size/1048576)))
+        logger.debug("index ({}): shared memory of {} MB used".format(
+            os.getpid(),math.ceil(shm.size/1048576)))
+        
+        process = psutil.Process(os.getpid())
+        logger.debug("index ({}): used memory {} MB".format(
+            os.getpid(),math.ceil(process.memory_info().rss/1048576)))
+        
         try:
             while not shutdown_event.is_set():
                 try:
                     item = queue_index.get(block=True, timeout=1)
                     if item==None:
+                        logger.debug("index ({}): none item".format(os.getpid()))
                         break
                     elif isinstance(item,tuple):
                         if len(item)==1:
-                            (matches, direct, ) = compute_matches(item[0][0],item[0][1])
+                            (matches,direct,tmpTotalChecks,tmpTotalMatches,) = compute_matches(item[0][0],item[0][1])
+                            totalChecks+=tmpTotalChecks
+                            totalMatches+=tmpTotalMatches
                             if len(matches)==0 or (len(matches)==1 and len(matches[0])==1):
                                 pass
                             else:
                                 queue_matches.put(((matches, direct,),))
                         elif len(item)==2:
-                            sequence0 = item[0][0]
-                            sequence1 = item[1][0]
-                            (matches0, direct0, ) = compute_matches(item[0][0],item[0][1])
-                            (matches1, direct1, ) = compute_matches(item[1][0],item[1][1])
+                            (matches0,direct0,tmpTotalChecks1,tmpTotalMatches1,) = compute_matches(item[0][0],item[0][1])
+                            (matches1,direct1,tmpTotalChecks2,tmpTotalMatches2,) = compute_matches(item[1][0],item[1][1])
+                            totalChecks+=tmpTotalChecks1+tmpTotalChecks2
+                            totalMatches+=tmpTotalMatches1+tmpTotalMatches2
                             if len(matches0)==0 and len(matches1)==0:
                                 pass
                             elif len(matches0)==0:
@@ -276,32 +298,22 @@ class Storage:
                                 queue_matches.put(((matches0, direct0, ),
                                                    (matches1, direct1, )))
                 except Empty:
+                    logger.debug("index ({}): empty".format(os.getpid()))
+                    time.sleep(5)
                     continue
+        except Exception as ex:
+            logger.error("index  ({}): problem with worker: {}".format(os.getpid(),ex))
         finally:
             shm.close()
-        logger.debug("index: shared memory released")
+        logger.debug("index ({}): found {} matches in {} checks".format(os.getpid(),totalMatches,totalChecks))
         queue_finished.put("index")
             
     
     """
     Process matches into direct connections and queue full list of matches for indirect connections
     """
-    def worker_matches(shutdown_event,queue_matches,queue_connections,queue_storage,queue_finished,
-                       filenameBase,numberOfKmers,maximumFrequency,estimatedMaximumReadLength,arrayNumberDirect):
-        
-        logger = logging.getLogger(__name__)
-        try:
-            curr_proc = current_process()
-            pytablesFileWorker = filenameBase+"_tmp_direct_{}.process.h5".format(curr_proc.name)
-            if os.path.exists(pytablesFileWorker):
-                os.remove(pytablesFileWorker)
-
-            with tables.open_file(pytablesFileWorker, mode="a") as pytablesStorageWorker:
-                
-                logger.debug("matches: store direct connections (dimension: {})".format(arrayNumberDirect))
-                
-                #define correct maxValues based on previous results             
-                dtype = [("cycle", [("number", haplotyping.index.Database.getUint(maximumFrequency)),
+    def worker_matches_dtype(numberOfKmers,maximumFrequency,estimatedMaximumReadLength,arrayNumberDirect):
+        dtype = [("cycle", [("number", haplotyping.index.Database.getUint(maximumFrequency)),
                                     ("minimum", haplotyping.index.Database.getUint(
                                                       2*estimatedMaximumReadLength))]),
                          ("reversal", [("number", haplotyping.index.Database.getUint(maximumFrequency)),
@@ -313,10 +325,37 @@ class Storage:
                                                       2*estimatedMaximumReadLength)),
                                                   ("number",haplotyping.index.Database.getUint(maximumFrequency))]) 
                                      for i in range(arrayNumberDirect)]),]
+        return dtype
+    
+    def worker_matches(shutdown_event,queue_matches,queue_storage,queue_finished,
+                       filenameBase,numberOfKmers,maximumFrequency,estimatedMaximumReadLength,arrayNumberDirect):
+        
+        logger = logging.getLogger("{}.worker.matches".format(__name__))
+        try:
+            curr_proc = current_process()
+            pytablesFileWorker = filenameBase+"_tmp_direct_{}.process.h5".format(curr_proc.name)
+            if os.path.exists(pytablesFileWorker):
+                os.remove(pytablesFileWorker)
+
+            with tables.open_file(pytablesFileWorker, mode="a") as pytablesStorageWorker:
+                
+                logger.debug("matches ({}): store direct connections (dimension: {})".format(
+                    os.getpid(),arrayNumberDirect))
+                
+                #stats
+                totalChecks = 0
+                totalDirect = 0
+                totalCycle = 0
+                totalReversal = 0
+                
+                #define correct maxValues based on previous results             
+                dtype = haplotyping.index.storage.Storage.worker_matches_dtype(
+                    numberOfKmers,maximumFrequency,estimatedMaximumReadLength,arrayNumberDirect)
                 connections = np.ndarray((numberOfKmers,), dtype=dtype, order="C")
                 connections.fill(((0,0,),(0,0,),tuple((0,0,0,0,) for i in range(arrayNumberDirect))))
                 
-                logger.debug("created memory storage for direct connections: {} MB".format(round(connections.nbytes/1048576)))
+                logger.debug("matches ({}): created memory storage for direct connections: {} MB".format(
+                    os.getpid(), math.ceil(connections.nbytes/1048576)))
                 
                 #define correct maxValues based on previous results
                 tableDirectOther = pytablesStorageWorker.create_table(pytablesStorageWorker.root, 
@@ -422,12 +461,13 @@ class Storage:
                             dumpDirectRow["distance"] = distance
                         dumpDirectRow.append()
 
-                def process_matches(matchesList):
+                def process_matches(matchesList,totalDirect,totalReversal,totalCycle,totalChecks):
                     history = {}
                     links = []
                     startPos = 0
                     endPos = 0
                     for matches in matchesList:
+                        totalChecks+=len(matches)
                         if len(matches)>0:
                             previousPos = matches[0][0]
                             previousLink = matches[0][1]
@@ -450,6 +490,7 @@ class Storage:
                                 #0: left, 1:right
                                 currentDirection = (0 if matches[i][2]=="c" else 1)
                                 links.append((currentLink,currentDirection))
+                                totalDirect+=1
                                 store_direct(previousLink, previousDirection, 
                                              currentLink, currentDirection, currentPos-previousPos)
                                 store_direct(currentLink, currentDirection, 
@@ -460,377 +501,68 @@ class Storage:
                                 #cycles and reversals
                                 if currentLink in history.keys():
                                     if history[currentLink][0]==previousDirection:
+                                        totalCycle+=1
                                         store_cycle(currentLink,currentPos-history[currentLink][1])
                                     else:
+                                        totalReversal+=1
                                         store_reversal(currentLink,currentPos-history[currentLink][1])
                                 history[previousLink]=(previousDirection,previousPos,)
-                    return (links,max(0,endPos-startPos),)
+                    return (links,max(0,endPos-startPos),totalDirect,totalReversal,totalCycle,totalChecks,)
 
+                process = psutil.Process(os.getpid())
+                logger.debug("matches ({}): used memory {} MB".format(
+                    os.getpid(),math.ceil(process.memory_info().rss/1048576)))
+        
                 while not shutdown_event.is_set():
                     try:
                         item = queue_matches.get(block=True, timeout=1)
                         if item==None:
+                            logger.debug("matches ({}): none".format(os.getpid()))
                             break
                         elif isinstance(item,tuple):
                             if len(item)==1:
                                 matchesList = item[0][0]
                                 directConnected = item[0][1]
-                                (links,length,) = process_matches(matchesList)
-                                if len(links)>2:
-                                    queue_connections.put(((links,length,directConnected,)))
+                                (links,length,totalDirect,totalReversal,totalCycle,totalChecks,) = process_matches(
+                                    matchesList,totalDirect,totalReversal,totalCycle,totalChecks)
                             elif len(item)==2:
                                 matchesList0 = item[0][0]
                                 directConnected0 = item[0][1]
                                 matchesList1 = item[1][0]
                                 directConnected1 = item[1][1]
-                                (links0,length0,) = process_matches(matchesList0)
-                                (links1,length1,) = process_matches(matchesList1)
-                                if len(links0)==0:
-                                    if len(links1)>2:
-                                        queue_connections.put(((links1,length1,directConnected1,)))
-                                elif len(links1)==0:
-                                    if len(links0)>2:
-                                        queue_connections.put(((links0,length0,directConnected0,)))
-                                else:
-                                    queue_connections.put((
-                                        (links0,length0,directConnected0,),
-                                        (links1,length1,directConnected1,),
-                                    ))
+                                (links0,length0,totalDirect,totalReversal,totalCycle,totalChecks,) = process_matches(
+                                    matchesList0,totalDirect,totalReversal,totalCycle,totalChecks)
+                                (links1,length1,totalDirect,totalReversal,totalCycle,totalChecks,) = process_matches(
+                                    matchesList1,totalDirect,totalReversal,totalCycle,totalChecks)
                     except Empty:
+                        logger.debug("matches ({}): empty".format(os.getpid()))
+                        time.sleep(5)
                         continue   
                 pytablesStorageWorker.flush()
                 tableDirectOther.cols.fromLink.create_csindex()
                 pytablesStorageWorker.flush()
                 pytablesStorageWorker.create_table(pytablesStorageWorker.root, 
                                               name="direct", obj=connections, expectedrows=numberOfKmers)
-                logger.debug("matches: memory storage saved, other connections indexed")
+                logger.debug("matches ({}): found {} direct, {} cycle and {} reversal in {} checks".format(
+                    os.getpid(), totalDirect,totalCycle,totalReversal,totalChecks))
                 pytablesStorageWorker.flush()
                 
             #now the file can be released for merge
             queue_storage.put(pytablesFileWorker) 
+        except Exception as ex:
+            logger.error("matches ({}): problem with worker: {}".format(os.getpid(), ex))
         finally:
             pass
         queue_finished.put("matches")
             
-    """
-    Process indirect connections: filtering and efficient storage
-    """
-    def worker_connections(shutdown_event,queue_connections,queue_storage,queue_finished,
-                       filenameBase,numberOfKmers,arrayNumberConnection,maximumFrequency,shm_name):
-        
-        logger = logging.getLogger(__name__)
-        
-        shm = shared_memory.SharedMemory(shm_name)
-        logger.debug("connections: shared memory of {} MB used".format(round(shm.size/1048576)))
-            
-        try:
-            curr_proc = current_process()
-            pytablesFileWorker = filenameBase+"_tmp_connections_"+str(curr_proc.name)+".process.h5"
-            if os.path.exists(pytablesFileWorker):
-                os.remove(pytablesFileWorker)
-
-            with tables.open_file(pytablesFileWorker, mode="a") as pytablesStorageWorker:
                 
-                logger.debug("connections: store additional connections (dimension: {})".format(arrayNumberConnection))
-
-                #connections - define correct maxValues based on previous results             
-                dtype = [("number", haplotyping.index.Database.getUint(arrayNumberConnection+1)),
-                         ("connections", [("c"+str(i),[
-                                                        ("link",haplotyping.index.Database.getUint(numberOfKmers)),
-                                                        ("length",haplotyping.index.Database.getUint(arrayNumberConnection)),
-                                                        ("direct","uint8"),
-                                                        ("hash","int64"),
-                                                        ("number",haplotyping.index.Database.getUint(maximumFrequency))
-                                                      ]) 
-                                                      for i in range(arrayNumberConnection)])]
-                connections = np.ndarray((numberOfKmers,), dtype=dtype, order="C")
-                connections.fill((0,tuple((0,0,0,0,0,) for i in range(arrayNumberConnection))))
-                
-                #paired entries - define correct maxValues based on previous results   
-                #can't however really estimate the required size because this depends 
-                #on the (unknown) distance between paired reads
-                dtype = [("number", haplotyping.index.Database.getUint(arrayNumberConnection+1)),
-                         ("paired", [("p"+str(i),[("link",haplotyping.index.Database.getUint(numberOfKmers)),
-                                                  ("number",haplotyping.index.Database.getUint(maximumFrequency))]) 
-                                     for i in range(arrayNumberConnection)]),]
-                paired = np.ndarray((numberOfKmers,), dtype=dtype, order="C")
-                paired.fill((0,tuple((0,0,) for i in range(arrayNumberConnection))))
-                
-                logger.debug("created memory storage for additional connections: {} MB".format(
-                    round(connections.nbytes/1048576)))
-                logger.debug("created memory storage for paired entries: {} MB".format(
-                    round(paired.nbytes/1048576)))
-                
-                #define correct maxValues based on previous results
-                tablePairedOther = pytablesStorageWorker.create_table(pytablesStorageWorker.root, 
-                    "pairedOther",{
-                    "fromLink": haplotyping.index.Database.getTablesUint(numberOfKmers,0),
-                    "toLink": haplotyping.index.Database.getTablesUint(numberOfKmers,1)
-                }, "Temporary to dump other paired relations", track_times=False)
-                
-                mapSplitDirection = [{b"l":"l", b"r":"r", b"b":"b"},{b"l":"r", b"r":"l", b"b":"b"}]
-                
-                def store_connections(connectionsList,direct,tableConnectionsData,tableConnectionsDataNumber):
-                    #compact pairs with equal dosage
-                    compactedConnectionsList = []
-                    for id, (link,direction) in enumerate(connectionsList):
-                        props = kmer_properties[link] 
-                        newEntry = (link,mapSplitDirection[direction][props[0]],props[1],id,)
-                        #contract pairs with equal dosage (rightsplitter -> leftsplitter)                        
-                        if (newEntry[1]=="l" and (len(compactedConnectionsList)>0) and 
-                            compactedConnectionsList[-1][1]=="r"):
-                            compactedConnectionsList[-1] = (compactedConnectionsList[-1],newEntry,)
-                        else:
-                            compactedConnectionsList.append(newEntry)
-                    #select entries with (potential) minimal dosage
-                    potentialDirection = None
-                    potentialId = None
-                    compactedSelection = [] 
-                    # entry: [ link, splitType, frequency, #id connectionsList]
-                    for id,entry in enumerate(compactedConnectionsList):
-                        newDirection = entry[0][1] if len(entry)==2 else entry[1]
-                        if potentialId==None:
-                            potentialDirection = entry[-1][1] if len(entry)==2 else entry[1]
-                            potentialId = id
-                        else:
-                            if potentialDirection=="l":
-                                if newDirection=="l":
-                                    pass
-                                else:
-                                    compactedSelection.append(potentialId)
-                                    potentialDirection = entry[-1][1] if len(entry)==2 else entry[1]
-                                    potentialId = id
-                            elif potentialDirection=="r":
-                                if newDirection=="l":
-                                    raise Exception("can't happen")
-                                else:
-                                    potentialDirection = entry[-1][1] if len(entry)==2 else entry[1]
-                                    potentialId = id
-                            else:
-                                if newDirection=="l":
-                                    pass
-                                else:
-                                    compactedSelection.append(potentialId)
-                                    potentialDirection = entry[-1][1] if len(entry)==2 else entry[1]
-                                    potentialId = id
-                    if not potentialId==None:
-                        compactedSelection.append(potentialId)
-                    #compute final selection and linking entry
-                    finalSelection = []
-                    linkingId = None
-                    linkingNumber = None
-                    def recompute_linking_entry(linkingId,linkingNumber,newId,newNumber):
-                        if linkingId==None or linkingNumber>newNumber:
-                            linkingId = newId
-                            linkingNumber = newNumber
-                        elif linkingNumber==newNumber:
-                            if connectionsList[linkingId][0]>connectionsList[newId][0]:
-                                linkingId = newId
-                                linkingNumber = newNumber
-                        return (linkingId,linkingNumber,)
-                    
-                    for id in compactedSelection:
-                        if len(compactedConnectionsList[id])==2:
-                            if id==0:
-                                finalSelection.append(compactedConnectionsList[id][1][-1])
-                                (linkingId,linkingNumber) = recompute_linking_entry(linkingId,linkingNumber,
-                                                                compactedConnectionsList[id][1][-1],
-                                                                compactedConnectionsList[id][1][2])
-                            elif id==len(compactedConnectionsList)-1:
-                                finalSelection.append(compactedConnectionsList[id][0][-1])
-                                (linkingId,linkingNumber) = recompute_linking_entry(linkingId,linkingNumber,
-                                                                compactedConnectionsList[id][0][-1],
-                                                                compactedConnectionsList[id][0][2])
-                            else:
-                                if compactedConnectionsList[id][0][2]>compactedConnectionsList[id][1][2]:
-                                    finalSelection.append(compactedConnectionsList[id][0][-1])
-                                    (linkingId,linkingNumber) = recompute_linking_entry(linkingId,linkingNumber,
-                                                                compactedConnectionsList[id][0][-1],
-                                                                compactedConnectionsList[id][0][2])
-                                elif compactedConnectionsList[id][1][2]>compactedConnectionsList[id][0][2]:
-                                    finalSelection.append(compactedConnectionsList[id][1][-1])
-                                    (linkingId,linkingNumber) = recompute_linking_entry(linkingId,linkingNumber,
-                                                                compactedConnectionsList[id][1][-1],
-                                                                compactedConnectionsList[id][1][2])
-                                elif compactedConnectionsList[id][0][0]>compactedConnectionsList[id][1][0]:
-                                    finalSelection.append(compactedConnectionsList[id][0][-1])
-                                    (linkingId,linkingNumber) = recompute_linking_entry(linkingId,linkingNumber,
-                                                                compactedConnectionsList[id][0][-1],
-                                                                compactedConnectionsList[id][0][2])
-                                else:
-                                    finalSelection.append(compactedConnectionsList[id][1][-1])
-                                    (linkingId,linkingNumber) = recompute_linking_entry(linkingId,linkingNumber,
-                                                                compactedConnectionsList[id][1][-1],
-                                                                compactedConnectionsList[id][1][2])
-                        else:
-                            finalSelection.append(compactedConnectionsList[id][-1])
-                            (linkingId,linkingNumber) = recompute_linking_entry(linkingId,linkingNumber,
-                                                                compactedConnectionsList[id][-1],
-                                                                compactedConnectionsList[id][2])
-
-                    linkingConnectedKmer = None
-                    
-                    #single entry not informative
-                    if len(compactedSelection)<=1:
-                        pass
-                    #directly neighhbouring entries not informative
-                    elif len(compactedSelection)==2 and (compactedSelection[1]-compactedSelection[0])==1:
-                        pass
-                    elif len(finalSelection)>0:
-                        #get final list of connected k-mers
-                        connectedKmers = [connectionsList[id][0] for id in finalSelection]
-                        linkingConnectedKmer = connectionsList[linkingId][0]
-                        assert linkingConnectedKmer in connectedKmers
-                        #remove neighbouring duplicates
-                        connectedKmers = sorted(set(connectedKmers), key=connectedKmers.index)
-                        #always sorted in same direction
-                        if connectedKmers[0]>connectedKmers[-1]:
-                            connectedKmers = tuple(connectedKmers[::-1])
-                        else:
-                            connectedKmers = tuple(connectedKmers)
-                        connectionsRow = connections[linkingConnectedKmer]
-                        #don't store if too much k-mers are involved or if non-informative
-                        if connectionsRow[0]>arrayNumberConnection or len(connectedKmers)<=1:
-                            pass
-                        else:
-                            lengthValue = len(connectedKmers)
-                            directValue = 1 if direct else 0
-                            hashValue = hash(connectedKmers)
-                            stored = False
-                            #check hash-based if already stored
-                            for i in range(connectionsRow[0]):
-                                if connectionsRow[1][i][3] == hashValue:                                    
-                                    if connectionsRow[1][i][1] == lengthValue:                                        
-                                        connectionsRow[1][i][2] == max(directValue,connectionsRow[1][i][2])
-                                        connectionsRow[1][i][4] += 1    
-                                        stored = True
-                                    else:
-                                        #conflict
-                                        connectionsRow[0] = arrayNumberConnection+1
-                                        for j in range(connectionsRow[0]):
-                                            connectionsRow[1][j] = (0,0,0,0,0,)
-                                    break
-                            if not stored and connectionsRow[0]<=arrayNumberConnection:
-                                if connectionsRow[0]<arrayNumberConnection:
-                                    linkValue = tableConnectionsDataNumber
-                                    tableConnectionsData.append(connectedKmers)
-                                    tableConnectionsDataNumber+=len(connectedKmers)
-                                    connectionsRow[1][connectionsRow[0]] = (linkValue,lengthValue,
-                                                                            directValue,hashValue,1,)
-                                    connectionsRow[0]+=1
-                                    stored = True
-                                else:
-                                    #no space to store, reset all
-                                    for j in range(connectionsRow[0]):
-                                        connectionsRow[1][j] = (0,0,0,0,0,)
-                                    connectionsRow[0] = arrayNumberConnection+1
-                                    
-                            #store (in memory)
-                            connections[linkingConnectedKmer] = connectionsRow
-                            
-                    return (tableConnectionsDataNumber,linkingConnectedKmer)
-                
-                def store_paired(linkedCkmer0,linkedCkmer1):
-                    #only store if potentially necessary
-                    if linkedCkmer0==linkedCkmer1:
-                        pass
-                    elif connections[linkedCkmer0][0]>arrayNumberConnection:
-                        pass
-                    elif connections[linkedCkmer1][0]>arrayNumberConnection:
-                        pass
-                    else:
-                        pairedRow = paired[linkedCkmer0]
-                        stored = False
-                        for i in range(pairedRow[0]):
-                            if pairedRow[1][i][0] == linkedCkmer1:                                    
-                                pairedRow[1][i][1] += 1    
-                                stored = True                                
-                        if not stored:
-                            if pairedRow[0]<arrayNumberConnection:
-                                pairedRow[1][pairedRow[0]] = (linkedCkmer1,1,)
-                                pairedRow[0]+=1                                
-                            else:
-                                dumpPairedRow = tablePairedOther.row
-                                dumpPairedRow["fromLink"] = linkedCkmer0
-                                dumpPairedRow["toLink"] = linkedCkmer1
-                                dumpPairedRow.append()
-                        #store (in memory)
-                        paired[linkedCkmer0] = pairedRow
-                    
-                #get shared memory
-                shm_kmer_link = np.dtype(haplotyping.index.Database.getUint(numberOfKmers)).type
-                shm_kmer_number = np.dtype(haplotyping.index.Database.getUint(maximumFrequency)).type
-                kmer_properties = np.ndarray((numberOfKmers,), dtype=[("type","S1"),("number",shm_kmer_number),
-                                   ("left",shm_kmer_link),("right",shm_kmer_link)], buffer=shm.buf)
-            
-                tableConnectionsData = pytablesStorageWorker.create_earray(pytablesStorageWorker.root, "data", 
-                               haplotyping.index.Database.getTablesUintAtom(numberOfKmers), (0,), "Data")
-                tableConnectionsDataNumber = 0
-
-                while not shutdown_event.is_set():
-                    try:
-                        item = queue_connections.get(block=True, timeout=1)
-                        if item==None:
-                            break
-                        elif isinstance(item,tuple):
-                            if len(item)==1:
-                                if len(item[0][0])>2:
-                                    tableConnectionsDataNumber = store_connections(
-                                                      item[0][0],item[0][2],
-                                                      tableConnectionsData,tableConnectionsDataNumber)[0]
-                            elif len(item)==2:
-                                if len(item[0][0])==0:
-                                    if len(item[1][0])>0:
-                                        tableConnectionsDataNumber = store_connections(
-                                                      item[1][0],item[1][2],
-                                                      tableConnectionsData,tableConnectionsDataNumber)[0]
-                                elif len(item[1][0])==0:
-                                    if len(item[0][0])>0:
-                                        tableConnectionsDataNumber = store_connections(
-                                                      item[0][0],item[0][2],
-                                                      tableConnectionsData,tableConnectionsDataNumber)[0]
-                                else:
-                                    (tableConnectionsDataNumber,linkedCkmer0) = store_connections(
-                                                      item[0][0],item[0][2],
-                                                      tableConnectionsData,tableConnectionsDataNumber)
-                                    (tableConnectionsDataNumber,linkedCkmer1) = store_connections(
-                                                      item[1][0],item[1][2],
-                                                      tableConnectionsData,tableConnectionsDataNumber)
-                                    #store paired connections
-                                    if not (linkedCkmer0==None or linkedCkmer1==None):
-                                        store_paired(linkedCkmer0,linkedCkmer1)
-                                        store_paired(linkedCkmer1,linkedCkmer0)
-                    except Empty:
-                        continue   
-                
-                pytablesStorageWorker.flush()                
-                tablePairedOther.cols.fromLink.create_csindex()
-                pytablesStorageWorker.flush()                
-                pytablesStorageWorker.create_table(pytablesStorageWorker.root, 
-                    name="connections", obj=connections, expectedrows=numberOfKmers)
-                logger.debug("matches: memory storage connections saved")
-                pytablesStorageWorker.flush()
-                pytablesStorageWorker.create_table(pytablesStorageWorker.root, 
-                    name="paired", obj=paired, expectedrows=numberOfKmers)
-                logger.debug("matches: memory storage paired saved")
-                pytablesStorageWorker.flush()
-                
-            #now the file can be released for merge
-            queue_storage.put(pytablesFileWorker) 
-        finally:
-            shm.close()
-            logger.debug("index: shared memory released")
-
-        queue_finished.put("connections")
-                
-            
     """
     Merge stored direct and indirect connections
     """                
-    def worker_merges(shutdown_event,queue_ranges,queue_merges,storageDirectFiles,storageConnectionFiles,
-                      filenameBase,numberOfKmers,maximumFrequency,minimumFrequency,maximumConnectionLength,shm_name):
+    def worker_merges(shutdown_event,queue_ranges,queue_merges,storageDirectFiles,
+                      filenameBase,numberOfKmers,maximumFrequency,minimumFrequency,shm_name):
         
-        logger = logging.getLogger(__name__)
+        logger = logging.getLogger("{}.worker.merges".format(__name__))
 
         def merge_direct_storage(pytablesFileWorker, storageDirectFiles, mergeStart, mergeNumber, 
                                  numberOfKmers, kmer_properties):
@@ -1239,155 +971,21 @@ class Storage:
                 #finished
                 pytablesStorageWorker.flush()
                 
-        def merge_connection_storage(pytablesFileWorker, storageConnectionFiles, mergeStart, mergeNumber, 
-                                 numberOfKmers, maximumConnectionLength):
-
-            with tables.open_file(pytablesFileWorker, mode="a") as pytablesStorageWorker:
-                tableConnections = pytablesStorageWorker.root.connections
-                tableData = pytablesStorageWorker.root.data
-                tablePaired = pytablesStorageWorker.root.paired
-                tableDeletePaired = pytablesStorageWorker.root.deletePaired
-                tableDataCounter = 0
-                
-                with ExitStack() as stack:
-                    #get handlers
-                    storageHandlers = [{"handler": stack.enter_context(tables.open_file(fname, mode="r"))} 
-                                               for fname in storageConnectionFiles]
-                    
-                    #get and position sorted iterators for other entries
-                    for i in range(len(storageHandlers)):
-                        storageHandlers[i]["otherRow"] = None
-                        if storageHandlers[i]["handler"].root.pairedOther.shape[0]>0:
-                            storageHandlers[i]["otherIterator"] = storageHandlers[i]["handler"].root.pairedOther.itersorted(
-                                "fromLink",checkCSI=True)
-                            for row in storageHandlers[i]["otherIterator"]:
-                                if row["fromLink"]>=mergeStart:
-                                    if row["fromLink"]<=mergeEnd:
-                                        storageHandlers[i]["otherRow"] = row
-                                    break
-                        else:
-                            storageHandlers[i]["otherIterator"] = None
-                    
-                    #add connections
-                    def add_connectionData(connectionDataEntry,length,direct,hashValue,number):
-                        if not hashValue in connectionDataEntry[1].keys():
-                            connectionDataEntry[1][hashValue] = {"status": True, "length": length, 
-                                                                 "direct": direct, "number": number}
-                            connectionDataEntry[0]+=1
-                            storeData = True
-                        elif not connectionDataEntry[1][hashValue]["length"]==length:
-                            connectionDataEntry[1][hashValue]["status"] = False
-                            storeData = False
-                        else:
-                            connectionDataEntry[1][hashValue]["number"] += number  
-                            connectionDataEntry[1][hashValue]["direct"] = max(direct,
-                                                      connectionDataEntry[1][hashValue]["direct"])
-                            storeData = False
-                        return (connectionDataEntry,storeData,)
-                    
-                    stepSizeStorage = 10000
-                    for i in range(mergeStart,mergeEnd+1,stepSizeStorage):
-                        #initialise
-                        connectionData = [[0,{}] for j in range(min(mergeEnd+1-i,stepSizeStorage,(numberOfKmers-i)))]
-                        for storageHandler in storageHandlers:
-                            rowData = storageHandler["handler"].root.connections[i:min(mergeEnd+1,i+stepSizeStorage)]
-                            for index, item in enumerate(rowData):
-                                fromLink = i + index
-                                if item[0]>maximumConnectionLength:
-                                    break
-                                else:
-                                    for k in range(min(item[0],len(item[1]))):
-                                        lengthValue = item[1][k][1]
-                                        directValue = item[1][k][2]
-                                        hashValue = item[1][k][3]
-                                        numberValue = item[1][k][4]
-                                        (connectionData[index],storeData) = add_connectionData(connectionData[index],
-                                                                            lengthValue,directValue,
-                                                                            hashValue,numberValue)
-                                        if storeData:
-                                            linkValue = item[1][k][0]
-                                            linkData = storageHandler["handler"].root.data[linkValue:linkValue+lengthValue]
-                                            connectionData[index][1][hashValue]["data"] = linkData
-                        for j in range(len(connectionData)):
-                            fromLink = i + j
-                            if connectionData[j][0]<=maximumConnectionLength:
-                                for hashValue in connectionData[j][1].keys():
-                                    entry = connectionData[j][1][hashValue]
-                                    if entry["status"]:
-                                        tableConnectionsRow = tableConnections.row
-                                        tableConnectionsRow["ckmerLink"] = fromLink
-                                        tableConnectionsRow["dataLink"] = tableDataCounter
-                                        tableConnectionsRow["length"] = entry["length"]
-                                        tableConnectionsRow["number"] = entry["number"]
-                                        tableConnectionsRow["direct"] = entry["direct"]
-                                        tableConnectionsRow.append()
-                                        tableData.append(entry["data"])
-                                        tableDataCounter+=len(entry["data"])
-                                        
-                        #initialise
-                        pairedData = [{} for j in range(min(mergeEnd+1-i,stepSizeStorage,(numberOfKmers-i)))]
-                        for storageHandler in storageHandlers:
-                            rowData = storageHandler["handler"].root.paired[i:min(mergeEnd+1,i+stepSizeStorage)]
-                            for index, item in enumerate(rowData):
-                                fromLink = i + index
-                                for j in range(item[0]):
-                                    toLink = item[1][j][0]
-                                    number = item[1][j][1]
-                                    pairedData[index][toLink] = pairedData[index].get(toLink,0)+number
-                                    
-                                #now check other data
-                                if storageHandler["otherRow"]:
-                                    if storageHandler["otherRow"]["fromLink"]<fromLink:
-                                        storageHandler["otherRow"] = None
-                                        for row in storageHandler["otherIterator"]:
-                                            if row["fromLink"]>=fromLink:
-                                                if row["fromLink"]<=mergeEnd:
-                                                    storageHandler["otherRow"] = row
-                                                break
-                                    if storageHandler["otherRow"] and storageHandler["otherRow"]["fromLink"]==fromLink:
-                                        toLink = storageHandler["otherRow"]["toLink"]
-                                        pairedData[index][toLink] = pairedData[index].get(toLink,0)+1
-                                        for row in storageHandler["otherIterator"]:
-                                            if row["fromLink"]==fromLink:
-                                                storageHandler["otherRow"] = row
-                                                toLink = storageHandler["otherRow"]["toLink"]
-                                                pairedData[index][toLink] = pairedData[index].get(toLink,0)+1
-                                            elif row["fromLink"]<=mergeEnd:
-                                                storageHandler["otherRow"] = row
-                                                break
-                                            else:
-                                                storageHandler["otherRow"] = None
-                                                break
-                                
-                        for j in range(len(pairedData)):
-                            fromLink = i + j
-                            if len(pairedData[j])>maximumConnectionLength:
-                                for toLink in pairedData[j].keys():
-                                    tableDeletePairedRow = tableDeletePaired.row
-                                    tableDeletePairedRow["fromLink"] = toLink
-                                    tableDeletePairedRow["toLink"] = fromLink
-                                    tableDeletePairedRow.append()
-                            else:
-                                for toLink in pairedData[j].keys():
-                                    number = pairedData[j][toLink]
-                                    tablePairedRow = tablePaired.row
-                                    tablePairedRow["fromLink"] = fromLink
-                                    tablePairedRow["toLink"] = toLink
-                                    tablePairedRow["number"] = number
-                                    tablePairedRow.append()          
-                                    
-                #finished
-                pytablesStorageWorker.flush()
-                
+                        
                 
         shm = shared_memory.SharedMemory(shm_name)
-        logger.debug("merges: shared memory of {} MB used".format(round(shm.size/1048576)))
+        logger.debug("merges ({}): shared memory of {} MB used".format(os.getpid(),math.ceil(shm.size/1048576)))
         try:
             #get shared memory
             shm_kmer_link = np.dtype(haplotyping.index.Database.getUint(numberOfKmers)).type
             shm_kmer_number = np.dtype(haplotyping.index.Database.getUint(maximumFrequency)).type
             kmer_properties = np.ndarray((numberOfKmers,), dtype=[("type","S1"),("number",shm_kmer_number),
                                ("left",shm_kmer_link),("right",shm_kmer_link)], buffer=shm.buf)
+            
+            process = psutil.Process(os.getpid())
+            logger.debug("merges ({}): used memory {} MB".format(
+                os.getpid(),math.ceil(process.memory_info().rss/1048576)))
+            
             #handle queue
             while not shutdown_event.is_set():
                 try:
@@ -1407,34 +1005,32 @@ class Storage:
                             os.remove(pytablesFileRange)
                         with tables.open_file(pytablesFileRange, mode="a") as pytablesStorageRange:
                             Storage.create_merge_storage(pytablesStorageRange, numberOfKmers, 
-                                                         maximumFrequency, maximumConnectionLength)
+                                                         maximumFrequency)
                         #merge
                         merge_direct_storage(pytablesFileRange, storageDirectFiles, mergeStart, 
                                              mergeNumber, numberOfKmers, kmer_properties)
-                        merge_connection_storage(pytablesFileRange, storageConnectionFiles, mergeStart, 
-                                             mergeNumber, numberOfKmers, maximumConnectionLength)
                         #now the file can be released for final merge
                         queue_merges.put(pytablesFileRange) 
                 except Empty:
+                    time.sleep(1)
                     continue
+        except Exception as ex:
+            logger.error("merges ({}): problem with worker: {}".format(os.getpid(),ex))
         finally:
             shm.close()
-        logger.debug("index: shared memory released")
             
 
     
     """
     Combine merged files: this should be relatively easy, handled by single process
     """
-    def combine_merges(mergeFiles,pytablesStorage,numberOfKmers,maximumFrequency,maximumConnectionLength):
+    def combine_merges(mergeFiles,pytablesStorage,numberOfKmers,maximumFrequency):
         
         nCycle = 0
         nReversal = 0
         nDirect = 0
-        nConnections = 0
         nData = 0
-        nPaired = 0
-
+        
         #get dimensions
         sortedMergeFiles = [{"filename": mergeFile} for mergeFile in sorted(mergeFiles)]
         for i in range(len(sortedMergeFiles)):
@@ -1443,50 +1039,32 @@ class Storage:
                 sortedMergeFiles[i]["nreversal"] = pytables_merge.root.reversal.shape[0]
                 sortedMergeFiles[i]["ndirect"] = pytables_merge.root.direct.shape[0]
                 sortedMergeFiles[i]["ndeleteDirect"] = pytables_merge.root.deleteDirect.shape[0]
-                sortedMergeFiles[i]["nconnections"] = pytables_merge.root.connections.shape[0]
-                sortedMergeFiles[i]["ndata"] = pytables_merge.root.data.shape[0]
-                sortedMergeFiles[i]["npaired"] = pytables_merge.root.paired.shape[0]
-                sortedMergeFiles[i]["ndeletePaired"] = pytables_merge.root.deletePaired.shape[0]
                 nCycle += sortedMergeFiles[i]["ncycle"]
                 nReversal += sortedMergeFiles[i]["nreversal"]
                 nDirect += sortedMergeFiles[i]["ndirect"]
-                nConnections += sortedMergeFiles[i]["nconnections"]
-                nData = max(nData,sortedMergeFiles[i]["ndata"])
-                nPaired  += sortedMergeFiles[i]["npaired"]
-
+                
         #create temporary storage with dimensions
-        Storage.create_merge_storage(pytablesStorage, numberOfKmers, maximumFrequency, maximumConnectionLength, 
-                                     nCycle, nReversal, nDirect, nConnections, nPaired)
+        Storage.create_merge_storage(pytablesStorage, numberOfKmers, maximumFrequency, 
+                                     nCycle, nReversal, nDirect)
         tableCycle = pytablesStorage.root.cycle
         tableReversal = pytablesStorage.root.reversal
         tableDirect = pytablesStorage.root.direct
         tableDeleteDirect = pytablesStorage.root.deleteDirect
-        tableConnections = pytablesStorage.root.connections
-        tableData = pytablesStorage.root.data
-        tablePaired = pytablesStorage.root.paired
-        tableDeletePaired = pytablesStorage.root.deletePaired
         
-        stepSizeStorage = 100 #FIX THIS BACK TO 100000
+        stepSizeStorage = 100000
         maximumCycleLength = 0
         maximumCycleNumber = 0
         maximumReversalLength = 0
         maximumReversalNumber = 0
         maximumDirectDistance = 0
         maximumDirectNumber = 0
-        maximumConnectionsNumber = 0
-        maximumConnectionsLength = 0
-        maximumPairedNumber = 0
-        
-        connectionsDataCounter = 0
         
         #merge delete entries
         for i in range(len(sortedMergeFiles)):
             with tables.open_file(sortedMergeFiles[i]["filename"], mode="r") as pytables_merge:
                 tableDeleteDirect.append(pytables_merge.root.deleteDirect[:])
-                tableDeletePaired.append(pytables_merge.root.deletePaired[:])
         pytablesStorage.flush()
         tableDeleteDirect.cols.fromLink.create_csindex()
-        tableDeletePaired.cols.fromLink.create_csindex()
         pytablesStorage.flush()
                 
         for i in range(len(sortedMergeFiles)):
@@ -1513,30 +1091,7 @@ class Storage:
                     maximumDirectNumber = max(maximumDirectNumber,max(reducedDirectDataBlock["number"]))
                     maximumDirectDistance = max(maximumDirectDistance,max(reducedDirectDataBlock["distance"]))
                     #add reduced direct data
-                    tableDirect.append(reducedDirectDataBlock)
-                for j in range(0,sortedMergeFiles[i]["nconnections"],stepSizeStorage):
-                    reducedConnectionsBlock = pytables_merge.root.connections[j:j+stepSizeStorage]
-                    for k in range(len(reducedConnectionsBlock)):
-                        reducedConnectionsBlock[k][1]+=connectionsDataCounter
-                    maximumConnectionsNumber = max(maximumConnectionsNumber,max(reducedConnectionsBlock["number"]))
-                    maximumConnectionsLength = max(maximumConnectionsLength,max(reducedConnectionsBlock["length"]))
-                    tableConnections.append(reducedConnectionsBlock)
-                for j in range(0,sortedMergeFiles[i]["ndata"],stepSizeStorage):
-                    reducedDataBlock = pytables_merge.root.data[j:j+stepSizeStorage]
-                    tableData.append(reducedDataBlock)
-                    connectionsDataCounter+=len(reducedDataBlock)
-                for j in range(0,sortedMergeFiles[i]["npaired"],stepSizeStorage):
-                    pairedDataBlock = pytables_merge.root.paired[j:j+stepSizeStorage]
-                    deleteDataBlock = tableDeletePaired.read_where(
-                        "(fromLink>={}) & (fromLink<={})".format(
-                        pairedDataBlock[0]["fromLink"],pairedDataBlock[-1]["fromLink"]))
-                    deletableIndices = np.where(
-                        np.in1d(pairedDataBlock[["fromLink","toLink"]],
-                                deleteDataBlock[["fromLink","toLink"]]))[0]
-                    reducedPairedDataBlock = np.delete(pairedDataBlock,deletableIndices,0)
-                    maximumPairedNumber = max(maximumPairedNumber,max(reducedPairedDataBlock["number"]))
-                    #add reduced paired data
-                    tablePaired.append(reducedPairedDataBlock)
+                    tableDirect.append(reducedDirectDataBlock)            
 
         tableCycle.attrs["maximumNumber"] = maximumCycleNumber
         tableCycle.attrs["maximumLength"] = maximumCycleLength
@@ -1544,8 +1099,6 @@ class Storage:
         tableReversal.attrs["maximumLength"] = maximumReversalLength
         tableDirect.attrs["maximumDistance"] = maximumDirectDistance
         tableDirect.attrs["maximumNumber"] = maximumDirectNumber
-        tableConnections.attrs["maximumNumber"] = maximumConnectionsNumber
-        tableConnections.attrs["maximumLength"] = maximumConnectionsLength
         pytablesStorage.flush()
             
     """
@@ -1640,30 +1193,6 @@ class Storage:
         dtDirect=np.dtype(dtypeDirectList)
         dsDirect=h5file["/relations/"].create_dataset("direct",(numberOfDirectRelations,), 
                                                       dtype=dtDirect, chunks=None)
-        #connections
-        numberOfConnections = pytablesStorage.root.connections.shape[0]
-        numberOfData = pytablesStorage.root.data.shape[0]
-        numberOfPaired = pytablesStorage.root.paired.shape[0]
-        maximumNumber = pytablesStorage.root.connections.attrs.maximumNumber
-        maximumLength = pytablesStorage.root.connections.attrs.maximumLength
-        dtypeConnectionsList=[("ckmerLink",haplotyping.index.Database.getUint(numberOfKmers)),
-                              ("dataLink",haplotyping.index.Database.getUint(numberOfData)),
-                              ("length",haplotyping.index.Database.getUint(maximumLength)),
-                              ("direct","uint8"),
-                              ("number",haplotyping.index.Database.getUint(maximumNumber))
-                             ]
-        dtConnections=np.dtype(dtypeConnectionsList)
-        dsConnections=h5file["/connections/"].create_dataset("index",(numberOfConnections,), 
-                                                      dtype=dtConnections, chunks=None)
-        dsData=h5file["/connections/"].create_dataset("data",(numberOfData,), 
-                          dtype=haplotyping.index.Database.getUint(numberOfKmers), chunks=None)
-        dtypePairedList=[("fromLink",haplotyping.index.Database.getUint(numberOfKmers)),
-                         ("toLink",haplotyping.index.Database.getUint(numberOfKmers)),
-                         ("number",haplotyping.index.Database.getUint(maximumNumber))
-                        ]
-        dtPaired=np.dtype(dtypePairedList)
-        dsPaired=h5file["/connections/"].create_dataset("paired",(numberOfPaired,), 
-                                                      dtype=dtPaired, chunks=None)
         #process direct relations
         directCounter = 0
         previousStepData = []
@@ -1740,65 +1269,21 @@ class Storage:
         logger.info("store {} direct connections, {} low coverage, {} problematic".format(
             numberOfDirectRelations,directCoverage,directProblematic))
 
-        #process connections
-        connectionsCounter = 0
-        dataCounter = 0
-        pairedCounter = 0
-        ckmerConnectionsIndexLink = np.zeros(dsCkmer.len(), dtype=int)
-        ckmerConnectionsIndexCounter = np.zeros(dsCkmer.len(), dtype=int)
-        ckmerConnectionsCounter = np.zeros(dsCkmer.len(), dtype=int)
-        ckmerPairedLink = np.zeros(dsCkmer.len(), dtype=int)
-        ckmerPairedCounter = np.zeros(dsCkmer.len(), dtype=int)
-        for i in range(0,numberOfConnections,stepSizeStorage):
-            stepData = pytablesStorage.root.connections[i:i+stepSizeStorage]  
-            for j in range(i,i+len(stepData)):    
-                if ckmerConnectionsIndexCounter[stepData[j-i][0]]==0:
-                    ckmerConnectionsIndexLink[stepData[j-i][0]] = j
-                    ckmerConnectionsIndexCounter[stepData[j-i][0]] = 1
-                else:
-                    ckmerConnectionsIndexCounter[stepData[j-i][0]]+=1
-            dsConnections[connectionsCounter:connectionsCounter+len(stepData)] = stepData
-            connectionsCounter+=len(stepData)
-        for i in range(0,numberOfData,stepSizeStorage):
-            stepData = pytablesStorage.root.data[i:i+stepSizeStorage]   
-            for row in stepData:
-                ckmerConnectionsCounter[row]+=1
-            dsData[dataCounter:dataCounter+len(stepData)] = stepData
-            dataCounter+=len(stepData)
-        for i in range(0,numberOfPaired,stepSizeStorage):
-            stepData = pytablesStorage.root.paired[i:i+stepSizeStorage]   
-            for j in range(i,i+len(stepData)):
-                if ckmerPairedCounter[stepData[j-i][0]]==0:
-                    ckmerPairedLink[stepData[j-i][0]] = j
-                    ckmerPairedCounter[stepData[j-i][0]] = 1
-                else:
-                    ckmerPairedCounter[stepData[j-i][0]]+=1
-            dsPaired[pairedCounter:pairedCounter+len(stepData)] = stepData
-            pairedCounter+=len(stepData)
-        for i in range(0,dsCkmer.len(),stepSizeStorage):
-            stepData = dsCkmer[i:i+stepSizeStorage]  
-            for j in range(i,i+len(stepData)):                
-                stepData[j-i][5] = (ckmerConnectionsIndexLink[j],ckmerConnectionsIndexCounter[j],ckmerConnectionsCounter[j],)
-                stepData[j-i][6] = (ckmerPairedLink[j],ckmerPairedCounter[j],)
-            dsCkmer[i:i+len(stepData)] = stepData
-        
-        logger.info("store {} indirect connections with {} data entries and {} paired".format(
-            numberOfConnections,numberOfData,numberOfPaired))
-
         # store histogram direct distances
-        maximumDistance = max(frequencyHistogram["distance"].keys())
-        maximumNumber = max(frequencyHistogram["distance"].values())
-        dtypeFrequencyHistogramDistanceList=[
-                    ("distance",haplotyping.index.Database.getUint(maximumDistance)),
-                    ("number",haplotyping.index.Database.getUint(maximumNumber)),]
-        dtFrequencyHistogramDistance=np.dtype(dtypeFrequencyHistogramDistanceList)
-        dsFrequencyHistogramDistance=h5file["/histogram/"].create_dataset("distance",
-              (len(frequencyHistogram["distance"]),), dtype=dtFrequencyHistogramDistance, chunks=None)
-        logger.info("store {} entries direct distances histogram".format(
-            len(frequencyHistogram["distance"])))
-        #store histogram
-        dsFrequencyHistogramDistance[0:len(frequencyHistogram["distance"])] = list(
-            sorted(frequencyHistogram["distance"].items()))
+        if len(frequencyHistogram["distance"])>0:
+            maximumDistance = max(frequencyHistogram["distance"].keys())
+            maximumNumber = max(frequencyHistogram["distance"].values())
+            dtypeFrequencyHistogramDistanceList=[
+                        ("distance",haplotyping.index.Database.getUint(maximumDistance)),
+                        ("number",haplotyping.index.Database.getUint(maximumNumber)),]
+            dtFrequencyHistogramDistance=np.dtype(dtypeFrequencyHistogramDistanceList)
+            dsFrequencyHistogramDistance=h5file["/histogram/"].create_dataset("distance",
+                  (len(frequencyHistogram["distance"]),), dtype=dtFrequencyHistogramDistance, chunks=None)
+            logger.info("store {} entries direct distances histogram".format(
+                len(frequencyHistogram["distance"])))
+            #store histogram
+            dsFrequencyHistogramDistance[0:len(frequencyHistogram["distance"])] = list(
+                sorted(frequencyHistogram["distance"].items()))
 
 
 
