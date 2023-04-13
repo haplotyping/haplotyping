@@ -1,7 +1,7 @@
 import os, logging, tempfile
 import gzip,csv,json
 from openpyxl import load_workbook
-from frictionless import Resource, Schema, Package, Dialect, formats
+from frictionless import Resource, Schema, Package, Dialect, formats, errors
 from frictionless import validate, extract
 import pandas as pd, numpy as np, textwrap
 from shutil import copyfile
@@ -217,8 +217,7 @@ class ValidateGeneral:
             #check string types, empty rows and columns
             if (self._adjustTypeForStringColumns and not 
                 validate(resource, pick_errors=["type-error"], skip_errors=skip_errors).valid):
-                
-                stringColumnNames = [field["name"] for field in resource.schema.fields if (field.get("type",None)=="string")]
+                stringColumnNames = [field.name for field in resource.schema.fields if (field.type=="string")]
                 self._updateTypeForStringColumns(sheetName, stringColumnNames, headerRows, resourceName)                
             if self._removeEmptyRows and not validate(resource, pick_errors=["blank-row"], skip_errors=skip_errors).valid:
                 self._removeEmptyRowsForSheet(sheetName,resourceName)
@@ -244,12 +243,12 @@ class ValidateGeneral:
     def _validatePackage(self):
         self._report.addReport("package", False)
         self._report.addReportDebug("package","validate package") 
-        package_validation = validate(self._package)
+        package_validation = self._package.validate()
+        self._report.setReportFrictionless("package", package_validation)
         if not package_validation.valid:
-            self._report.addReportError("package","frictionless validation package failed")            
+            self._report.addReportError("package","frictionless validation package failed")   
         else:
             self._report.addReportInfo("package","succesfull frictionless validation package")
-        self._report.setReportFrictionless("package",package_validation)
         #return package and validation report
         return package_validation
     
@@ -442,12 +441,30 @@ class ValidateGeneral:
             for task in fdata.tasks:
                 for error in task.errors:
                     list.append({"resource": task.name,
-                                 "rowPosition": error.get_defined("rowPosition"), 
-                                 "fieldPosition": error.get_defined("fieldPosition"),
-                                 "code": error.get_defined("code"),
+                                 "rowPosition": error.get_defined("row_number"), 
+                                 "rowPositions": error.get_defined("row_numbers"), 
+                                 "fieldPosition": error.get_defined("field_number"),
+                                 "fieldPositions": error.get_defined("field_numbers"),
+                                 "type": error.__class__.__name__,
+                                 "message": error.get_defined("message"),
                                  "description": error.get_defined("description")})
             return pd.DataFrame(list)
-        def excelCoordinates(row, col):
+        def excelCoordinates(row, col, rows, cols):
+            if row and col:
+                return excelCoordinate(row,col)
+            elif row and cols:
+                locations = [excelCoordinate(row,col) for col in cols]
+                locations.remove(None)
+                return(",".join(locations))
+            elif rows and col:
+                locations = [excelCoordinate(row,col) for row in rows]
+                locations.remove(None)
+                return(",".join(locations))
+            elif row or col:
+                return excelCoordinate(row,col)
+            else:
+                return None
+        def excelCoordinate(row, col):
             try:
                 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                 if not col==None and not np.isnan(col):
@@ -466,7 +483,7 @@ class ValidateGeneral:
             except:
                 return None
         reportObject = {"name": os.path.basename(self._name), "valid": self.valid, "reports": []}
-        previousFrictionlessCodes = set()
+        previousFrictionlessTypes = set()
         for report in self._report.reports:
             isNotValid=((not self._report[report]["valid"]) or 
                         ("frictionless" in self._report[report].keys() and 
@@ -484,23 +501,27 @@ class ValidateGeneral:
                 if "frictionless" in self._report[report].keys():
                     frictionlessData = createFrictionlessData(self._report[report]["frictionless"])
                     if len(frictionlessData)>0:
-                        frictionlessCodes = frictionlessData.code.value_counts()
+                        frictionlessTypes = frictionlessData.type.value_counts()
                         if report=="package":
                             #don't repeat frictionless entries from separate sheets
-                            frictionlessCodeList = set(frictionlessCodes.index).difference(previousFrictionlessCodes)
-                            if len(frictionlessCodeList)==0:
+                            frictionlessTypeList = set(frictionlessTypes.index).difference(previousFrictionlessTypes)
+                            if len(frictionlessTypeList)==0:
                                 continue
                         else:
-                            frictionlessCodeList = frictionlessCodes.index
-                            previousFrictionlessCodes.update(frictionlessCodes.index)
-                        for code in frictionlessCodeList:
-                            frictionlessDetails = {"name": code, "details": []}
-                            for id,row in frictionlessData[frictionlessData.code==code].iterrows():
-                                location = excelCoordinates(row["rowPosition"],row["fieldPosition"])
+                            frictionlessTypeList = frictionlessTypes.index
+                            previousFrictionlessTypes.update(frictionlessTypes.index)
+                        for type in frictionlessTypeList:
+                            frictionlessDetails = {"name": type, "details": []}
+                            for id,row in frictionlessData[frictionlessData.type==type].iterrows():
+                                location = excelCoordinates(row["rowPosition"],row["fieldPosition"],
+                                                            row["rowPositions"],row["fieldPositions"])
                                 frictionlessDetails["details"].append({"resource": row["resource"], 
                                                                        "location": location,
                                                                        "row": row["rowPosition"],
+                                                                       "rows": row["rowPositions"],
                                                                        "column": row["fieldPosition"],
+                                                                       "columns": row["fieldPositions"],
+                                                                       "message": row["message"],
                                                                        "description": row["description"]})   
                             reportDetails["frictionless"].append(frictionlessDetails)
             reportObject["reports"].append(reportDetails)
@@ -514,7 +535,6 @@ class ValidateGeneral:
         reportObject = self.createReport()
         #create text    
         reportText = "=== {} '{}' ===".format(("VALID" if reportObject["valid"] else "INVALID"),reportObject["name"])
-        previousFrictionlessCodes = set()
         for reportDetails in reportObject["reports"]:
             if (not reportDetails["valid"]) or len(reportDetails["warnings"])>0:
                 reportText = reportText + "\n** problem with '{}' **".format(reportDetails["name"])
@@ -539,7 +559,7 @@ class ValidateGeneral:
                                 reportText = reportText + "\n    - ..."
                                 break
                             reportText = reportText + "\n" + textwrap.fill("{}{}: {}".format(row["resource"],
-                                     ((" ["+row["location"]+"]") if not row["location"]==None else ""),row["description"])
+                                     ((" ["+row["location"]+"]") if not row["location"]==None else ""),row["message"])
                                      ,textWidth-6,initial_indent="    - ",subsequent_indent="      ")
                             rowCounter+=1
         return reportText
