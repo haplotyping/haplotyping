@@ -26,7 +26,7 @@ class Splits:
         #set variables
         self.k = h5file["/config"].attrs["k"]
         self.automatonKmerSize = h5file["/config"].attrs["automatonKmerSize"]
-        self.minimumFrequency = h5file["/config"].attrs["minimumFrequency"]
+        self.minimumFrequency = h5file["/config"].attrs["minimumCanonicalSplitFrequency"]
         self.h5file = h5file
         self.maximumNumber = 0
         self.debug = debug
@@ -91,8 +91,7 @@ class Splits:
             "number": tables.UInt64Col(pos=2),
         }
         self.tableDumpKmers = self.pytablesStorage.create_table(self.pytablesStorage.root,
-                                                                   "dumpCkmer",tableCkmerDef, 
-                                                "Temporary to store dump canonical k-mers")
+                                    "dumpCkmer",tableCkmerDef, "Temporary to store dump canonical k-mers")
         
         #multiprocessing
         with mp.Manager() as manager:
@@ -149,8 +148,8 @@ class Splits:
                 self.tableDumpKmers.flush()
                 self._logger.debug("found {} rightSplitBases and {} rightSplitKmers".format(
                     rightSplitBases,rightSplitKmers))
-                self.h5file["/config/"].attrs["rightSplitBases"]=rightSplitBases
-                self.h5file["/config/"].attrs["rightSplitKmers"]=rightSplitKmers
+                self.h5file["/config/"].attrs["numberRightSplitBases"]=rightSplitBases
+                self.h5file["/config/"].attrs["numberRightSplitKmers"]=rightSplitKmers
 
             except KeyboardInterrupt:
                 self._logger.debug("caught KeyboardInterrupt")
@@ -168,10 +167,10 @@ class Splits:
 
             #store stats
             self.frequencyHistogram["kmer"] = dict(histogramKmer)
-            self.h5file["/config/"].attrs["totalNumberOfKmers"]=totalNumberOfKmers.value
-            self.h5file["/config/"].attrs["totalSumOfKmerFrequencies"]=totalSumOfKmerFrequencies.value
-            self.h5file["/config/"].attrs["minimumAllKmerFrequencies"]=minimumAllKmerFrequencies.value
-            self.h5file["/config/"].attrs["maximumAllKmerFrequencies"]=maximumAllKmerFrequencies.value
+            self.h5file["/config/"].attrs["numberKmers"]=totalNumberOfKmers.value
+            self.h5file["/config/"].attrs["totalKmerFrequencies"]=totalSumOfKmerFrequencies.value
+            self.h5file["/config/"].attrs["minimumKmerFrequencies"]=minimumAllKmerFrequencies.value
+            self.h5file["/config/"].attrs["maximumKmerFrequencies"]=maximumAllKmerFrequencies.value
             
     def worker_list(shutdown_event,filename,k,minimumFrequency,totalNumberOfKmers,totalSumOfKmerFrequencies,
                                         minimumAllKmerFrequencies,maximumAllKmerFrequencies,histogramKmer,
@@ -303,9 +302,8 @@ class Splits:
                 "number": tables.UInt32Col(pos=3,dflt=0),
             }
             self.tableSortedKmers = self.pytablesStorage.create_table(self.pytablesStorage.root,
-                                                                       "sortedCkmer",tableCkmerDef, 
-                                                    "Temporary to store sorted canonical k-mers",
-                                                                      expectedrows=numberOfSplittingKmers)  
+                                        "sortedCkmer",tableCkmerDef, "Temporary to store sorted canonical k-mers",
+                                        expectedrows=numberOfSplittingKmers)  
             
             #create dump table for bases
             tableDumpBaseDef = {
@@ -436,16 +434,14 @@ class Splits:
                                [("distinct","uint8"),
                                 ("number",haplotyping.index.Database.getUint(self.maximumNumber))])
                              ]),
-                   ("connected",[("link",haplotyping.index.Database.getUint(numberOfKmers)),
-                                 ("number",haplotyping.index.Database.getUint(len(haplotyping.index.Database.letters)**4)),
-                                 ("connected",
-                                      haplotyping.index.Database.getUint(len(haplotyping.index.Database.letters)**4))]),
-                   ("paired",[("link",haplotyping.index.Database.getUint(numberOfKmers)),
-                              ("number",haplotyping.index.Database.getUint(len(haplotyping.index.Database.letters)**4))]),
+                   ("partition",haplotyping.index.Database.getUint(numberOfKmers)),
                    ("cycle",[("number",haplotyping.index.Database.getUint(self.maximumNumber))]),
-                   ("reversal",[("number",haplotyping.index.Database.getUint(self.maximumNumber))])]
+                   ("reversal",[("number",haplotyping.index.Database.getUint(self.maximumNumber))]),
+                   ("paired",[("link",haplotyping.index.Database.getUint(numberOfKmers)),
+                              ("number",haplotyping.index.Database.getUint(self.maximumNumber))])]
         dtCkmer=np.dtype(dtypeCkmerList)
-        dsCkmer=self.h5file["/split/"].create_dataset("ckmer",(numberOfKmers,), dtype=dtCkmer, chunks=None)
+        dsCkmer=self.h5file["/split/"].create_dataset("ckmer",(numberOfKmers,), dtype=dtCkmer, chunks=None, 
+                                                      compression="gzip", compression_opts=9)
         self._logger.info("store {} splitting k-mers".format(numberOfKmers))
         #add stored and grouped kmers to the final unchunked storage
         for i in range(0,numberOfKmers,Splits.stepSizeStorage):
@@ -469,7 +465,8 @@ class Splits:
             dtypeBaseList[2][1].append((letter,[("number",haplotyping.index.Database.getUint(self.maximumNumber)),
                                                 ("ckmerLink",numberOfKmers)]))
         dtBase=np.dtype(dtypeBaseList)
-        dsBase=self.h5file["/split/"].create_dataset("base",(numberOfBases,), dtype=dtBase, chunks=None)
+        dsBase=self.h5file["/split/"].create_dataset("base",(numberOfBases,), dtype=dtBase, chunks=None,
+                                                     compression="gzip", compression_opts=9)
         self._logger.info("store {} bases".format(numberOfBases))
         #add stored and grouped bases to the final unchunked storage
         for i in range(0,numberOfBases,Splits.stepSizeStorage):
@@ -483,7 +480,8 @@ class Splits:
                     ("number",haplotyping.index.Database.getUint(maximumNumber)),]
         dtFrequencyHistogramKmer=np.dtype(dtypeFrequencyHistogramKmerList)
         dsFrequencyHistogramKmer=self.h5file["/histogram/"].create_dataset("kmer",(len(self.frequencyHistogram["kmer"]),), 
-                                                                  dtype=dtFrequencyHistogramKmer, chunks=None)
+                                                                  dtype=dtFrequencyHistogramKmer, chunks=None, 
+                                                                  compression="gzip", compression_opts=9)
         self._logger.info("store {} entries k-mer histogram".format(len(self.frequencyHistogram["kmer"])))
         #store histogram
         dsFrequencyHistogramKmer[0:len(self.frequencyHistogram["kmer"])] = list(
@@ -496,7 +494,8 @@ class Splits:
                     ("number",haplotyping.index.Database.getUint(maximumNumber)),]
         dtFrequencyHistogramCkmer=np.dtype(dtypeFrequencyHistogramCkmerList)
         dsFrequencyHistogramCkmer=self.h5file["/histogram/"].create_dataset("ckmer",(len(self.frequencyHistogram["ckmer"]),), 
-                                                                  dtype=dtFrequencyHistogramCkmer, chunks=None)
+                                                                  dtype=dtFrequencyHistogramCkmer, chunks=None, 
+                                                                  compression="gzip", compression_opts=9)
         self._logger.info("store {} entries splitting k-mer histogram".format(len(self.frequencyHistogram["ckmer"])))
         #store histogram
         dsFrequencyHistogramCkmer[0:len(self.frequencyHistogram["ckmer"])] = list(
@@ -509,7 +508,8 @@ class Splits:
                     ("number",haplotyping.index.Database.getUint(maximumNumber)),]
         dtFrequencyHistogramBase=np.dtype(dtypeFrequencyHistogramBaseList)
         dsFrequencyHistogramBase=self.h5file["/histogram/"].create_dataset("base",(len(self.frequencyHistogram["base"]),), 
-                                                                  dtype=dtFrequencyHistogramBase, chunks=None)
+                                                                  dtype=dtFrequencyHistogramBase, chunks=None, 
+                                                                  compression="gzip", compression_opts=9)
         self._logger.info("store {} entries splitting k-mer bases histogram".format(len(self.frequencyHistogram["base"])))
         #store histogram
         dsFrequencyHistogramBase[0:len(self.frequencyHistogram["base"])] = list(
@@ -518,11 +518,11 @@ class Splits:
         self._logger.debug("found {} canonicalSplitKmersLeft".format(canonicalSplitKmersLeft))
         self._logger.debug("found {} canonicalSplitKmersRight".format(canonicalSplitKmersRight))
         self._logger.debug("found {} canonicalSplitKmersBoth".format(canonicalSplitKmersBoth))
-        self.h5file["/config/"].attrs["maximumFrequency"]=self.maximumNumber
-        self.h5file["/config/"].attrs["canonicalSplitKmers"]=canonicalSplitKmers
-        self.h5file["/config/"].attrs["canonicalSplitKmersLeft"]=canonicalSplitKmersLeft
-        self.h5file["/config/"].attrs["canonicalSplitKmersBoth"]=canonicalSplitKmersBoth
-        self.h5file["/config/"].attrs["canonicalSplitKmersRight"]=canonicalSplitKmersRight 
+        self.h5file["/config/"].attrs["maximumCanonicalSplitFrequency"]=self.maximumNumber
+        self.h5file["/config/"].attrs["numberCanonicalSplit"]=canonicalSplitKmers
+        self.h5file["/config/"].attrs["numberCanonicalSplitLeft"]=canonicalSplitKmersLeft
+        self.h5file["/config/"].attrs["numberCanonicalSplitBoth"]=canonicalSplitKmersBoth
+        self.h5file["/config/"].attrs["numberCanonicalSplitRight"]=canonicalSplitKmersRight 
         
     def createAutomatonWithIndex(h5file, filenameBase, k):
         k = min(h5file["/config"].attrs["k"],k)

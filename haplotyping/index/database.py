@@ -50,6 +50,9 @@ class Database:
         
     onlySplittingKmers: bool, optional, default is False
         Only the first step will be executed, using a single process.
+        
+    onlyDirectConnections: bool, optional, default is False
+        Only direct connections are extracted from the reads
     
     debug: bool, optional, default is False
         Only use this when debugging or extending the code.      
@@ -59,7 +62,7 @@ class Database:
         
     """
 
-    version = "20220916"
+    version = "20230401"
     
     def __init__(self,
                  k: int, 
@@ -72,6 +75,7 @@ class Database:
                  maximumProcesses: int = 0,
                  automatonKmerSize: int = 0,
                  onlySplittingKmers: bool = False,
+                 onlyDirectConnections: bool = False,
                  debug: bool = False,
                  keepTemporaryFiles: bool=False):  
         
@@ -98,6 +102,8 @@ class Database:
         self.k=k
         self.name=name
         self.debug = debug
+        self.onlySplittingKmers = onlySplittingKmers
+        self.onlyDirectConnections = onlyDirectConnections
         self.automatonKmerSize = automatonKmerSize
         self.minimumFrequency = minimumFrequency
         self.keepTemporaryFiles = keepTemporaryFiles
@@ -110,16 +116,16 @@ class Database:
         assert self.maximumMemory>=0
         assert self.maximumProcesses>=0
                 
-        if (not onlySplittingKmers) and (len(readFiles)==0) and (len(pairedReadFiles)==0):
+        if (not self.onlySplittingKmers) and (len(readFiles)==0) and (len(pairedReadFiles)==0):
             self._logger.error("no read files provided")
         else:                
             #define filenames
-            filename = filenameBase+".h5"            
+            filename = "{}.h5".format(filenameBase)
             
             #skip finished steps
             if self.debug:
-                filename_splits = filenameBase+".splits.h5"
-                filename_distances = filenameBase+".distances.h5"
+                filename_splits = "{}.splits.h5".format(filenameBase)
+                filename_distances = "{}.distances.h5".format(filenameBase)
                 if os.path.exists(filename_distances):
                     shutil.copyfile(filename_distances, filename)
                 elif os.path.exists(filename_splits):
@@ -135,13 +141,13 @@ class Database:
                     h5file["/config"].attrs["k"] = self.k
                     h5file["/config"].attrs["version"] = self.version
                     h5file["/config"].attrs["automatonKmerSize"] = self.automatonKmerSize
-                    h5file["/config"].attrs["minimumFrequency"] = self.minimumFrequency
+                    h5file["/config"].attrs["minimumCanonicalSplitFrequency"] = self.minimumFrequency
                     h5file.flush()
                 else:
                     assert h5file["/config"].attrs["k"] == self.k
                     assert h5file["/config"].attrs["version"] == self.version
                     assert h5file["/config"].attrs["automatonKmerSize"] == self.automatonKmerSize
-                    assert h5file["/config"].attrs["minimumFrequency"] == self.minimumFrequency
+                    assert h5file["/config"].attrs["minimumCanonicalSplitFrequency"] == self.minimumFrequency
                     
                 #these settings are allowed to change in secondary runs
                 h5file["/config"].attrs["name"] = self.name
@@ -165,11 +171,12 @@ class Database:
                     self._logger.debug("detected splitting k-mers from previous run")
                     
                 #parse read files and store distances
-                if (not onlySplittingKmers) and ("/split" in h5file) and ("/histogram" in h5file):
+                if (not self.onlySplittingKmers) and ("/split" in h5file) and ("/histogram" in h5file):
                     if not ("/relations" in h5file and "/connections" in h5file):
                         self._logger.debug("parse read files and store distances in database")
                         haplotyping.index.direct.Direct(readFiles,pairedReadFiles, h5file, 
-                                                      self.filenameBase, self.debug, self.keepTemporaryFiles)
+                                                      self.filenameBase, self.onlyDirectConnections, 
+                                                      self.debug, self.keepTemporaryFiles)
                         h5file.flush()
                         #backup
                         if self.debug:
