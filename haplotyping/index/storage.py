@@ -13,6 +13,8 @@ class Storage:
     Internal use, storage and processing
     """
     
+    stepSizeStorage = 1000000
+    
     def create_mergeDirect_storage(pytablesStorage, numberOfKmers, maximumFrequency,
                              nCycle=None, nReversal=None, nDirect=None, nPaired=None):
         pytablesStorage.create_table(pytablesStorage.root, 
@@ -1043,14 +1045,13 @@ class Storage:
                         #return
                         return distanceData
                     
-                    stepSizeStorage = 10000
-                    for i in range(mergeStart,mergeEnd+1,stepSizeStorage):
+                    for i in range(mergeStart,mergeEnd+1,Storage.stepSizeStorage):
                         #initialise
                         cycleEntries = {}
                         reversalEntries = {}
-                        directData = [{} for j in range(min(mergeEnd+1-i,stepSizeStorage,(numberOfKmers-i)))]
+                        directData = [{} for j in range(min(mergeEnd+1-i,Storage.stepSizeStorage,(numberOfKmers-i)))]
                         for storageHandler in storageHandlers:
-                            rowData = storageHandler["handler"].root.direct[i:min(mergeEnd+1,i+stepSizeStorage)]
+                            rowData = storageHandler["handler"].root.direct[i:min(mergeEnd+1,i+Storage.stepSizeStorage)]
                             for index, item in enumerate(rowData):
                                 fromLink = i + index
                                 #get and process regular data
@@ -1251,7 +1252,7 @@ class Storage:
                                             ("disconnected","uint8")], 
                                      buffer=shm.buf)
         
-        def getRead(counters, structureIterator, stepData):
+        def getRead(counters, structureIterator, stepData,pytablesStorageWorker):
             row = next(structureIterator)
             counters[0]=counters[1]
             counters[1]+=row[0]
@@ -1302,7 +1303,7 @@ class Storage:
                             stepData = pytablesStorageWorkerRaw.root.readRawData[counters[2]:counters[3]]
                             while True:
                                 row, rowData, counters, structureIterator, stepData = getRead(
-                                    counters, structureIterator, stepData)
+                                    counters, structureIterator, stepData, pytablesStorageWorkerRaw)
                                 assert row[0]==len(rowData)
                                 #filter
                                 rowData = [nodeId for nodeId in rowData if kmer_properties[nodeId][2]==0]
@@ -1388,15 +1389,15 @@ class Storage:
             for i in range(mergeStart,mergeEnd+1):
                 buffer.append([[],[]])
                 
-            def getRead(counters, infoIterator, stepData):
+            def getRead(counters, infoIterator, stepData, pytablesMergeSource):
                 row = next(infoIterator)
                 counters[0]=counters[1]
                 counters[1]+=row[0]
                 rowData = stepData[counters[0]-counters[2]:counters[1]-counters[2]]
-                if counters[1]>counters[3]:
+                while counters[1]>counters[3]:                    
                     counters[2] = counters[3]
                     counters[3] += counters[4]
-                    stepData = pytablesStorageWorker.root.readRawData[counters[2]:counters[3]]
+                    stepData = pytablesMergeSource.root.readPartitionData[counters[2]:counters[3]]
                     rowData = np.append(rowData,stepData[0:counters[1]-counters[2]])
                 #assert len(rowData)==row[0]
                 return row, rowData, counters, infoIterator, stepData
@@ -1412,7 +1413,7 @@ class Storage:
                 for item in storageReadFiles:
                     with tables.open_file(item, mode="r") as pytablesMergeSource:
                         #compute and store read partition
-                        stepSize = 1000000
+                        stepSize = 10
                         counters = [0,0,0,stepSize,stepSize] #n0,n1,m0,m1,stepSize
                         #loop
                         try:
@@ -1420,7 +1421,7 @@ class Storage:
                             stepData = pytablesMergeSource.root.readPartitionData[counters[2]:counters[3]]
                             while True:
                                 row, rowData, counters, infoIterator, stepData = getRead(
-                                    counters, infoIterator, stepData)
+                                    counters, infoIterator, stepData, pytablesMergeSource)
                                 if row[1]<mergeStart or row[1]>mergeEnd:
                                     continue
                                 assert row[0]==len(rowData)
@@ -1499,8 +1500,8 @@ class Storage:
                 except Empty:
                     time.sleep(1)
                     continue
-        except Exception as ex:
-            logger.error("merges ({}): problem with worker: {}".format(os.getpid(),ex))
+#         except Exception as ex:
+#             logger.error("merges ({}): problem with worker: {}".format(os.getpid(),ex))
         finally:
             pass
     
@@ -1538,7 +1539,6 @@ class Storage:
         tableDeleteDirect = pytablesStorage.root.deleteDirect
         tablePaired = pytablesStorage.root.tmpPaired
         
-        stepSizeStorage = 100000
         maximumCycleLength = 0
         maximumCycleNumber = 0
         maximumReversalLength = 0
@@ -1556,18 +1556,18 @@ class Storage:
                 
         for i in range(len(sortedMergeFiles)):
             with tables.open_file(sortedMergeFiles[i]["filename"], mode="r") as pytables_merge:
-                for j in range(0,sortedMergeFiles[i]["ncycle"],stepSizeStorage):
-                    reducedCycleDataBlock = pytables_merge.root.cycle[j:j+stepSizeStorage]
+                for j in range(0,sortedMergeFiles[i]["ncycle"],Storage.stepSizeStorage):
+                    reducedCycleDataBlock = pytables_merge.root.cycle[j:j+Storage.stepSizeStorage]
                     maximumCycleNumber = max(maximumCycleNumber,max(reducedCycleDataBlock["number"]))
                     maximumCycleLength = max(maximumCycleLength,max(reducedCycleDataBlock["minimumLength"]))
                     tableCycle.append(reducedCycleDataBlock)
-                for j in range(0,sortedMergeFiles[i]["nreversal"],stepSizeStorage):
-                    reducedReversalDataBlock = pytables_merge.root.reversal[j:j+stepSizeStorage]
+                for j in range(0,sortedMergeFiles[i]["nreversal"],Storage.stepSizeStorage):
+                    reducedReversalDataBlock = pytables_merge.root.reversal[j:j+Storage.stepSizeStorage]
                     maximumReversalNumber = max(maximumReversalNumber,max(reducedReversalDataBlock["number"]))
                     maximumReversalLength = max(maximumReversalLength,max(reducedReversalDataBlock["minimumLength"]))
                     tableReversal.append(reducedReversalDataBlock)
-                for j in range(0,sortedMergeFiles[i]["ndirect"],stepSizeStorage):
-                    directDataBlock = pytables_merge.root.direct[j:j+stepSizeStorage]
+                for j in range(0,sortedMergeFiles[i]["ndirect"],Storage.stepSizeStorage):
+                    directDataBlock = pytables_merge.root.direct[j:j+Storage.stepSizeStorage]
                     deleteDataBlock = tableDeleteDirect.read_where(
                         "(fromLink>={}) & (fromLink<={})".format(
                         directDataBlock[0]["fromLink"],directDataBlock[-1]["fromLink"]))
@@ -1579,8 +1579,8 @@ class Storage:
                     maximumDirectDistance = max(maximumDirectDistance,max(reducedDirectDataBlock["distance"]))
                     #add reduced direct data
                     tableDirect.append(reducedDirectDataBlock)  
-                for j in range(0,sortedMergeFiles[i]["npaired"],stepSizeStorage):
-                    reducedPairedDataBlock = pytables_merge.root.tmpPaired[j:j+stepSizeStorage]
+                for j in range(0,sortedMergeFiles[i]["npaired"],Storage.stepSizeStorage):
+                    reducedPairedDataBlock = pytables_merge.root.tmpPaired[j:j+Storage.stepSizeStorage]
                     tablePaired.append(reducedPairedDataBlock)
 
         tableCycle.attrs["maximumNumber"] = maximumCycleNumber
@@ -1623,13 +1623,12 @@ class Storage:
         numberOfReads = 0
         numberOfData = 0
         partitionIndex = [0] * numberOfPartitions
-        stepSizeStorage = 1000
         for item in mergeFiles:
             with tables.open_file(item, mode="r") as pytablesSource:
                 numberOfReads+=pytablesSource.root.readPartitionInfo.shape[0]
                 numberOfData+=pytablesSource.root.readPartitionData.shape[0]
-                for i in range(0,numberOfReads,stepSizeStorage):
-                    stepData = pytablesSource.root.readPartitionInfo[i:i+stepSizeStorage]
+                for i in range(0,numberOfReads,Storage.stepSizeStorage):
+                    stepData = pytablesSource.root.readPartitionInfo[i:i+Storage.stepSizeStorage]
                     for p in stepData:
                         partitionIndex[p]+=1
         if numberOfReads>0:
@@ -1687,6 +1686,7 @@ class Storage:
                         partition+=1
             while partition<numberOfPartitions:
                 readPartition.append((tData,0,tReads,0))
+                partition+=1
             readPartitionInfo.attrs["maximumLength"] = maximumLength
             readPartitionInfo.attrs["maximumTotalLength"] = maximumTotalLength
             readPartitionInfo.attrs["maximumNumber"] = maximumNumber
@@ -1717,7 +1717,6 @@ class Storage:
             dataBlock = tuple([tuple(e) for e in dataBlock])
             return (dataBlock,directGood,directCoverage,directProblematic,distinct,number)
         
-        stepSizeStorage = 100000
         dsCkmer = h5file["/split/ckmer"]
         
         #cycles
@@ -1733,9 +1732,9 @@ class Storage:
                                                      compression="gzip", compression_opts=9)
         maximumCycleLength = 0
         maximumCycleNumber = 0
-        for i in range(0,numberOfCycles,stepSizeStorage):
-            stepData = pytablesStorage.root.cycle[i:i+stepSizeStorage]                    
-            dsCycle[i:i+stepSizeStorage] = stepData
+        for i in range(0,numberOfCycles,Storage.stepSizeStorage):
+            stepData = pytablesStorage.root.cycle[i:i+Storage.stepSizeStorage]                    
+            dsCycle[i:i+Storage.stepSizeStorage] = stepData
             for row in stepData:
                 ckmerRow = dsCkmer[row[0]]
                 ckmerRow[7] = row[2]
@@ -1759,9 +1758,9 @@ class Storage:
                                                         compression="gzip", compression_opts=9)
         maximumReversalLength = 0
         maximumReversalNumber = 0
-        for i in range(0,numberOfReversals,stepSizeStorage):
-            stepData = pytablesStorage.root.reversal[i:i+stepSizeStorage]
-            dsReversal[i:i+stepSizeStorage] = stepData
+        for i in range(0,numberOfReversals,Storage.stepSizeStorage):
+            stepData = pytablesStorage.root.reversal[i:i+Storage.stepSizeStorage]
+            dsReversal[i:i+Storage.stepSizeStorage] = stepData
             for row in stepData:
                 ckmerRow = dsCkmer[row[0]]
                 ckmerRow[8] = row[2]
@@ -1793,12 +1792,12 @@ class Storage:
         directGood = 0
         directCoverage = 0
         directProblematic = 0
-        for i in range(0,numberOfDirectRelations,stepSizeStorage):
-            stepData = pytablesStorage.root.direct[i:i+stepSizeStorage]
+        for i in range(0,numberOfDirectRelations,Storage.stepSizeStorage):
+            stepData = pytablesStorage.root.direct[i:i+Storage.stepSizeStorage]
             #move a bit to get all fromLinks in the selection
             if len(previousStepData)>0:
                 stepData = np.concatenate((previousStepData, stepData))
-            if (i+stepSizeStorage-1)<numberOfDirectRelations:
+            if (i+Storage.stepSizeStorage-1)<numberOfDirectRelations:
                 lastFromLink = stepData[-1]["fromLink"]
                 previousStepData = np.take(stepData, np.where(stepData["fromLink"] == lastFromLink))[0]
                 stepData = np.delete(stepData, np.where(stepData["fromLink"] == lastFromLink))
@@ -1883,8 +1882,6 @@ class Storage:
     def store_merged_reads(h5file,pytablesStorage,numberOfKmers,numberOfPartitions):
         logger = logging.getLogger(__name__)    
         
-        stepSizeStorage = 1000
-        
         #paired
         ckmerIndex = [[0,0] for i in range(numberOfKmers)]
         numberOfPaired = pytablesStorage.root.readPaired.shape[0]
@@ -1894,8 +1891,8 @@ class Storage:
         dsPaired=h5file["/relations/"].create_dataset("paired",(numberOfPaired,), 
                                                       dtype=dtPaired, chunks=None, 
                                                       compression="gzip", compression_opts=9)
-        for i in range(0,numberOfPaired,stepSizeStorage):
-            stepData = pytablesStorage.root.readPaired[i:i+stepSizeStorage]
+        for i in range(0,numberOfPaired,Storage.stepSizeStorage):
+            stepData = pytablesStorage.root.readPaired[i:i+Storage.stepSizeStorage]
             for j in range(len(stepData)):
                 row = stepData[j]
                 if ckmerIndex[row[0]][1]>0:
@@ -1907,10 +1904,10 @@ class Storage:
         
         #update kmer properties
         dsCkmer = h5file["/split/ckmer"]
-        for i in range(0,numberOfKmers,stepSizeStorage):
-            stepData = dsCkmer[i:i+stepSizeStorage]
+        for i in range(0,numberOfKmers,Storage.stepSizeStorage):
+            stepData = dsCkmer[i:i+Storage.stepSizeStorage]
             stepData["paired"] = [tuple(item) for item in ckmerIndex[i:i+len(stepData)]]
-            dsCkmer[i:i+stepSizeStorage] = stepData
+            dsCkmer[i:i+Storage.stepSizeStorage] = stepData
         
         #reads
         numberOfReadPartition = pytablesStorage.root.readPartition.shape[0]
@@ -1925,8 +1922,8 @@ class Storage:
         dsReadData=h5file["/relations/"].create_dataset("readData",(numberOfReadPartitionData,), 
                                                       dtype=haplotyping.index.Database.getUint(numberOfKmers), 
                                                       chunks=None, compression="gzip", compression_opts=9)
-        for i in range(0,numberOfReadPartitionData,stepSizeStorage):
-            stepData = pytablesStorage.root.readPartitionData[i:i+stepSizeStorage]
+        for i in range(0,numberOfReadPartitionData,Storage.stepSizeStorage):
+            stepData = pytablesStorage.root.readPartitionData[i:i+Storage.stepSizeStorage]
             dsReadData[i:i+len(stepData)] = stepData
         logger.info("store {} read data points".format(numberOfReadPartitionData))
         dtypeReadInfoList=[("length",haplotyping.index.Database.getUint(maxReadLength)),
@@ -1935,8 +1932,8 @@ class Storage:
         dsReadInfo=h5file["/relations/"].create_dataset("readInfo",(numberOfReadPartitionInfo,), 
                                                       dtype=dtReadInfo, chunks=None, 
                                                       compression="gzip", compression_opts=9)
-        for i in range(0,numberOfReadPartitionInfo,stepSizeStorage):
-            stepData = pytablesStorage.root.readPartitionInfo[i:i+stepSizeStorage]
+        for i in range(0,numberOfReadPartitionInfo,Storage.stepSizeStorage):
+            stepData = pytablesStorage.root.readPartitionInfo[i:i+Storage.stepSizeStorage]
             dsReadInfo[i:i+len(stepData)] = stepData
         logger.info("store {} read info".format(numberOfReadPartitionInfo))
         dtypeReadPartitionList=[("readData",[
@@ -1949,8 +1946,8 @@ class Storage:
         dsReadPartition=h5file["/relations/"].create_dataset("readPartition",(numberOfReadPartition,), 
                                                       dtype=dtReadPartition, chunks=None, 
                                                       compression="gzip", compression_opts=9)
-        for i in range(0,numberOfReadPartition,stepSizeStorage):
-            stepData = pytablesStorage.root.readPartition[i:i+stepSizeStorage]
+        for i in range(0,numberOfReadPartition,Storage.stepSizeStorage):
+            stepData = pytablesStorage.root.readPartition[i:i+Storage.stepSizeStorage]
             dsReadPartition[i:i+len(stepData)] = [((item[0],item[1]),(item[2],item[3])) for item in stepData]
         logger.info("store {} read partitions".format(numberOfReadPartition))
         
@@ -1962,7 +1959,6 @@ class Storage:
     def partition_kmers(h5file,pytablesStorage,maxNumberOfPartitions):
         #initialize
         logger = logging.getLogger(__name__)  
-        stepSizeStorage = 10000000
         edges = []
         disconnected = []
         
@@ -1973,8 +1969,8 @@ class Storage:
         previousVertex = 0
         previousNeighbours = []
         logger.debug("create graph for partitioning")
-        for i in range(0,numberOfDirect,stepSizeStorage):
-            block = h5file["relations"]["direct"][i:i+stepSizeStorage]
+        for i in range(0,numberOfDirect,Storage.stepSizeStorage):
+            block = h5file["relations"]["direct"][i:i+Storage.stepSizeStorage]
             logger.debug("add edges: {}-{} of {} ({}%)".format(
                 i,i+len(block),numberOfDirect,int(100*(i+len(block))/numberOfDirect)))
             for j in range(len(block)):
@@ -2053,13 +2049,12 @@ class Storage:
         logger.debug("computed {} partitions - {}".format(numberOfPartitions,max(partitions)))
 
         #store partition in ckmer properties
-        stepSizeStorage = 100000
         dsCkmer = h5file["/split/ckmer"]
         assert numberOfKmers==len(partitions)
-        for i in range(0,numberOfKmers,stepSizeStorage):
-            stepData = dsCkmer[i:i+stepSizeStorage] 
-            stepData["partition"] = partitions[i:i+stepSizeStorage] 
-            dsCkmer[i:i+stepSizeStorage] = stepData
+        for i in range(0,numberOfKmers,Storage.stepSizeStorage):
+            stepData = dsCkmer[i:i+Storage.stepSizeStorage] 
+            stepData["partition"] = partitions[i:i+Storage.stepSizeStorage] 
+            dsCkmer[i:i+Storage.stepSizeStorage] = stepData
         
         #store partition size
         h5file["/config/"].attrs["numberPartitions"]=numberOfPartitions  

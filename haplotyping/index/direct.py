@@ -752,7 +752,7 @@ class Direct:
         
             #worker requirements
             nWorkers = max(3,mp.cpu_count()-1) if self.maximumProcesses==0 else self.maximumProcesses - 1
-            nWorkersMerges = min(len(storageFilteredReadFiles),nWorkers)            
+            nWorkersMerges = min(len(storageFilteredReadFiles),nWorkers)     
             self._logger.debug("start {} processes to merge reads".format(nWorkersMerges))
             
             queue_ranges = mp.Queue(nWorkersMerges)
@@ -788,7 +788,10 @@ class Direct:
                         elif isinstance(item,str):
                             mergeFiles.append(item)
                     except Empty:
-                        break 
+                        if len(mergeFiles)==nWorkersMerges:
+                            break
+                        else:
+                            time.sleep(1)
                 #now also close this queue
                 Direct._close_queue(queue_merges)
 
