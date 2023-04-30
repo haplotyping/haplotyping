@@ -117,6 +117,8 @@ class DatasetList(Resource):
             if start<total:
                 cursor.execute("SELECT `dataset`.`uid`, \
                                 `dataset`.`type`, \
+                                `dataset`.`subtype`, \
+                                `dataset`.`version`, \
                                 `collection`.`uid` AS `collection_uid`, \
                                 `collection`.`name` AS `collection_name`, \
                                 `variety`.`uid` AS `variety_uid`, \
@@ -163,6 +165,8 @@ class DatasetList(Resource):
                 total = cursor.fetchone()[0]
                 cursor.execute("SELECT `dataset`.`uid`, \
                                 `dataset`.`type`, \
+                                `dataset`.`subtype`, \
+                                `dataset`.`version`, \
                                 `collection`.`uid` AS `collection_uid`, \
                                 `collection`.`name` AS `collection_name`, \
                                 `variety`.`uid` AS `variety_uid`, \
@@ -201,6 +205,8 @@ class DatasetId(Resource):
             cursor = db_connection.cursor()
             cursor.execute("SELECT `dataset`.`uid`, \
                             `dataset`.`type`, \
+                            `dataset`.`subtype`, \
+                            `dataset`.`version`, \
                             `collection`.`uid` AS `collection_uid`, \
                             `collection`.`name` AS `collection_name`, \
                             `variety`.`uid` AS `variety_uid`, \

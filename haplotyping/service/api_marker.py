@@ -13,6 +13,8 @@ def getDataset(uid):
     cursor = db_connection.cursor()
     cursor.execute("SELECT `dataset`.`uid`, \
                     `dataset`.`type`, \
+                    `dataset`.`subtype`, \
+                    `dataset`.`version`, \
                     `dataset`.`internal_id`, \
                     `dataset`.`location` AS `dataset_location`, \
                     `collection`.`location` AS `collection_location` \

@@ -37,6 +37,8 @@ def get_variety_datasets(uid, collection, dataset, db_connection):
     cursor = db_connection.cursor()
     cursor.execute("""SELECT `dataset`.`uid`, 
                            `dataset`.`type`, 
+                           `dataset`.`subtype`, 
+                           `dataset`.`version`, 
                            `collection`.`uid` AS `collection_uid`, 
                            `collection`.`name` AS `collection_name`, 
                            `collection`.`type` AS `collection_type`, 

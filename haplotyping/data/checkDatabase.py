@@ -138,12 +138,28 @@ class CheckDatabase:
                             kmerNotFound+=1
                         else:
                             datasetType = "kmer"
-                            if not os.path.exists(os.path.join(kmerLocation,"kmer.data.h5")): 
+                            datasetSubType = None
+                            datasetVersion = None
+                            dbLocation = os.path.join(kmerLocation,"kmer.data.h5")
+                            if not os.path.exists(dbLocation): 
                                 splitNotFound+=1
                             else:
-                                datasetType = "split"
-                            query = """UPDATE `dataset` SET `type` = ? WHERE `id` = ? AND `collection_id` = ?"""
-                            self._cursor.execute(query, (datasetType, dataset["id"], collection["id"],))  
+                                try:
+                                    with h5py.File(dbLocation, "r") as h5file:                                        
+                                        datasetVersion = h5file["/config"].attrs["version"]
+                                        if not ("/relations" in h5file and "/relations/direct" in h5file):
+                                            datasetSubType = "split"
+                                        elif not ("/relations/readData" in h5file):
+                                            datasetSubType = "direct"
+                                        else:
+                                            datasetSubType = "read"
+                                        datasetType = "split"
+                                except:
+                                    self._logger.error("couldn't parse {}".format(dbLocation))
+                            query = """UPDATE `dataset` SET `type` = ?, `subtype` = ?, `version` = ?
+                                        WHERE `id` = ? AND `collection_id` = ?"""
+                            self._cursor.execute(query, (datasetType, datasetSubType, datasetVersion, 
+                                                         dataset["id"], collection["id"],))  
             self._connection.commit()            
             if locationsNotFound>0:
                 self._logger.error("kmer collection {}: {} location(s) not found".format(

@@ -154,6 +154,8 @@ class ConstructDatabase:
                                 "internal_id" INTEGER NOT NULL,
                                 "location" VARCHAR(255) NULL,
                                 "type" VARCHAR(6) CHECK("type" IN ("marker","kmer","split") ) NULL,
+                                "subtype" VARCHAR(6) CHECK("type" IN ("split","direct","read") ) NULL,
+                                "version" VARCHAR(8) NULL,
                                 PRIMARY KEY ("id")
                             );
                             CREATE INDEX "dataset_collection_id" ON "dataset" ("collection_id");
@@ -163,29 +165,29 @@ class ConstructDatabase:
                             CREATE INDEX "dataset_variety" ON "dataset" ("variety");"""
                     self._connection.executescript(sql)
                     #countries
-                    countries = pd.DataFrame(extract(package.get_resource("pedigree_countries")))
+                    countries = pd.DataFrame(package.get_resource("pedigree_countries").read_rows())
                     countries = countries[["code","name"]]
                     countries.columns = ["uid","name"]
                     countries.to_sql("country", con=self._connection, index=False, if_exists="append")
                     self._logger.info("add {} countries".format(len(countries)))
                     #breeders
-                    breeders = pd.DataFrame(extract(package.get_resource("pedigree_breeders")))
+                    breeders = pd.DataFrame(package.get_resource("pedigree_breeders").read_rows())
                     breeders = breeders[["id","name","country"]]
                     breeders.to_sql("breeder", con=self._connection, index=False, if_exists="append")
                     self._logger.info("add {} breeders".format(len(breeders)))
                     #varieties
-                    varieties = pd.DataFrame(extract(package.get_resource("pedigree_varieties")))
+                    varieties = pd.DataFrame(package.get_resource("pedigree_varieties").read_rows())
                     varieties = varieties[["uid", "name", "yearMin", "yearMax", "origin", "breederId"]]
                     varieties.columns = ["uid", "name", "year_min", "year_max", "origin", "breeder_id"]
                     varieties.to_sql("variety", con=self._connection, index=False, if_exists="append")
                     self._logger.info("add {} varieties".format(len(varieties)))
                     #ancestors
-                    ancestors = pd.DataFrame(extract(package.get_resource("pedigree_ancestors")))
+                    ancestors = pd.DataFrame(package.get_resource("pedigree_ancestors").read_rows())
                     ancestors = ancestors[["id","variety", "ancestor", "type", "offspring"]]
                     ancestors.to_sql("variety_ancestor", con=self._connection, index=False, if_exists="append")
                     self._logger.info("add {} ancestors".format(len(ancestors)))
                     #synonyms
-                    synonyms = pd.DataFrame(extract(package.get_resource("pedigree_synonyms")))
+                    synonyms = pd.DataFrame(package.get_resource("pedigree_synonyms").read_rows())
                     synonyms = synonyms[["uid","synonym"]]
                     synonyms.to_sql("variety_synonym", con=self._connection, index=False, if_exists="append")
                     self._logger.info("add {} synonyms".format(len(synonyms)))
@@ -258,11 +260,12 @@ class ConstructDatabase:
         else:
             raise Exception("could not create collection")
         
-    def _createDataset(self,variety,collection_id,collection_uid,internal_id,location,type=None):
+    def _createDataset(self,variety,collection_id,collection_uid,internal_id,location,type=None,subtype=None,version=None):
         uid = self._newDatasetUid(collection_uid, internal_id)
-        query = """INSERT OR IGNORE INTO `dataset` (`uid`,`variety`,`collection_id`,`internal_id`,`location`,`type`) 
-        VALUES (?,?,?,?,?,?)"""
-        self._connection.execute(query, (uid,variety, int(collection_id), int(internal_id), location, type, ))
+        query = """INSERT OR IGNORE INTO `dataset` (`uid`,`variety`,`collection_id`,`internal_id`,
+                            `location`,`type`,`subtype`,`version`) 
+        VALUES (?,?,?,?,?,?,?,?)"""
+        self._connection.execute(query, (uid,variety, int(collection_id), int(internal_id), location, type, subtype, version))
         self._connection.commit()
         
     def _getUint(maximumValue):
@@ -286,10 +289,10 @@ class ConstructDatabase:
                      and package.has_resource("markers") 
                      and package.has_resource("mappings"))):
                 #get shared data
-                metadata = pd.DataFrame(extract(package.get_resource("metadata")))
+                metadata = pd.DataFrame(package.get_resource("metadata").read_rows())
                 metadata = {x:y for (x,y,) in zip(metadata["label"],metadata["value"])}
-                varieties = pd.DataFrame(extract(package.get_resource("varieties")))
-                experiments = pd.DataFrame(extract(package.get_resource("experiments")))
+                varieties = pd.DataFrame(package.get_resource("varieties").read_rows())
+                experiments = pd.DataFrame(package.get_resource("experiments").read_rows())
                 if len(varieties)>0 and len(experiments)>0:
                     varieties = varieties.set_index("id")
                     experiments = experiments.set_index("id")
@@ -299,7 +302,7 @@ class ConstructDatabase:
                 #process sequence data
                 if package.has_resource("sequences"):
                     collectionList = {}
-                    sequences = pd.DataFrame(extract(package.get_resource("sequences")))                    
+                    sequences = pd.DataFrame(package.get_resource("sequences").read_rows())
                     if len(sequences)>0:
                         for experiment_id in set(sequences["experiment_id"]):
                             collectionId=None
@@ -326,11 +329,11 @@ class ConstructDatabase:
 
                 #process marker data
                 if (package.has_resource("scores") and package.has_resource("markers") and package.has_resource("mappings")):
-                    scores = pd.DataFrame(extract(package.get_resource("scores")))
-                    markers = pd.DataFrame(extract(package.get_resource("markers")))
+                    scores = pd.DataFrame(package.get_resource("scores").read_rows())
+                    markers = pd.DataFrame(package.get_resource("markers").read_rows())
                     if len(markers)>0:
                         markers = markers.set_index("id")
-                    mappings = pd.DataFrame(extract(package.get_resource("mappings")))
+                    mappings = pd.DataFrame(package.get_resource("mappings").read_rows())
                     #process scores
                     for score_id,row in scores.iterrows():
                         varietyList = []
