@@ -22,7 +22,7 @@ from haplotyping.service.api_split import cache as cache_api_split
 
 class API:
     
-    def __init__(self, location):
+    def __init__(self, location, configFile="config.ini"):
                                 
         self.location = str(location)
         
@@ -30,7 +30,7 @@ class API:
         logger_server = logging.getLogger(__name__+".server")
         
         self.config = configparser.ConfigParser()
-        self.config.read(os.path.join(self.location,"server.ini")) 
+        self.config.read(os.path.join(self.location,configFile)) 
         logger_server.info("read configuration file") 
         if self.config.getboolean("api","debug"):
             logger_server.info("run in debug mode") 

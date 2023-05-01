@@ -2,7 +2,7 @@ import os, logging, tempfile
 import gzip,csv,json
 from openpyxl import load_workbook
 from frictionless import Resource, Schema, Package, Dialect, formats, errors
-from frictionless import validate, extract
+from frictionless import validate
 import pandas as pd, numpy as np, textwrap
 from shutil import copyfile
 
@@ -743,11 +743,11 @@ class ValidateData(ValidateGeneral):
             #check marker scores
             if (self._package.has_resource("scores") and self._package.has_resource("markers") 
                 and self._package.has_resource("varieties")):
-                scores = pd.DataFrame(extract(self._package.get_resource("scores")))
-                markers = pd.DataFrame(extract(self._package.get_resource("markers")))
+                scores = pd.DataFrame(self._package.get_resource("scores").read_rows())
+                markers = pd.DataFrame(self._package.get_resource("markers").read_rows())
                 if len(markers)>0:
                     markers = markers.set_index("id")
-                varieties = pd.DataFrame(extract(self._package.get_resource("varieties")))
+                varieties = pd.DataFrame(self._package.get_resource("varieties").read_rows())
                 if len(varieties)>0:
                     varieties = varieties.set_index("id")        
                 for score_id,score_row in scores.iterrows():

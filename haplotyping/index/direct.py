@@ -97,12 +97,13 @@ class Direct:
                         self._processReads()
                         self._storeReads()
                     self.h5file.flush()     
-            #except Exception as e:
-            #    self._logger.error("problem occurred while processing reads: "+str(e))
+            except Exception as e:
+               self._logger.error("problem occurred while processing reads: "+str(e))
             finally:
                 try:
                     if not self.keepTemporaryFiles:
                         os.remove(pytablesFile)
+                        haplotyping.index.splits.Splits.deleteAutomatonWithIndex(filenameBase, automatonKmerSize)
                 except:
                     self._logger.error("problem removing files")   
                     

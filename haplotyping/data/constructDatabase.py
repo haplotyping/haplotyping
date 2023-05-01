@@ -1,7 +1,7 @@
 #!python
 
 import os,logging,tempfile
-from frictionless import Package, extract
+from frictionless import Package
 import gzip,csv,pandas as pd, numpy as np
 import sqlite3, json, time
 from sqlite3 import Error

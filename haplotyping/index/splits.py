@@ -524,6 +524,17 @@ class Splits:
         self.h5file["/config/"].attrs["numberCanonicalSplitBoth"]=canonicalSplitKmersBoth
         self.h5file["/config/"].attrs["numberCanonicalSplitRight"]=canonicalSplitKmersRight 
         
+    def deleteAutomatonWithIndex(filenameBase, k):
+        indexFile = "{}_{}.index.splits".format(filenameBase,k)
+        automatonFile = "{}_{}.automaton.splits".format(filenameBase,k)
+        automatonStatsFile = "{}_{}.automaton.splits.stats".format(filenameBase,k)
+        if os.path.exists(indexFile):
+            os.remove(indexFile)
+        if os.path.exists(automatonFile):
+            os.remove(automatonFile)
+        if os.path.exists(automatonStatsFile):
+            os.remove(automatonStatsFile)
+        
     def createAutomatonWithIndex(h5file, filenameBase, k):
         k = min(h5file["/config"].attrs["k"],k)
         logger = logging.getLogger(__name__)
