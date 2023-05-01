@@ -154,7 +154,7 @@ class ConstructDatabase:
                                 "internal_id" INTEGER NOT NULL,
                                 "location" VARCHAR(255) NULL,
                                 "type" VARCHAR(6) CHECK("type" IN ("marker","kmer","split") ) NULL,
-                                "subtype" VARCHAR(6) CHECK("type" IN ("split","direct","read") ) NULL,
+                                "subtype" VARCHAR(6) CHECK("subtype" IN ("split","direct","read") ) NULL,
                                 "version" VARCHAR(8) NULL,
                                 PRIMARY KEY ("id")
                             );

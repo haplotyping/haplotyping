@@ -28,13 +28,15 @@ setuptools.setup(
       "waitress >= 2.1.2",
       "flask-caching >= 2.0.1",
       "openpyxl >= 3.0.10",
-      "frictionless == 5.10.5"
+      "frictionless == 5.10.5",
+      "psutil >= 5.9.5",
+      "metis >= 0.2a5"
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.8",
+    python_requires=">=3.10",
     test_suite="tests",
     include_package_data=True,
     package_data={"": ["data/schema/*.json"]},
