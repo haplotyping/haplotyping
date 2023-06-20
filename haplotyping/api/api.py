@@ -307,27 +307,6 @@ class API():
                 self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
                 return None        
         
-    def getSplitConnected(self, datasetUid, kmer):
-        if not isinstance(kmer,str):
-            fullRequest = "{}split/{}/kmer/connected".format(self._baseUrl, datasetUid)        
-            response = requests.post(fullRequest, json={"kmers": sorted(kmer)},
-                                     auth=self._apiAuth, headers=self._apiHeaders)
-            if response.ok:
-                data = response.json()
-                return data
-            else:
-                self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-                return None
-        else:
-            fullRequest = "{}split/{}/kmer/connected/{}".format(self._baseUrl, datasetUid, kmer)        
-            response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
-            if response.ok:
-                data = response.json()
-                return data
-            else:
-                self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-                return None        
-        
     def getMarkerData(self, uid):
         """
             get marker data

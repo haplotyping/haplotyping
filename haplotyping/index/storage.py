@@ -1619,10 +1619,11 @@ class Storage:
         
         
     def combine_read_merges(mergeFiles,pytablesStorage,numberOfKmers,
-                                  numberOfPartitions,maximumReadLength):
+                                  numberOfPartitions, maximumOriginalReadLength):
         numberOfReads = 0
         numberOfData = 0
         partitionIndex = [0] * numberOfPartitions
+        #compute number of reads for each partition
         for item in mergeFiles:
             with tables.open_file(item, mode="r") as pytablesSource:
                 numberOfReads+=pytablesSource.root.readPartitionInfo.shape[0]
@@ -1631,28 +1632,35 @@ class Storage:
                     stepData = pytablesSource.root.readPartitionInfo[i:i+Storage.stepSizeStorage]
                     for p in stepData:
                         partitionIndex[p]+=1
+        #only if reads found
         if numberOfReads>0:
-            Storage.create_filteredMergedReads_storage(pytablesStorage,numberOfReads,numberOfData,numberOfKmers,
-                                  numberOfPartitions,maximumReadLength)
+            Storage.create_filteredMergedReads_storage(pytablesStorage,numberOfReads,numberOfData,
+                      numberOfKmers, numberOfPartitions, maximumOriginalReadLength)
+            #variables for final position reads and data
             tReads = 0
             tData = 0
+            #final storage
             readPartition=pytablesStorage.root.readPartition
             readPartitionInfo=pytablesStorage.root.readPartitionInfo
             readPartitionData=pytablesStorage.root.readPartitionData
-            partition = 0
-            maximumLength = 0
-            maximumTotalLength = 0
-            maximumNumber = 0
-            maximumTotalNumber = 0
+            #statistics
+            maximumReadLength = 0
+            maximumTotalReadLength = 0
+            maximumReadNumber = 0
+            maximumTotalReadNumber = 0
+            #processed partition
+            partition = 0            
             for item in mergeFiles:
                 with tables.open_file(item, mode="r") as pytablesSource:
+                    #get sizes source files
                     sInfo=pytablesSource.root.readPartitionInfo.shape[0]
                     sLength=pytablesSource.root.readPartitionLength.shape[0]
                     sData=pytablesSource.root.readPartitionData.shape[0]
+                    #variables for source position reads and data
                     pReads=0
                     pData=0
                     while pReads<sInfo:
-                        #collect data
+                        #collect data, can be empty
                         nReads = partitionIndex[partition]
                         partitionLength = pytablesSource.root.readPartitionLength[pReads:pReads+nReads]
                         nData = sum(partitionLength)
@@ -1673,11 +1681,14 @@ class Storage:
                                 fData+=partitionLength[i]
                         if len(partitionDataInfo)>0:
                             readPartitionInfo.append([tuple(item) for item in partitionDataInfo])
-                            maximumLength = max(maximumLength,max([item[0] for item in partitionDataInfo]))
-                            maximumTotalLength = max(maximumTotalLength,sum([item[0] for item in partitionDataInfo]))
-                            maximumNumber = max(maximumNumber,max([item[1] for item in partitionDataInfo]))
-                            maximumTotalNumber = max(maximumTotalNumber,len(partitionDataInfo))
-                        #store
+                            maximumReadLength = max(maximumReadLength,max([item[0] 
+                                                   for item in partitionDataInfo]))
+                            maximumTotalReadLength = max(maximumTotalReadLength,sum([item[0] 
+                                                   for item in partitionDataInfo]))
+                            maximumReadNumber = max(maximumReadNumber,max([item[1] 
+                                                   for item in partitionDataInfo]))
+                            maximumTotalReadNumber = max(maximumTotalReadNumber,len(partitionDataInfo))
+                        #always store information for partition
                         readPartition.append([(tData,fData,tReads,len(partitionDataInfo))])
                         pReads+=nReads
                         pData+=nData
@@ -1687,10 +1698,10 @@ class Storage:
             while partition<numberOfPartitions:
                 readPartition.append((tData,0,tReads,0))
                 partition+=1
-            readPartitionInfo.attrs["maximumLength"] = maximumLength
-            readPartitionInfo.attrs["maximumTotalLength"] = maximumTotalLength
-            readPartitionInfo.attrs["maximumNumber"] = maximumNumber
-            readPartitionInfo.attrs["maximumTotalNumber"] = maximumTotalNumber
+            readPartitionInfo.attrs["maximumReadLength"] = maximumReadLength
+            readPartitionInfo.attrs["maximumTotalReadLength"] = maximumTotalReadLength
+            readPartitionInfo.attrs["maximumReadNumber"] = maximumReadNumber
+            readPartitionInfo.attrs["maximumTotalReadNumber"] = maximumTotalReadNumber
 
     """
     Store direct data in the final database, handled by single process
@@ -1914,10 +1925,10 @@ class Storage:
         numberOfReadPartitionData = pytablesStorage.root.readPartitionData.shape[0]
         numberOfReadPartitionInfo = pytablesStorage.root.readPartitionInfo.shape[0]
         
-        maxReadLength = pytablesStorage.root.readPartitionInfo.attrs["maximumLength"]
-        maxTotalReadLength = pytablesStorage.root.readPartitionInfo.attrs["maximumTotalLength"]
-        maxReadNumber = pytablesStorage.root.readPartitionInfo.attrs["maximumNumber"]
-        maxTotalReadNumber = pytablesStorage.root.readPartitionInfo.attrs["maximumTotalNumber"]
+        maxReadLength = pytablesStorage.root.readPartitionInfo.attrs["maximumReadLength"]
+        maxTotalReadLength = pytablesStorage.root.readPartitionInfo.attrs["maximumTotalReadLength"]
+        maxReadNumber = pytablesStorage.root.readPartitionInfo.attrs["maximumReadNumber"]
+        maxTotalReadNumber = pytablesStorage.root.readPartitionInfo.attrs["maximumTotalReadNumber"]
         
         dsReadData=h5file["/relations/"].create_dataset("readData",(numberOfReadPartitionData,), 
                                                       dtype=haplotyping.index.Database.getUint(numberOfKmers), 
@@ -1938,10 +1949,10 @@ class Storage:
         logger.info("store {} read info".format(numberOfReadPartitionInfo))
         dtypeReadPartitionList=[("readData",[
                                     ("link",haplotyping.index.Database.getUint(numberOfReadPartitionData)),
-                                    ("number",haplotyping.index.Database.getUint(maxReadLength))]),
+                                    ("number",haplotyping.index.Database.getUint(maxTotalReadLength))]),
                                 ("readInfo",[
                                     ("link",haplotyping.index.Database.getUint(numberOfReadPartitionInfo)),
-                                    ("number",haplotyping.index.Database.getUint(maxReadLength))])]
+                                    ("number",haplotyping.index.Database.getUint(maxTotalReadNumber))])]
         dtReadPartition=np.dtype(dtypeReadPartitionList)
         dsReadPartition=h5file["/relations/"].create_dataset("readPartition",(numberOfReadPartition,), 
                                                       dtype=dtReadPartition, chunks=None, 

@@ -256,6 +256,50 @@ class Split:
                 start = id 
         return response
     
+    def _kmers_connected(h5file: h5py.File, kmers: list):
+        ckmerList = set()
+        for kmer in kmers:
+            ckmerList.add(haplotyping.General.canonical(kmer))
+        ckmerList = list(ckmerList)
+        ckmerList.sort()
+        response = []
+        partitions = set()
+        kmerIds = set()
+        ckmerTable = h5file.get("/split/ckmer")
+        readPartitionTable = h5file.get("/relations/readPartition")
+        readDataTable = h5file.get("/relations/readData")
+        readInfoTable = h5file.get("/relations/readInfo")
+        #get partitions
+        number = ckmerTable.shape[0]
+        start = 0
+        cache = {}
+        for i in range(len(ckmerList)):
+            ckmer = ckmerList[i]
+            (ckmerRow,id,cache) = Split._findItem(ckmer,ckmerTable,start,number,cache)
+            if ckmerRow:
+                partitions.add(int(ckmerRow[5]))
+                kmerIds.add(id)
+                start = id+1
+            else:
+                start = id 
+        #check reads from partitions
+        partitions = list(partitions)
+        partitions.sort()
+        for i in range(len(partitions)):
+            partition = readPartitionTable[partitions[i]]
+            readData = readDataTable[partition[0][0]:partition[0][0]+partition[0][1]]
+            readInfo = readInfoTable[partition[1][0]:partition[1][0]+partition[1][1]]
+            
+            print(len(readData),"readData")
+            for item in readData:
+                print(item)
+            print(len(readInfo),"readInfo")
+            for item in readInfo:
+                print(item)
+            print(partition)
+            print(readPartitionTable[partitions[i]+1])
+        return response
+    
     def _kmer_direct(h5file: h5py.File, kmer: str):
         ckmer = haplotyping.General.canonical(kmer)
         ckmerTable = h5file.get("/split/ckmer")
@@ -305,6 +349,10 @@ class Split:
     def kmer_list_info(location_split: str, kmers: list):
         with h5py.File(location_split, mode="r") as h5file:            
             return Split._kmers_info(h5file,kmers)
+    
+    def kmer_connected_info(location_split: str, kmers: list):
+        with h5py.File(location_split, mode="r") as h5file:            
+            return Split._kmers_connected(h5file,kmers)
     
     def kmer_sequence_info(location_split: str, sequence: str):
         with h5py.File(location_split, mode="r") as h5file:            
