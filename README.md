@@ -26,7 +26,7 @@ graph TD;
         maxfreq.->kmc  
     end
 
-    subgraph 
+    subgraph scripts
         kmcanalysis["<i>kmc_analysis</i>"]
         kmerlist["<b>k-mer list</b>"]
         kmcanalysis-->sort
