@@ -4,7 +4,7 @@ import multiprocessing as mp
 
 import haplotyping
 import haplotyping.index.splits
-import haplotyping.index.direct
+import haplotyping.index.connections
 
 class Database:
     
@@ -45,15 +45,14 @@ class Database:
     maximumProcesses: int, default is 0 (for no maximum)
         The maximum number of processes including main process, should be at least 4
         
-    automatonKmerSize: int optional, default is 0 (for automatically)
+    automatonKmerSize: int, optional, default is 0 (for automatically)
         The used reduced k-mer size, maximum is the k-mer size
         
-    onlySplittingKmers: bool, optional, default is False
-        Only the first step will be executed, using a single process.
+    indexType: str, optional, default is None (for a full index)
+        Possible values:
+        - "onlySplittingKmers": Only the first step will be executed, using a single process.
+        - "onlyDirectConnections": Only direct connections are extracted from the reads
         
-    onlyDirectConnections: bool, optional, default is False
-        Only direct connections are extracted from the reads
-    
     debug: bool, optional, default is False
         Only use this when debugging or extending the code.      
         
@@ -61,9 +60,12 @@ class Database:
         Only use this when debugging or extending the code.      
         
     """
-
-    version = "20230429"
     
+    #define index types
+    FULLINDEX = "full"
+    ONLYSPLITTINGKMERS = "onlySplittingKmers"
+    ONLYDIRECTCONNECTIONS = "onlyDirectConnections"
+
     def __init__(self,
                  k: int, 
                  name: str, 
@@ -74,12 +76,9 @@ class Database:
                  maximumMemory: int = 0,
                  maximumProcesses: int = 0,
                  automatonKmerSize: int = 0,
-                 onlySplittingKmers: bool = False,
-                 onlyDirectConnections: bool = False,
+                 indexType: str = None,
                  debug: bool = False,
                  keepTemporaryFiles: bool=False):  
-        
-        
         
         """
         Internal use only: initialize
@@ -102,8 +101,13 @@ class Database:
         self.k=k
         self.name=name
         self.debug = debug
-        self.onlySplittingKmers = onlySplittingKmers
-        self.onlyDirectConnections = onlyDirectConnections
+        if indexType==self.ONLYSPLITTINGKMERS or indexType==self.ONLYDIRECTCONNECTIONS:
+            self.indexType = indexType
+        elif indexType=="" or indexType==None or indexType==self.FULLINDEX:
+            self.indexType = self.FULLINDEX
+        else:
+            raise Exception("unknown indexType '{}'".format(indexType))
+        self.version = haplotyping._version.__version__
         self.automatonKmerSize = automatonKmerSize
         self.minimumFrequency = minimumFrequency
         self.keepTemporaryFiles = keepTemporaryFiles
@@ -115,8 +119,8 @@ class Database:
         assert self.automatonKmerSize>=0 and self.automatonKmerSize<=self.k
         assert self.maximumMemory>=0
         assert self.maximumProcesses>=0
-                
-        if (not self.onlySplittingKmers) and (len(readFiles)==0) and (len(pairedReadFiles)==0):
+        
+        if (not self.indexType == self.ONLYSPLITTINGKMERS) and (len(readFiles)==0) and (len(pairedReadFiles)==0):
             self._logger.error("no read files provided")
         else:                
             #define filenames
@@ -140,12 +144,14 @@ class Database:
                     h5file.create_group("/config")
                     h5file["/config"].attrs["k"] = self.k
                     h5file["/config"].attrs["version"] = self.version
+                    h5file["/config"].attrs["indexType"] = self.indexType
                     h5file["/config"].attrs["automatonKmerSize"] = self.automatonKmerSize
                     h5file["/config"].attrs["minimumCanonicalSplitFrequency"] = self.minimumFrequency
                     h5file.flush()
                 else:
                     assert h5file["/config"].attrs["k"] == self.k
                     assert h5file["/config"].attrs["version"] == self.version
+                    assert h5file["/config"].attrs["indexType"] == self.indexType
                     assert h5file["/config"].attrs["automatonKmerSize"] == self.automatonKmerSize
                     assert h5file["/config"].attrs["minimumCanonicalSplitFrequency"] == self.minimumFrequency
                     
@@ -171,11 +177,11 @@ class Database:
                     self._logger.debug("detected splitting k-mers from previous run")
                     
                 #parse read files and store distances
-                if (not self.onlySplittingKmers) and ("/split" in h5file) and ("/histogram" in h5file):
+                if (not self.indexType == self.ONLYSPLITTINGKMERS) and ("/split" in h5file) and ("/histogram" in h5file):
                     if not ("/relations" in h5file and "/connections" in h5file):
                         self._logger.debug("parse read files and store distances in database")
-                        haplotyping.index.direct.Direct(readFiles,pairedReadFiles, h5file, 
-                                                      self.filenameBase, self.onlyDirectConnections, 
+                        haplotyping.index.connections.Connections(readFiles,pairedReadFiles, h5file, 
+                                                      self.filenameBase, self.indexType, 
                                                       self.debug, self.keepTemporaryFiles)
                         h5file.flush()
                         #backup

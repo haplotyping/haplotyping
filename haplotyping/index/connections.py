@@ -4,18 +4,19 @@ import re, haplotyping
 import numpy as np
 import haplotyping.index.storage
 import haplotyping.index.splits
+import haplotyping.index.database
 import multiprocessing as mp
 from threading import Event
 from queue import Empty
 
-class Direct:
+class Connections:
     
     """
     Internal use, parse read files and store results in database
     """
     
     def __init__(self, unpairedReadFiles, pairedReadFiles, h5file, filenameBase, 
-                 onlyDirectConnections=False, debug=False, keepTemporaryFiles=False):
+                 indexType=None, debug=False, keepTemporaryFiles=False):
         
         """
         Internal use only: initialize
@@ -30,7 +31,7 @@ class Direct:
                     
         self.debug = debug
         self.keepTemporaryFiles = keepTemporaryFiles
-        self.onlyDirectConnections = onlyDirectConnections
+        self.indexType = indexType
         self.filenameBase = filenameBase
         
         #set variables
@@ -90,12 +91,12 @@ class Direct:
                     os.remove(pytablesFile)
                 self._logger.debug("store temporary in "+pytablesFile)    
                 #create datasets
-                with tables.open_file(pytablesFile, mode="w", title="Temporary storage") as self.pytablesStorage:
-                    self._processReadFiles(indexFile, automatonFile, automatonMemory)
-                    self._storeDirect()
-                    if not self.onlyDirectConnections:
-                        self._processReads()
-                        self._storeReads()
+                with tables.open_file(pytablesFile, mode="w", title="Temporary storage") as pytablesStorage:
+                    self._processReadFiles(indexFile, automatonFile, automatonMemory, pytablesStorage)
+                    self._storeDirect(pytablesStorage)
+                    if not self.indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS:
+                        self._processReads(pytablesStorage)
+                        self._storeReads(pytablesStorage)
                     self.h5file.flush()     
             except Exception as e:
                self._logger.error("problem occurred while processing reads: "+str(e))
@@ -105,8 +106,11 @@ class Direct:
                         os.remove(pytablesFile)
                         haplotyping.index.splits.Splits.deleteAutomatonWithIndex(filenameBase, automatonKmerSize)
                 except:
-                    self._logger.error("problem removing files")   
-                    
+                    self._logger.error("problem removing files")
+
+#--------------
+# Handle Queue
+#--------------    
                     
     def _collect_queue(queue_entry):
         time.sleep(0.1)
@@ -135,8 +139,12 @@ class Direct:
             except Empty:
                 break 
         #now also close this queue
-        Direct._close_queue(queue_entry)
+        Connections._close_queue(queue_entry)
         return entries
+    
+#---------------
+# Handle Memory
+#---------------
 
     def _processMemory():
         process = psutil.Process(os.getpid())
@@ -144,8 +152,12 @@ class Direct:
         for child in process.children(recursive=True):
             memory += child.memory_info().rss
         return memory
+    
+#----------------
+# Main functions
+#----------------
 
-    def _processReadFiles(self, indexFile, automatonFile, automatonMemory):
+    def _processReadFiles(self, indexFile, automatonFile, automatonMemory, pytablesStorage):
           
         def estimateIndexMemory(nWorkersAutomaton,workerAutomatonMemory,nWorkersMatches,
                            workerMatchesMemory,nWorkersIndex,workerIndexMemory):
@@ -156,7 +168,7 @@ class Direct:
         #get method
         self._logger.debug("using method '{}' for multiprocessing".format(mp.get_start_method()))
         process = psutil.Process(os.getpid())
-        self._logger.debug("initially used memory {} MB".format(math.ceil(Direct._processMemory()/1048576)))
+        self._logger.debug("initially used memory {} MB".format(math.ceil(Connections._processMemory()/1048576)))
         
         self._logger.debug("memory info: {}".format(psutil.Process(os.getpid()).memory_info()))
         
@@ -252,10 +264,10 @@ class Direct:
         self._logger.debug("estimated total memory usage: {} MB".format(math.ceil(estimatedMemory/1048576)))
                 
         original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
-        pool_automaton = mp.Pool(nWorkersAutomaton, haplotyping.index.storage.Storage.worker_automaton, 
+        pool_automaton = mp.Pool(nWorkersAutomaton, haplotyping.index.storage.Storage.workerAutomaton, 
                              (shutdown_event,queue_start,queue_automaton,queue_index,queue_finished,
                               self.k,self.automatonKmerSize,automatonFile,))
-        #first start automatonss, one at a time, because of memory peak
+        #first start automatons, one at a time, because of memory peak
         startedAutomaton = 0
         queue_start.put("automaton")
         while not (startedAutomaton==nWorkersAutomaton):
@@ -293,15 +305,15 @@ class Direct:
         self._logger.debug("created shared memory {} MB k-mer properties".format(math.ceil(shm_kmer_size/1048576)))
 
         #now start other workers
-        pool_index = mp.Pool(nWorkersIndex, haplotyping.index.storage.Storage.worker_index, 
+        pool_index = mp.Pool(nWorkersIndex, haplotyping.index.storage.Storage.workerIndex, 
                              (shutdown_event,queue_index,queue_matches,queue_storageReads,queue_finished,
                               self.filenameBase,self.numberOfKmers,self.k,
-                              self.onlyDirectConnections,shm_index.name))
-        pool_matches = mp.Pool(nWorkersMatches, haplotyping.index.storage.Storage.worker_matches, 
+                              self.indexType,shm_index.name))
+        pool_matches = mp.Pool(nWorkersMatches, haplotyping.index.storage.Storage.workerMatches, 
                                (shutdown_event,queue_matches,queue_storageDirect,queue_finished,
                                 self.filenameBase,self.numberOfKmers,self.maximumFrequency,
                                 self.estimatedMaximumReadLength,self.numberDirectArray,
-                                self.onlyDirectConnections,shm_kmer.name))
+                                self.indexType,shm_kmer.name))
         signal.signal(signal.SIGINT, original_sigint_handler)
 
         try:
@@ -381,9 +393,9 @@ class Direct:
         except KeyboardInterrupt:
             self._logger.debug("caught KeyboardInterrupt")
             #collect from queue
-            Direct._collect_queue(queue_automaton)
-            Direct._collect_queue(queue_index)
-            Direct._collect_queue(queue_matches)
+            Connections._collect_queue(queue_automaton)
+            Connections._collect_queue(queue_index)
+            Connections._collect_queue(queue_matches)
             #shutdown directly
             shutdown_event.set()
             #release memory
@@ -396,9 +408,9 @@ class Direct:
             pool_index.terminate()
             pool_matches.terminate()
             #close queus workers
-            Direct._close_queue(queue_automaton)
-            Direct._close_queue(queue_index)
-            Direct._close_queue(queue_matches)
+            Connections._close_queue(queue_automaton)
+            Connections._close_queue(queue_index)
+            Connections._close_queue(queue_matches)
             #shutdown
             shutdown_event.set()
             #join pools
@@ -409,8 +421,8 @@ class Direct:
             shm_index.close()
             shm_index.unlink()
             #collect created files 
-            storageDirectFiles = Direct._collect_and_close_queue(queue_storageDirect)
-            self.storageReadFiles = Direct._collect_and_close_queue(queue_storageReads)            
+            storageDirectFiles = Connections._collect_and_close_queue(queue_storageDirect)
+            self.storageReadFiles = Connections._collect_and_close_queue(queue_storageReads)            
             
         #now all files are created, so merging can start
         self._logger.debug("merge {} files with direct connections".format(len(storageDirectFiles)))
@@ -425,7 +437,7 @@ class Direct:
         queue_ranges = mp.Queue(nWorkersMerges)
         queue_merges = mp.Queue(nWorkersMerges)
         original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
-        pool_merges = mp.Pool(nWorkersMerges, haplotyping.index.storage.Storage.worker_mergeDirect, 
+        pool_merges = mp.Pool(nWorkersMerges, haplotyping.index.storage.Storage.workerMergeDirect, 
                                (shutdown_event,queue_ranges,queue_merges,
                                 storageDirectFiles,
                                 self.filenameBase,self.numberOfKmers,
@@ -464,13 +476,13 @@ class Direct:
                 except Empty:
                     break 
             #now also close this queue
-            Direct._close_queue(queue_merges)
+            Connections._close_queue(queue_merges)
             
             self._logger.debug("combine {} merged files".format(len(mergeFiles)))
             
             #combine
-            haplotyping.index.storage.Storage.combine_direct_merges(
-                mergeFiles, self.pytablesStorage, self.numberOfKmers,self.maximumFrequency)                        
+            haplotyping.index.storage.Storage.combineDirectMerges(
+                mergeFiles, pytablesStorage, self.numberOfKmers, self.maximumFrequency)                        
             
             #clean
             if not self.keepTemporaryFiles:
@@ -488,8 +500,8 @@ class Direct:
             #terminate pool
             pool_merges.terminate()
             #close queus workers
-            Direct._close_queue(queue_ranges)
-            Direct._close_queue(queue_merges)
+            Connections._close_queue(queue_ranges)
+            Connections._close_queue(queue_merges)
             #shutdown
             shutdown_event.set()
             #join pool
@@ -597,26 +609,7 @@ class Direct:
         return (readLengthMaximum,readNumber,totalReadLength,endTime-startTime)
         
         
-    def _quickEstimateReadLength(self):
-        readLengthMaximum=None
-        #collect resources
-        filenames = set()
-        filenames.update(self.unpairedReadFiles)
-        for entry in self.pairedReadFiles:
-            filenames.add(entry[0])
-            filenames.add(entry[1])
-        #check
-        for filename in filenames:
-            with gzip.open(filename, "rt") as f:
-                f.readline()
-                sequence = f.readline().rstrip()  
-                if sequence:
-                   readLengthMaximum=(len(sequence) if readLengthMaximum==None else max(readLengthMaximum,len(sequence)))
-        #return result based on first lines of each file
-        return readLengthMaximum
-        
-        
-    def _storeDirect(self):
+    def _storeDirect(self, pytablesStorage):
         self.h5file["/config/"].attrs["minimumReadLength"]=self.readLengthMinimum
         self.h5file["/config/"].attrs["maximumReadLength"]=self.readLengthMaximum
         self.h5file["/config/"].attrs["numberReadsPaired"]=self.readPairedTotal
@@ -626,17 +619,17 @@ class Direct:
         self.h5file["/config/"].attrs["timeProcessReads"]=int(np.ceil(self.processReadsTime))        
         
         #store merged data
-        haplotyping.index.storage.Storage.store_merged_direct(
-            self.h5file, self.pytablesStorage, 
+        haplotyping.index.storage.Storage.storeMergedDirect(
+            self.h5file, pytablesStorage, 
             self.numberOfKmers, self.minimumFrequency)
         
-    def _storeReads(self):
+    def _storeReads(self, pytablesStorage):
         #store merged data
-        haplotyping.index.storage.Storage.store_merged_reads(
-            self.h5file, self.pytablesStorage, 
+        haplotyping.index.storage.Storage.storeMergedReads(
+            self.h5file, pytablesStorage, 
             self.numberOfKmers,self.numberOfPartitions)
         
-    def _processReads(self):   
+    def _processReads(self, pytablesStorage):   
         
         if len(self.storageReadFiles)>0:
             
@@ -645,7 +638,7 @@ class Direct:
         
             #partition k-mers based on direct connections
             maxNumberOfPartitions = int(self.numberOfKmers ** (2/3))
-            self.numberOfPartitions = haplotyping.index.storage.Storage.partition_kmers(self.h5file, self.pytablesStorage,
+            self.numberOfPartitions = haplotyping.index.storage.Storage.partitionKmers(self.h5file, pytablesStorage,
                                                               maxNumberOfPartitions)
             #prepare shared memory with k-mer properties
             shm_kmer_partition = np.dtype(haplotyping.index.Database.getUint(self.numberOfPartitions)).type
@@ -665,7 +658,8 @@ class Direct:
             stepSizeStorage=1000000
             for i in range(0,self.numberOfKmers,stepSizeStorage):
                 ckmers = self.h5file["/split/ckmer"][i:min(self.numberOfKmers,i+stepSizeStorage)]
-                stepData = [(row[5],row[2],row[4][1][1]+row[4][2][1]==0) for row in ckmers]
+                #(<partition>,<number>,<disconnected>)
+                stepData = [(row[5],row[2],1 if (row[4][1][1]==0 and row[4][2][1]==0) else 0) for row in ckmers]
                 kmer_properties[ckmerLink:ckmerLink+len(stepData)] = stepData
                 ckmerLink+=len(stepData)
                 del stepData
@@ -685,7 +679,7 @@ class Direct:
             maximumReadLength = self.h5file["/config/"].attrs["maximumReadLength"] - self.k + 1
             
             original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
-            pool_reads = mp.Pool(nWorkersReads, haplotyping.index.storage.Storage.worker_processReads, 
+            pool_reads = mp.Pool(nWorkersReads, haplotyping.index.storage.Storage.workerProcessReads, 
                                  (shutdown_event,queue_rawReads,queue_filteredReads,queue_finished,
                                   self.filenameBase,self.numberOfKmers,
                                   self.numberOfPartitions,self.maximumFrequency,maximumReadLength,shm_kmer.name))
@@ -720,8 +714,8 @@ class Direct:
                 #terminate pool
                 pool_reads.terminate()
                 #close queus workers
-                Direct._close_queue(queue_rawReads)
-                Direct._close_queue(queue_finished)
+                Connections._close_queue(queue_rawReads)
+                Connections._close_queue(queue_finished)
                 #shutdown
                 shutdown_event.set()
                 #join pool
@@ -730,11 +724,11 @@ class Direct:
                 shm_kmer.close()
                 shm_kmer.unlink()
                 #get filtered readfiles
-                storageFilteredReadFiles = Direct._collect_and_close_queue(queue_filteredReads)   
+                storageFilteredReadFiles = Connections._collect_and_close_queue(queue_filteredReads)   
                 
             #compute merged paired from storageFilteredReadFiles
-            haplotyping.index.storage.Storage.combine_filtered_pairs(
-                storageFilteredReadFiles, self.pytablesStorage, self.numberOfKmers)
+            haplotyping.index.storage.Storage.combineFilteredPairs(
+                storageFilteredReadFiles, pytablesStorage, self.numberOfKmers)
 
             #get sizes for partitions
             partitionSizes = [[0,0] for i in range(self.numberOfPartitions)]
@@ -759,7 +753,7 @@ class Direct:
             queue_ranges = mp.Queue(nWorkersMerges)
             queue_merges = mp.Queue(nWorkersMerges)
             original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
-            pool_merges = mp.Pool(nWorkersMerges, haplotyping.index.storage.Storage.worker_mergeReads, 
+            pool_merges = mp.Pool(nWorkersMerges, haplotyping.index.storage.Storage.workerMergeReads, 
                                    (shutdown_event,queue_ranges,queue_merges,
                                     storageFilteredReadFiles,partitionSizes,self.filenameBase,
                                     self.numberOfKmers,self.numberOfPartitions,maximumReadLength))
@@ -794,13 +788,13 @@ class Direct:
                         else:
                             time.sleep(1)
                 #now also close this queue
-                Direct._close_queue(queue_merges)
+                Connections._close_queue(queue_merges)
 
                 self._logger.debug("combine {} merged files".format(len(mergeFiles)))
 
                 #combine
-                haplotyping.index.storage.Storage.combine_read_merges(
-                    sorted(mergeFiles), self.pytablesStorage, 
+                haplotyping.index.storage.Storage.combineReadMerges(
+                    sorted(mergeFiles), pytablesStorage, 
                     self.numberOfKmers,self.numberOfPartitions,maximumReadLength)
 
                 #clean mergeFiles
@@ -816,7 +810,7 @@ class Direct:
                 #terminate pool
                 pool_merges.terminate()
                 #close queus workers
-                Direct._close_queue(queue_ranges)
+                Connections._close_queue(queue_ranges)
                 #shutdown
                 shutdown_event.set()
                 #join pool

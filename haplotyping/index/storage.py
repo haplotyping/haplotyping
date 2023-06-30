@@ -115,7 +115,7 @@ class Storage:
                       haplotyping.index.Database.getTablesUintAtom(numberOfPartitions), 
                       shape=(numberOfReads,), filters=filters)        
     
-    def worker_automaton(shutdown_event,queue_start,queue_automaton,queue_index,
+    def workerAutomaton(shutdown_event,queue_start,queue_automaton,queue_index,
                          queue_finished,k,automatonKmerSize,automatonFile):
         
         logger = logging.getLogger("{}.worker.automaton".format(__name__))
@@ -195,8 +195,8 @@ class Storage:
             
                 
     
-    def worker_index(shutdown_event,queue_index,queue_matches,queue_storage,queue_finished,
-                     filenameBase,numberOfKmers,k,onlyDirectConnections,shm_name):
+    def workerIndex(shutdown_event,queue_index,queue_matches,queue_storage,queue_finished,
+                     filenameBase,numberOfKmers,k,indexType,shm_name):
 
         logger = logging.getLogger("{}.worker.index".format(__name__))
         problemPattern = re.compile(r"["+"".join(haplotyping.index.Database.letters)+
@@ -374,10 +374,10 @@ class Storage:
             if os.path.exists(pytablesFileWorker):
                 os.remove(pytablesFileWorker)
 
-            with (open(os.devnull,"w") if onlyDirectConnections 
+            with (open(os.devnull,"w") if indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS
                       else tables.open_file(pytablesFileWorker, mode="w")) as pytablesStorageWorker:
                 
-                if not onlyDirectConnections:
+                if not indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS:
                     filters = tables.Filters(complevel=9, complib="blosc")
                     readData = pytablesStorageWorker.create_earray(pytablesStorageWorker.root, "readRawData",
                                       haplotyping.index.Database.getTablesUintAtom(numberOfKmers), 
@@ -403,7 +403,8 @@ class Storage:
                                     pass
                                 else:
                                     queue_matches.put(((matches, direct,),))
-                                    if not onlyDirectConnections and tmpTotalMatches>2:
+                                    if (not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS)
+                                        and tmpTotalMatches>2):
                                         store_matches(matches,readData,readInfo)
                             elif len(item)==2:
                                 (matches0,direct0,tmpTotalChecks0,tmpTotalMatches0,) = compute_matches(item[0][0],item[0][1])
@@ -415,24 +416,26 @@ class Storage:
                                 elif tmpTotalChecks0==0:
                                     if tmpTotalChecks1>1:
                                         queue_matches.put(((matches1, direct1,),))
-                                        if not onlyDirectConnections and tmpTotalChecks1>2:
+                                        if (not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS) 
+                                            and tmpTotalChecks1>2):
                                             store_matches(matches1,readData,readInfo)
                                 elif tmpTotalChecks1==0:
                                     if tmpTotalChecks0>1:
                                         queue_matches.put(((matches0, direct0,),))
-                                        if not onlyDirectConnections and tmpTotalChecks0>2:
+                                        if (not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS)
+                                            and tmpTotalChecks0>2):
                                             store_matches(matches0,readData,readInfo)
                                 else:
                                     queue_matches.put(((matches0, direct0, ),
                                                        (matches1, direct1, )))
-                                    if not onlyDirectConnections:
+                                    if (not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS)):
                                         store_paired_matches(matches0,matches1,readData,readInfo)
                     except Empty:
                         logger.debug("index ({}): empty".format(os.getpid()))
                         time.sleep(5)
                         continue
             #now the file can be released for later processing
-            if not onlyDirectConnections:
+            if not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS):
                 queue_storage.put(pytablesFileWorker) 
         except Exception as ex:
            logger.error("index  ({}): problem with worker: {}".format(os.getpid(),ex))
@@ -460,9 +463,9 @@ class Storage:
                                      for i in range(numberDirectArray)]),]
         return dtype
     
-    def worker_matches(shutdown_event,queue_matches,queue_storage,queue_finished,
+    def workerMatches(shutdown_event,queue_matches,queue_storage,queue_finished,
                        filenameBase,numberOfKmers,maximumFrequency,estimatedMaximumReadLength,
-                       numberDirectArray,onlyDirectConnections,shm_name):
+                       numberDirectArray,indexType,shm_name):
         
         logger = logging.getLogger("{}.worker.matches".format(__name__))
         try:
@@ -671,7 +674,7 @@ class Storage:
                     try:
                         item = queue_matches.get(block=True, timeout=1)
                         if item==None:
-                            logger.debug("matches ({}): none".format(os.getpid()))
+                            logger.debug("matches ({}): none item".format(os.getpid()))
                             break
                         elif isinstance(item,tuple):
                             if len(item)==1:
@@ -699,7 +702,7 @@ class Storage:
                                         elif minFreq==0 or freq<minFreq:
                                             minFreq = freq
                                             pairTo = link[0]
-                                    if not onlyDirectConnections:
+                                    if not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS):
                                         store_paired(pairFrom,pairTo)
                                 if (len(links1)==1) and (len(links0)>0):
                                     pairFrom = links1[0][0]
@@ -711,7 +714,8 @@ class Storage:
                                         elif minFreq==0 or freq<minFreq:
                                             minFreq = freq
                                             pairTo = link[0]
-                                    if not onlyDirectConnections and (len(links0)>1):
+                                    if (not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS) 
+                                        and (len(links0)>1)):
                                         store_paired(pairFrom,pairTo)
                     except Empty:
                         logger.debug("matches ({}): empty".format(os.getpid()))
@@ -721,7 +725,7 @@ class Storage:
                 logger.debug("matches ({}): create indices temporary tables".format(os.getpid()))
                 tableDirectOther.cols.fromLink.create_csindex()
                 pytablesStorageWorker.flush()
-                if not onlyDirectConnections:
+                if not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS):
                     tablePaired.cols.fromLink.create_csindex()
                     pytablesStorageWorker.flush()
                 pytablesStorageWorker.create_table(pytablesStorageWorker.root, 
@@ -742,7 +746,7 @@ class Storage:
     """
     Merge stored direct and indirect connections
     """                
-    def worker_mergeDirect(shutdown_event,queue_ranges,queue_merges,storageDirectFiles,
+    def workerMergeDirect(shutdown_event,queue_ranges,queue_merges,storageDirectFiles,
                       filenameBase,numberOfKmers,maximumFrequency,minimumFrequency,shm_name):
         
         logger = logging.getLogger("{}.worker.merges".format(__name__))
@@ -1238,7 +1242,7 @@ class Storage:
             shm.close()
             
             
-    def worker_processReads(shutdown_event,queue_rawReads,queue_filteredReads,queue_finished,filenameBase,numberOfKmers,
+    def workerProcessReads(shutdown_event,queue_rawReads,queue_filteredReads,queue_finished,filenameBase,numberOfKmers,
                      numberOfPartitions,maximumFrequency,maximumReadLength,shm_name):
 
         logger = logging.getLogger("{}.worker.index".format(__name__))
@@ -1270,7 +1274,7 @@ class Storage:
             try:
                 item = queue_rawReads.get(block=True, timeout=1)
                 if item==None:
-                    logger.debug("reads ({}): none".format(os.getpid()))
+                    logger.debug("reads ({}): none item".format(os.getpid()))
                     break
                 else: 
                     curr_proc = current_process()
@@ -1377,7 +1381,7 @@ class Storage:
                 time.sleep(5)
                 continue            
 
-    def worker_mergeReads(shutdown_event, queue_ranges, queue_merges, storageReadFiles, 
+    def workerMergeReads(shutdown_event, queue_ranges, queue_merges, storageReadFiles, 
                           partitionSizes, filenameBase, numberOfKmers, numberOfPartitions, maximumReadLength):
 
         logger = logging.getLogger("{}.worker.index".format(__name__))
@@ -1500,8 +1504,8 @@ class Storage:
                 except Empty:
                     time.sleep(1)
                     continue
-#         except Exception as ex:
-#             logger.error("merges ({}): problem with worker: {}".format(os.getpid(),ex))
+        except Exception as ex:
+            logger.error("merges ({}): problem with worker: {}".format(os.getpid(),ex))
         finally:
             pass
     
@@ -1509,7 +1513,7 @@ class Storage:
     """
     Combine merged files: this should be relatively easy, handled by single process
     """
-    def combine_direct_merges(mergeFiles,pytablesStorage,numberOfKmers,maximumFrequency):
+    def combineDirectMerges(mergeFiles,pytablesStorage,numberOfKmers,maximumFrequency):
         
         nCycle = 0
         nReversal = 0
@@ -1594,7 +1598,7 @@ class Storage:
         tablePaired.cols.fromLink.create_csindex()
         pytablesStorage.flush()
         
-    def combine_filtered_pairs(mergeFiles,pytablesStorage,numberOfKmers):
+    def combineFilteredPairs(mergeFiles,pytablesStorage,numberOfKmers):
         logger = logging.getLogger(__name__) 
         #collect, sort and combine data
         dataList = []
@@ -1618,7 +1622,7 @@ class Storage:
         pairedTable.flush()
         
         
-    def combine_read_merges(mergeFiles,pytablesStorage,numberOfKmers,
+    def combineReadMerges(mergeFiles,pytablesStorage,numberOfKmers,
                                   numberOfPartitions, maximumOriginalReadLength):
         numberOfReads = 0
         numberOfData = 0
@@ -1706,7 +1710,7 @@ class Storage:
     """
     Store direct data in the final database, handled by single process
     """    
-    def store_merged_direct(h5file,pytablesStorage,numberOfKmers,minimumFrequency):
+    def storeMergedDirect(h5file,pytablesStorage,numberOfKmers,minimumFrequency):
         logger = logging.getLogger(__name__)     
         frequencyHistogram = {"distance": {}}
         
@@ -1890,7 +1894,7 @@ class Storage:
             dsFrequencyHistogramDistance[0:len(frequencyHistogram["distance"])] = list(
                 sorted(frequencyHistogram["distance"].items()))
             
-    def store_merged_reads(h5file,pytablesStorage,numberOfKmers,numberOfPartitions):
+    def storeMergedReads(h5file,pytablesStorage,numberOfKmers,numberOfPartitions):
         logger = logging.getLogger(__name__)    
         
         #paired
@@ -1967,7 +1971,7 @@ class Storage:
     """
     Partition k-mers
     """    
-    def partition_kmers(h5file,pytablesStorage,maxNumberOfPartitions):
+    def partitionKmers(h5file,pytablesStorage,maxNumberOfPartitions):
         #initialize
         logger = logging.getLogger(__name__)  
         edges = []

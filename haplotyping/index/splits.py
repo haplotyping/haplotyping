@@ -58,11 +58,11 @@ class Splits:
                 
                 #create datasets
                 with tables.open_file(pytablesFile, mode="w", 
-                                      title="Temporary storage") as self.pytablesStorage:
+                                      title="Temporary storage") as pytablesStorage:
                     #get k-mers
-                    self._parseIndex(sortedIndexFile)
-                    self._sort()
-                    self._store()                    
+                    self._parseIndex(sortedIndexFile, pytablesStorage)
+                    self._sort(pytablesStorage)
+                    self._store(pytablesStorage)                    
                     #flush
                     self.h5file.flush()                    
             except Exception as e:
@@ -73,9 +73,12 @@ class Splits:
                         os.remove(pytablesFile)
                 except:
                     self._logger.error("problem removing "+pytablesFile)    
+
+#----------------
+# Main functions
+#----------------            
                     
-                    
-    def _parseIndex(self, filename: str):
+    def _parseIndex(self, filename: str, pytablesStorage):
         
         
         def close_queue(queue_entry):
@@ -90,7 +93,7 @@ class Splits:
             "type": tables.StringCol(1,pos=1),
             "number": tables.UInt64Col(pos=2),
         }
-        self.tableDumpKmers = self.pytablesStorage.create_table(self.pytablesStorage.root,
+        tableDumpKmers = pytablesStorage.create_table(pytablesStorage.root,
                                     "dumpCkmer",tableCkmerDef, "Temporary to store dump canonical k-mers")
         
         #multiprocessing
@@ -104,7 +107,7 @@ class Splits:
             maximumAllKmerFrequencies = mp.Value("L",0)
             histogramKmer = manager.dict()
             original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
-            process_list = mp.Process(target=haplotyping.index.splits.Splits.worker_list, 
+            process_list = mp.Process(target=haplotyping.index.splits.Splits.workerList, 
                                       args=(shutdown_event,filename,self.k,self.minimumFrequency,
                                             totalNumberOfKmers,totalSumOfKmerFrequencies,
                                             minimumAllKmerFrequencies,maximumAllKmerFrequencies,histogramKmer,
@@ -132,7 +135,7 @@ class Splits:
                                 #assume right splitting if k-mer equals rc
                                 #todo: can this (in theory) cause problematic situations?
                                 ckmerType = "r" if kmer==ckmer else "l"
-                                ckmerRow = self.tableDumpKmers.row            
+                                ckmerRow = tableDumpKmers.row            
                                 ckmerRow["ckmer"] = ckmer
                                 ckmerRow["type"] = ckmerType
                                 ckmerRow["number"] = value
@@ -145,7 +148,7 @@ class Splits:
                                     rightSplitBases,rightSplitKmers))
                     except Empty:
                         continue
-                self.tableDumpKmers.flush()
+                tableDumpKmers.flush()
                 self._logger.debug("found {} rightSplitBases and {} rightSplitKmers".format(
                     rightSplitBases,rightSplitKmers))
                 self.h5file["/config/"].attrs["numberRightSplitBases"]=rightSplitBases
@@ -172,7 +175,7 @@ class Splits:
             self.h5file["/config/"].attrs["minimumKmerFrequencies"]=minimumAllKmerFrequencies.value
             self.h5file["/config/"].attrs["maximumKmerFrequencies"]=maximumAllKmerFrequencies.value
             
-    def worker_list(shutdown_event,filename,k,minimumFrequency,totalNumberOfKmers,totalSumOfKmerFrequencies,
+    def workerList(shutdown_event,filename,k,minimumFrequency,totalNumberOfKmers,totalSumOfKmerFrequencies,
                                         minimumAllKmerFrequencies,maximumAllKmerFrequencies,histogramKmer,
                                         queue_splits):
         logger = logging.getLogger("{}.worker.list".format(__name__))
@@ -244,10 +247,10 @@ class Splits:
             logger.error("problem with sorted list: "+str(ex))
     
 
-    def _sort(self):                        
+    def _sort(self, pytablesStorage):                        
         
         def saveToSortedCkmerStorage(ckmer,ckmerType,number,numberOfCkmers):
-            ckmerRow = self.tableSortedKmers.row            
+            ckmerRow = tableSortedKmers.row            
             ckmerRow["ckmer"] = ckmer
             ckmerRow["type"] = ckmerType
             ckmerRow["number"] = number
@@ -260,7 +263,7 @@ class Splits:
             return numberOfCkmers+1
         
         def saveToSortedBaseStorage(base,branches,number,numberOfBases):
-            baseRow = self.tableSortedBases.row    
+            baseRow = tableSortedBases.row    
             baseRow["base"] = base
             baseRow["number"] = number
             self.frequencyHistogram["base"][number] = (
@@ -268,7 +271,7 @@ class Splits:
             for letter in branches.keys():
                 baseRow["branches/"+str(letter)+"/number"] = branches[letter][0]
                 baseRow["branches/"+str(letter)+"/ckmerLink"] = branches[letter][1]
-                ckmerRow = self.tableSortedKmers[branches[letter][1]]
+                ckmerRow = tableSortedKmers[branches[letter][1]]
                 ckmer = ckmerRow["ckmer"].decode()
                 rkmer=haplotyping.General.reverse_complement(ckmer)
                 if ckmer == base+letter:
@@ -279,16 +282,18 @@ class Splits:
             return numberOfBases+1
             
         def saveToDumpBaseStorage(base,branch,number,ckmerLink):   
-            baseRow = self.tableDumpRightSplitBases.row
+            baseRow = tableDumpRightSplitBases.row
             baseRow["base"] = base
             baseRow["branch"] = branch
             baseRow["number"] = number
             baseRow["ckmerLink"] = ckmerLink
             baseRow.append()
             
+        tableDumpKmers = pytablesStorage.root.dumpCkmer
+        
         #create sorted and grouped storage
-        self.tableDumpKmers.flush()                
-        numberOfSplittingKmers=self.tableDumpKmers.shape[0]
+        tableDumpKmers.flush()                
+        numberOfSplittingKmers=tableDumpKmers.shape[0]
         if numberOfSplittingKmers>0:
             
             #create temporary storage
@@ -301,7 +306,7 @@ class Splits:
                 },
                 "number": tables.UInt32Col(pos=3,dflt=0),
             }
-            self.tableSortedKmers = self.pytablesStorage.create_table(self.pytablesStorage.root,
+            tableSortedKmers = pytablesStorage.create_table(pytablesStorage.root,
                                         "sortedCkmer",tableCkmerDef, "Temporary to store sorted canonical k-mers",
                                         expectedrows=numberOfSplittingKmers)  
             
@@ -312,22 +317,22 @@ class Splits:
                 "number": tables.UInt32Col(pos=2,dflt=0),
                 "ckmerLink": haplotyping.index.Database.getTablesUint(numberOfSplittingKmers,3),
             }
-            self.tableDumpRightSplitBases = self.pytablesStorage.create_table(self.pytablesStorage.root,
+            tableDumpRightSplitBases = pytablesStorage.create_table(pytablesStorage.root,
                                                                    "dumpRightSplitBase",tableDumpBaseDef, 
                                                                    "Temporary to store dump bases",
                                                                        expectedrows=numberOfSplittingKmers)
             
             #store sorted k-mers
             self._logger.debug("sort and group "+str(numberOfSplittingKmers)+" splitting k-mers")
-            self.tableDumpKmers.cols.ckmer.create_csindex()
-            self.tableDumpKmers.flush()
+            tableDumpKmers.cols.ckmer.create_csindex()
+            tableDumpKmers.flush()
             self._logger.debug("created index to sort k-mers")
             previousCkmer=None
             previousType=None
             previousN=None
             self.maximumNumber = 0
             numberOfCkmers = 0
-            for row in self.tableDumpKmers.itersorted("ckmer",checkCSI=True):
+            for row in tableDumpKmers.itersorted("ckmer",checkCSI=True):
                 currentCkmer=row["ckmer"]
                 currentType=row["type"]
                 currentN=row["number"]
@@ -350,12 +355,12 @@ class Splits:
                 self.maximumNumber=max(self.maximumNumber,previousN)
             self._logger.debug("in total processed {} k-mers".format(numberOfCkmers))
             
-            self.tableDumpRightSplitBases.flush()                
-            numberOfBases=self.tableDumpRightSplitBases.shape[0]
+            tableDumpRightSplitBases.flush()                
+            numberOfBases=tableDumpRightSplitBases.shape[0]
                 
             #store sorted bases
-            self.tableSortedKmers.flush()
-            numberOfKmers=self.tableSortedKmers.shape[0]
+            tableSortedKmers.flush()
+            numberOfKmers=tableSortedKmers.shape[0]
             tableBaseDef = {
                 "base": tables.StringCol(self.k-1,pos=0),
                 "number": tables.UInt32Col(pos=1,dflt=0),    
@@ -366,15 +371,15 @@ class Splits:
                     "number": tables.UInt32Col(pos=0,dflt=0),
                     "ckmerLink": haplotyping.index.Database.getTablesUint(numberOfKmers,1),
                 }
-            self.tableSortedBases = self.pytablesStorage.create_table(self.pytablesStorage.root,
+            tableSortedBases = pytablesStorage.create_table(pytablesStorage.root,
                                                                    "sortedBase",tableBaseDef, 
                                                                    "Temporary to store dump bases",
                                                                        expectedrows=numberOfKmers)
             
             #store sorted bases
             self._logger.debug("sort and group {} bases".format(numberOfBases))
-            self.tableDumpRightSplitBases.cols.base.create_csindex()
-            self.tableDumpRightSplitBases.flush()
+            tableDumpRightSplitBases.cols.base.create_csindex()
+            tableDumpRightSplitBases.flush()
             self._logger.debug("created index to sort bases")
             previousBase=None
             previousBranches={}
@@ -383,7 +388,7 @@ class Splits:
             #reserve memory for links in ckmer table
             ckmerLinkType = np.dtype(haplotyping.index.Database.getUint(numberOfKmers)).type
             baseReferences = np.full((numberOfKmers,2), 0, dtype=ckmerLinkType)
-            for row in self.tableDumpRightSplitBases.itersorted("base",checkCSI=True):
+            for row in tableDumpRightSplitBases.itersorted("base",checkCSI=True):
                 currentBase=row[0]
                 currentBranch=row[1]
                 currentNumber=row[2]
@@ -404,22 +409,24 @@ class Splits:
                                                             previousNumber,numberOfBases)  
             self._logger.debug("in total processed {} bases".format(numberOfBases))
             #update ckmers
-            self.tableSortedKmers.modify_columns(columns=baseReferences,
+            tableSortedKmers.modify_columns(columns=baseReferences,
                              names=["rightSplitBaseLink/leftSplit","rightSplitBaseLink/rightSplit"])   
                 
         else:
             self._logger.warning("no splitting k-mers to sort and group")
             
-    def _store(self):
+    def _store(self, pytablesStorage):
         canonicalSplitKmers = 0
         canonicalSplitKmersLeft = 0
         canonicalSplitKmersRight = 0
         canonicalSplitKmersBoth = 0
+        tableSortedKmers = pytablesStorage.root.sortedCkmer
+        tableSortedBases = pytablesStorage.root.sortedBase
         #create storage    
-        self.tableSortedKmers.flush()
-        self.tableSortedBases.flush()
-        numberOfKmers=self.tableSortedKmers.shape[0]
-        numberOfBases=self.tableSortedBases.shape[0]
+        tableSortedKmers.flush()
+        tableSortedBases.flush()
+        numberOfKmers=tableSortedKmers.shape[0]
+        numberOfBases=tableSortedBases.shape[0]
         # CKMER STORAGE - don't make the structure unnecessary big
         dtypeCkmerList=[("ckmer","S"+str(self.k)),
                    ("type","S1"),
@@ -445,7 +452,7 @@ class Splits:
         self._logger.info("store {} splitting k-mers".format(numberOfKmers))
         #add stored and grouped kmers to the final unchunked storage
         for i in range(0,numberOfKmers,Splits.stepSizeStorage):
-            stepData = self.tableSortedKmers[i:i+Splits.stepSizeStorage]
+            stepData = tableSortedKmers[i:i+Splits.stepSizeStorage]
             dsCkmer[i:i+Splits.stepSizeStorage] = stepData
             for row in stepData:
                 canonicalSplitKmers+=1
@@ -470,7 +477,7 @@ class Splits:
         self._logger.info("store {} bases".format(numberOfBases))
         #add stored and grouped bases to the final unchunked storage
         for i in range(0,numberOfBases,Splits.stepSizeStorage):
-            stepData = self.tableSortedBases[i:i+Splits.stepSizeStorage]
+            stepData = tableSortedBases[i:i+Splits.stepSizeStorage]
             dsBase[i:i+Splits.stepSizeStorage] = stepData
         # HISTOGRAM K-MER STORAGE - don't make the structure unnecessary big
         maximumFrequency = max(self.frequencyHistogram["kmer"].keys())
@@ -524,6 +531,10 @@ class Splits:
         self.h5file["/config/"].attrs["numberCanonicalSplitBoth"]=canonicalSplitKmersBoth
         self.h5file["/config/"].attrs["numberCanonicalSplitRight"]=canonicalSplitKmersRight 
         
+#-------------------------------------------------
+# COMPUTATION AUTOMATON AND INDEX SPLITTING K-MER
+#-------------------------------------------------
+
     def deleteAutomatonWithIndex(filenameBase, k):
         indexFile = "{}_{}.index.splits".format(filenameBase,k)
         automatonFile = "{}_{}.automaton.splits".format(filenameBase,k)
