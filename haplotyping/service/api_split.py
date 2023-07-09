@@ -109,36 +109,7 @@ class SplitKmerMultiple(Resource):
                 abort(404, "no dataset with splitting k-mers for uid "+str(uid))
         except Exception as e:
             abort(e.code if hasattr(e,"code") else 500, str(e))
-            
-@namespace.route("/<uid>/connected")
-class SplitKmerConnected(Resource):
-    
-    dataset_kmers = namespace.model("k-mer list to get connected splitting k-mer information", {
-        "kmers": fields.List(fields.String, attribute="items", required=True, description="list of k-mers")
-    })
-    
-    @namespace.doc(description="Get connected splitting k-mer information for a list of k-mers from dataset defined by uid")
-    @namespace.doc(params={"uid": "unique identifier dataset"})
-    @namespace.expect(dataset_kmers)
-    @cache.cached(make_cache_key=_make_cache_key)
-    def post(self,uid):
-        kmers = namespace.payload.get("kmers",[])
-        try:
-            data = _getDataset(uid)
-            if data:
-                if not data["collection_location"]==None:
-                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
-                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
-                else:
-                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
-                                                data["dataset_location"],"kmer.data.h5")
-                response = Split.kmer_connected_info(location_split, kmers)
-                return Response(json.dumps(response), mimetype="application/json")                
-            else:
-                abort(404, "no dataset with splitting k-mers for uid "+str(uid))
-        except Exception as e:
-            abort(e.code if hasattr(e,"code") else 500, str(e))
-            
+                
 @namespace.route("/<uid>/kmer/direct/<kmer>")
 class SplitKmerDirectSingle(Resource):
     
@@ -185,6 +156,110 @@ class SplitKmerDirectMultiple(Resource):
                     location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 data["dataset_location"],"kmer.data.h5")
                 response = Split.kmer_list_direct(location_split, kmers)
+                return Response(json.dumps(response), mimetype="application/json")                
+            else:
+                abort(404, "no dataset with splitting k-mers for uid "+str(uid))
+        except Exception as e:
+            abort(e.code if hasattr(e,"code") else 500, str(e))  
+            
+@namespace.route("/<uid>/kmer/read/<kmer>")
+class SplitKmerReadSingle(Resource):
+    
+    @namespace.doc(description="Get read connections splitting k-mer from dataset defined by uid for specified k-mer")
+    @namespace.doc(params={"uid": "unique identifier dataset","kmer": "splitting k-mer"})
+    @cache.cached(make_cache_key=_make_cache_key)
+    def get(self,uid,kmer):
+        try:
+            data = _getDataset(uid)
+            if data:
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
+                response = Split.kmer_read(location_split, kmer)
+                return Response(json.dumps(response), mimetype="application/json")                
+            else:
+                abort(404, "no dataset with splitting k-mers for uid "+str(uid))
+        except Exception as e:
+            abort(e.code if hasattr(e,"code") else 500, str(e))    
+            
+@namespace.route("/<uid>/kmer/read")
+class SplitKmerReadMultiple(Resource):
+    
+    dataset_kmers = namespace.model("k-mer list to get read connections splitting k-mer", {
+        "kmers": fields.List(fields.String, attribute="items", required=True, description="list of k-mers")
+    })
+    
+    @namespace.doc(description="Get read connections splitting k-mer for a list of k-mers from dataset defined by uid")
+    @namespace.doc(params={"uid": "unique identifier dataset"})
+    @namespace.expect(dataset_kmers)
+    @cache.cached(make_cache_key=_make_cache_key)
+    def post(self,uid):
+        kmers = namespace.payload.get("kmers",[])
+        try:
+            data = _getDataset(uid)
+            if data:
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
+                response = Split.kmer_list_read(location_split, kmers)
+                return Response(json.dumps(response), mimetype="application/json")                
+            else:
+                abort(404, "no dataset with splitting k-mers for uid "+str(uid))
+        except Exception as e:
+            abort(e.code if hasattr(e,"code") else 500, str(e))  
+            
+@namespace.route("/<uid>/kmer/paired/<kmer>")
+class SplitKmerPairedSingle(Resource):
+    
+    @namespace.doc(description="Get paired connections splitting k-mer from dataset defined by uid for specified k-mer")
+    @namespace.doc(params={"uid": "unique identifier dataset","kmer": "splitting k-mer"})
+    @cache.cached(make_cache_key=_make_cache_key)
+    def get(self,uid,kmer):
+        try:
+            data = _getDataset(uid)
+            if data:
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
+                response = Split.kmer_paired(location_split, kmer)
+                return Response(json.dumps(response), mimetype="application/json")                
+            else:
+                abort(404, "no dataset with splitting k-mers for uid "+str(uid))
+        except Exception as e:
+            abort(e.code if hasattr(e,"code") else 500, str(e))    
+            
+@namespace.route("/<uid>/kmer/paired")
+class SplitKmerPairedMultiple(Resource):
+    
+    dataset_kmers = namespace.model("k-mer list to get paired connections splitting k-mer", {
+        "kmers": fields.List(fields.String, attribute="items", required=True, description="list of k-mers")
+    })
+    
+    @namespace.doc(description="Get paired connections splitting k-mer for a list of k-mers from dataset defined by uid")
+    @namespace.doc(params={"uid": "unique identifier dataset"})
+    @namespace.expect(dataset_kmers)
+    @cache.cached(make_cache_key=_make_cache_key)
+    def post(self,uid):
+        kmers = namespace.payload.get("kmers",[])
+        try:
+            data = _getDataset(uid)
+            if data:
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
+                response = Split.kmer_list_paired(location_split, kmers)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
                 abort(404, "no dataset with splitting k-mers for uid "+str(uid))

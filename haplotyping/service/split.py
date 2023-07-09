@@ -41,6 +41,7 @@ class Split:
             else:
                 currentRowId = minRowId + int((maxRowId-minRowId)/2)
                 
+    #old code to get correct entries without index
     def _findId(id,table,start=0,number=None, cache={}):
         if number==None:
             number=table.shape[0]
@@ -216,6 +217,39 @@ class Split:
             response = None
         return response
     
+    def _kmer_read_result(kmerIds,readInfoList,readData,h5file,kmerDict={}):
+        if len(kmerIds)>0:
+            ckmerTable = h5file.get("/split/ckmer")
+            response = []
+            n = 0
+            checkIds = set(kmerIds)
+            for item in readInfoList:
+                read = readData[n:n+item[0]]
+                if len(checkIds.intersection(read))>0:
+                    kmerList = []
+                    for kmerId in read:
+                        if not kmerId in kmerDict:
+                            kmerDict[kmerId] = ckmerTable[kmerId][0].decode("ascii")
+                        kmerList.append(kmerDict[kmerId])
+                    response.append({"kmers": kmerList, "number": int(item[1])})
+                n+=item[0]
+        else:
+            response = []
+        return response,kmerDict
+    
+    def _kmer_paired_result(kmerId,pairedList,h5file,kmerDict={}):
+        if len(pairedList)>0:
+            ckmerTable = h5file.get("/split/ckmer")
+            response = []
+            for item in pairedList:
+                if item[0]==kmerId:
+                    if not item[1] in kmerDict:
+                        kmerDict[item[1]] = ckmerTable[item[1]][0].decode("ascii")
+                    response.append(kmerDict[item[1]])
+        else:
+            response = []
+        return response,kmerDict
+    
     #---
     
     def _info(h5file: h5py.File):
@@ -306,7 +340,7 @@ class Split:
         (ckmerRow,id,cache) = Split._findItem(ckmer,ckmerTable)
         if ckmerRow:
             directTable = h5file.get("/relations/direct")
-            (directRows,directId,directCache) = Split._findId(id,directTable)
+            directRows = directTable[ckmerRow[4][0]:ckmerRow[4][0]+(ckmerRow[4][1][0]+ckmerRow[4][2][0])]
             return Split._kmer_direct_result(ckmerRow,directRows,h5file)
         else:
             return None
@@ -327,13 +361,107 @@ class Split:
             ckmer = ckmerList[i]
             (ckmerRow,id,cache) = Split._findItem(ckmer,ckmerTable,start,number,cache)
             if ckmerRow:
-                (directRows,directId,directCache) = Split._findId(id,directTable)
+                directRows = directTable[ckmerRow[4][0]:ckmerRow[4][0]+(ckmerRow[4][1][0]+ckmerRow[4][2][0])]
                 response.append(Split._kmer_direct_result(ckmerRow,directRows,h5file))
                 start = id+1
             else:
                 start = id 
         return list(filter(None, response))
    
+    def _kmer_read(h5file: h5py.File, kmer: str):
+        ckmer = haplotyping.General.canonical(kmer)
+        ckmerTable = h5file.get("/split/ckmer")
+        readPartitionTable = h5file.get("/relations/readPartition")
+        readDataTable = h5file.get("/relations/readData")
+        readInfoTable = h5file.get("/relations/readInfo")
+        (ckmerRow,id,cache) = Split._findItem(ckmer,ckmerTable)
+        if ckmerRow:
+            kmerDict = {id: ckmerRow[0].decode("ascii")}
+            partitionRow = readPartitionTable[ckmerRow[5]]
+            readDataList = readDataTable[partitionRow[0][0]:partitionRow[0][0]+partitionRow[0][1]]
+            readInfoList = readInfoTable[partitionRow[1][0]:partitionRow[1][0]+partitionRow[1][1]]
+            reads,kmerDict = Split._kmer_read_result([id],readInfoList,readDataList,h5file,kmerDict)
+        else:
+            reads = []
+        return reads
+        
+    def _kmers_read(h5file: h5py.File, kmers: list):
+        ckmerList = set()
+        for kmer in kmers:
+            ckmerList.add(haplotyping.General.canonical(kmer))
+        ckmerList = list(ckmerList)
+        ckmerList.sort()
+        ckmerTable = h5file.get("/split/ckmer")
+        readPartitionTable = h5file.get("/relations/readPartition")
+        readDataTable = h5file.get("/relations/readData")
+        readInfoTable = h5file.get("/relations/readInfo")
+        number = ckmerTable.shape[0]
+        start = 0
+        cache = {}
+        partitions = set()
+        kmerIds = []
+        kmerDict = {}
+        #get partition data from k-mers
+        for i in range(len(ckmerList)):
+            ckmer = ckmerList[i]
+            (ckmerRow,id,cache) = Split._findItem(ckmerList[i],ckmerTable,start,number,cache)
+            if ckmerRow:
+                kmerDict[id] = ckmerRow[0].decode("ascii")
+                kmerIds.append(id)
+                partitions.add(ckmerRow[5])
+                start = id+1
+            else:
+                start = id 
+        #collect reads from partitions
+        reads = []
+        for p in partitions:
+            partitionRow = readPartitionTable[p]
+            readDataList = readDataTable[partitionRow[0][0]:partitionRow[0][0]+partitionRow[0][1]]
+            readInfoList = readInfoTable[partitionRow[1][0]:partitionRow[1][0]+partitionRow[1][1]]
+            newReads,kmerDict = Split._kmer_read_result(kmerIds,readInfoList,readDataList,h5file,kmerDict)
+            reads.extend(newReads)
+        return reads
+    
+    def _kmer_paired(h5file: h5py.File, kmer: str):
+        ckmer = haplotyping.General.canonical(kmer)
+        ckmerTable = h5file.get("/split/ckmer")
+        pairedTable = h5file.get("/relations/paired")
+        (ckmerRow,id,cache) = Split._findItem(ckmer,ckmerTable)
+        if ckmerRow:
+            kmerDict = {id: ckmerRow[0].decode("ascii")}
+            pairedList = pairedTable[ckmerRow[8][0]:ckmerRow[8][0]+ckmerRow[8][1]]
+            paired,kmerDict = Split._kmer_paired_result(id,pairedList,h5file,kmerDict)
+        else:
+            paired = []
+        return paired
+        
+    def _kmers_paired(h5file: h5py.File, kmers: list):
+        ckmerList = set()
+        for kmer in kmers:
+            ckmerList.add(haplotyping.General.canonical(kmer))
+        ckmerList = list(ckmerList)
+        ckmerList.sort()
+        ckmerTable = h5file.get("/split/ckmer")
+        pairedTable = h5file.get("/relations/paired")
+        number = ckmerTable.shape[0]
+        start = 0
+        cache = {}
+        kmerDict = {}
+        response = {}
+        #get paired data for k-mers
+        for i in range(len(ckmerList)):
+            ckmer = ckmerList[i]
+            (ckmerRow,id,cache) = Split._findItem(ckmerList[i],ckmerTable,start,number,cache)
+            if ckmerRow:
+                kmerDict[id] = ckmerRow[0].decode("ascii")
+                if ckmerRow[8][1]>0:
+                    pairedList = pairedTable[ckmerRow[8][0]:ckmerRow[8][0]+ckmerRow[8][1]]
+                    response[kmerDict[id]],kmerDict = Split._kmer_paired_result(id,pairedList,h5file,kmerDict)
+                start = id+1
+            else:
+                start = id 
+        return response
+    
     #---
     
     def info(location_split: str):
@@ -350,10 +478,6 @@ class Split:
         with h5py.File(location_split, mode="r") as h5file:            
             return Split._kmers_info(h5file,kmers)
     
-    def kmer_connected_info(location_split: str, kmers: list):
-        with h5py.File(location_split, mode="r") as h5file:            
-            return Split._kmers_connected(h5file,kmers)
-    
     def kmer_sequence_info(location_split: str, sequence: str):
         with h5py.File(location_split, mode="r") as h5file:            
             configTable = h5file.get("/config")
@@ -368,6 +492,22 @@ class Split:
     def kmer_list_direct(location_split: str, kmers: list):
         with h5py.File(location_split, mode="r") as h5file:            
             return Split._kmers_direct(h5file,kmers)
+        
+    def kmer_read(location_split: str, kmer: str):
+        with h5py.File(location_split, mode="r") as h5file:            
+            return Split._kmer_read(h5file,kmer)
+    
+    def kmer_list_read(location_split: str, kmers: list):
+        with h5py.File(location_split, mode="r") as h5file:            
+            return Split._kmers_read(h5file,kmers)
+        
+    def kmer_paired(location_split: str, kmer: str):
+        with h5py.File(location_split, mode="r") as h5file:            
+            return Split._kmer_paired(h5file,kmer)
+    
+    def kmer_list_paired(location_split: str, kmers: list):
+        with h5py.File(location_split, mode="r") as h5file:            
+            return Split._kmers_paired(h5file,kmers)
         
     #---
     

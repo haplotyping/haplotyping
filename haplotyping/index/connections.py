@@ -15,6 +15,8 @@ class Connections:
     Internal use, parse read files and store results in database
     """
     
+    stepSizeStorage = 1000000
+    
     def __init__(self, unpairedReadFiles, pairedReadFiles, h5file, filenameBase, 
                  indexType=None, debug=False, keepTemporaryFiles=False):
         
@@ -153,9 +155,9 @@ class Connections:
             memory += child.memory_info().rss
         return memory
     
-#----------------
-# Main functions
-#----------------
+#-----------------------------------
+# Main functions Direct Connections
+#-----------------------------------
 
     def _processReadFiles(self, indexFile, automatonFile, automatonMemory, pytablesStorage):
           
@@ -295,9 +297,8 @@ class Connections:
         kmer_properties = np.ndarray((self.numberOfKmers,), dtype=[("type","S1"),("number",shm_kmer_number),
                            ("left",shm_kmer_link),("right",shm_kmer_link)], buffer=shm_kmer.buf)
         ckmerLink = 0
-        stepSizeStorage=1000000
-        for i in range(0,self.numberOfKmers,stepSizeStorage):
-            ckmers = self.h5file["/split/ckmer"][i:min(self.numberOfKmers,i+stepSizeStorage)]
+        for i in range(0,self.numberOfKmers,Connections.stepSizeStorage):
+            ckmers = self.h5file["/split/ckmer"][i:min(self.numberOfKmers,i+Connections.stepSizeStorage)]
             stepData = [(row[1],row[2],row[3][0],row[3][1],) for row in ckmers]
             kmer_properties[ckmerLink:ckmerLink+len(stepData)] = stepData
             ckmerLink+=len(stepData)
@@ -401,7 +402,7 @@ class Connections:
             #release memory
             shm_index.close()
             shm_index.unlink()
-            os.exit()
+            sys.exit()
         finally:
             #terminate pools
             pool_automaton.terminate()
@@ -495,7 +496,7 @@ class Connections:
             #release memory
             shm_kmer.close()
             shm_kmer.unlink()
-            os.exit()
+            sys.exit()
         finally:
             #terminate pool
             pool_merges.terminate()
@@ -622,12 +623,10 @@ class Connections:
         haplotyping.index.storage.Storage.storeMergedDirect(
             self.h5file, pytablesStorage, 
             self.numberOfKmers, self.minimumFrequency)
-        
-    def _storeReads(self, pytablesStorage):
-        #store merged data
-        haplotyping.index.storage.Storage.storeMergedReads(
-            self.h5file, pytablesStorage, 
-            self.numberOfKmers,self.numberOfPartitions)
+
+#-------------------------------------
+# Main functions Indirect Connections
+#-------------------------------------
         
     def _processReads(self, pytablesStorage):   
         
@@ -640,30 +639,60 @@ class Connections:
             maxNumberOfPartitions = int(self.numberOfKmers ** (2/3))
             self.numberOfPartitions = haplotyping.index.storage.Storage.partitionKmers(self.h5file, pytablesStorage,
                                                               maxNumberOfPartitions)
-            #prepare shared memory with k-mer properties
+            #prepare shared memory with k-mer properties and direct connections
+            numberOfDirect = self.h5file["/relations/direct"].shape[0]
             shm_kmer_partition = np.dtype(haplotyping.index.Database.getUint(self.numberOfPartitions)).type
             shm_kmer_number = np.dtype(haplotyping.index.Database.getUint(self.maximumFrequency)).type
-            shm_kmer_disconnected = np.dtype("uint8").type
-            shm_kmer_size = self.numberOfKmers*(shm_kmer_partition(0).nbytes+shm_kmer_number(0).nbytes+
-                                                shm_kmer_disconnected(0).nbytes)
+            shm_kmer_reference = np.dtype(haplotyping.index.Database.getUint(numberOfDirect)).type
+            shm_kmer_numberLeft = np.dtype("uint8").type
+            shm_kmer_numberRight = np.dtype("uint8").type
+            shm_kmer_size = self.numberOfKmers*(shm_kmer_partition(0).nbytes+
+                                                shm_kmer_number(0).nbytes+
+                                                shm_kmer_reference(0).nbytes+
+                                                shm_kmer_numberLeft(0).nbytes+
+                                                shm_kmer_numberRight(0).nbytes)
+            shm_direct_kmer = np.dtype(haplotyping.index.Database.getUint(self.numberOfKmers)).type
+            shm_direct_size = numberOfDirect*shm_direct_kmer(0).nbytes
             self._logger.debug("size shared memory {} MB k-mer properties".format(math.ceil(shm_kmer_size/1048576)))
+            self._logger.debug("size shared memory {} MB direct connections".format(math.ceil(shm_direct_size/1048576)))
 
             shm_kmer = mp.shared_memory.SharedMemory(create=True, size=shm_kmer_size)
+            shm_direct = mp.shared_memory.SharedMemory(create=True, size=shm_direct_size)
             kmer_properties = np.ndarray((self.numberOfKmers,), 
                                          dtype=[("partition",shm_kmer_partition),
                                                 ("number",shm_kmer_number),
-                                                ("disconnected","uint8")], 
+                                                ("reference",shm_kmer_reference),
+                                                ("numberLeft",shm_kmer_numberLeft),
+                                                ("numberRight",shm_kmer_numberRight)], 
                                          buffer=shm_kmer.buf)
+            direct_properties = np.ndarray((numberOfDirect,), 
+                                         dtype=shm_direct_kmer, 
+                                         buffer=shm_direct.buf)
             ckmerLink = 0
-            stepSizeStorage=1000000
-            for i in range(0,self.numberOfKmers,stepSizeStorage):
-                ckmers = self.h5file["/split/ckmer"][i:min(self.numberOfKmers,i+stepSizeStorage)]
-                #(<partition>,<number>,<disconnected>)
-                stepData = [(row[5],row[2],1 if (row[4][1][1]==0 and row[4][2][1]==0) else 0) for row in ckmers]
+            for i in range(0,self.numberOfKmers,Connections.stepSizeStorage):
+                #get k-mer data
+                ckmers = self.h5file["/split/ckmer"][i:min(self.numberOfKmers,i+Connections.stepSizeStorage)]
+                stepData = [(row[5],row[2],row[4][0],row[4][1][0],row[4][2][0]) for row in ckmers]
                 kmer_properties[ckmerLink:ckmerLink+len(stepData)] = stepData
                 ckmerLink+=len(stepData)
                 del stepData
+                #get direct data
+                directStart = numberOfDirect
+                directEnd = 0
+                for row in ckmers:
+                    if row[4][1][1]==0 and row[4][2][1]==0:
+                        continue
+                    else:
+                        directStart=min(directStart,row[4][0])
+                        directEnd=max(directEnd,row[4][0]+row[4][1][1]+row[4][2][1])
+                if directStart<directEnd:
+                    direct = self.h5file["/relations/direct"][directStart:directEnd]
+                    stepData = [row[1][0] for row in direct]
+                    direct_properties[directStart:directEnd] = stepData
+                    del stepData
+                                
             self._logger.debug("created shared memory {} MB k-mer properties".format(math.ceil(shm_kmer_size/1048576)))
+            self._logger.debug("created shared memory {} MB direct connections".format(math.ceil(shm_direct_size/1048576)))
             
             #worker requirements
             nWorkers = max(3,mp.cpu_count()-1) if self.maximumProcesses==0 else self.maximumProcesses - 1
@@ -682,7 +711,8 @@ class Connections:
             pool_reads = mp.Pool(nWorkersReads, haplotyping.index.storage.Storage.workerProcessReads, 
                                  (shutdown_event,queue_rawReads,queue_filteredReads,queue_finished,
                                   self.filenameBase,self.numberOfKmers,
-                                  self.numberOfPartitions,self.maximumFrequency,maximumReadLength,shm_kmer.name))
+                                  self.numberOfPartitions,numberOfDirect,self.maximumFrequency,maximumReadLength,
+                                  shm_kmer.name,shm_direct.name))
             signal.signal(signal.SIGINT, original_sigint_handler)
             
             try:
@@ -708,8 +738,10 @@ class Connections:
                 shutdown_event.set()
                 #release memory
                 shm_kmer.close()
+                shm_direct.close()
                 shm_kmer.unlink()
-                os.exit()
+                shm_direct.unlink()
+                sys.exit()
             finally:
                 #terminate pool
                 pool_reads.terminate()
@@ -722,7 +754,9 @@ class Connections:
                 pool_reads.join()
                 #release memory
                 shm_kmer.close()
+                shm_direct.close()
                 shm_kmer.unlink()
+                shm_direct.unlink()
                 #get filtered readfiles
                 storageFilteredReadFiles = Connections._collect_and_close_queue(queue_filteredReads)   
                 
@@ -735,9 +769,8 @@ class Connections:
             for item in storageFilteredReadFiles:
                 with tables.open_file(item, mode="r") as pytablesStorageFiltered:
                     nReads = pytablesStorageFiltered.root.readPartitionInfo.shape[0]
-                    stepSize = 1000000
-                    for i in range(0,nReads,stepSize):
-                        stepData = pytablesStorageFiltered.root.readPartitionInfo[i:i+stepSize]
+                    for i in range(0,nReads,Connections.stepSizeStorage):
+                        stepData = pytablesStorageFiltered.root.readPartitionInfo[i:i+Connections.stepSizeStorage]
                         for row in stepData:
                             partitionSizes[row[1]][0]+=1
                             partitionSizes[row[1]][1]+=row[0]   
@@ -805,7 +838,7 @@ class Connections:
             except KeyboardInterrupt:
                 self._logger.debug("caught KeyboardInterrupt")
                 shutdown_event.set()
-                os.exit()
+                sys.exit()
             finally:
                 #terminate pool
                 pool_merges.terminate()
@@ -820,6 +853,14 @@ class Connections:
             if not self.keepTemporaryFiles:
                 for item in storageFilteredReadFiles:
                     os.remove(item)
+                    
+    def _storeReads(self, pytablesStorage):
+        #store merged data
+        haplotyping.index.storage.Storage.storeMergedReads(
+            self.h5file, pytablesStorage, 
+            self.numberOfKmers,self.numberOfPartitions)
+        
+    
                 
             
             

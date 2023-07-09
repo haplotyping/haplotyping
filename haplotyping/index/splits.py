@@ -11,7 +11,7 @@ class Splits:
     Internal use, get splitting k-mers from index
     """
     
-    stepSizeStorage = 10000
+    stepSizeStorage = 1000000
     
     def __init__(self, sortedIndexFile: str, h5file, filenameBase, debug=False, keepTemporaryFiles=False):
         
@@ -159,7 +159,7 @@ class Splits:
                 #shutdown directly
                 shutdown_event.set()
                 self._logger.debug("forced exit")
-                os.exit()
+                sys.exit()
             finally:
                 #close queus workers
                 close_queue(queue_splits)
