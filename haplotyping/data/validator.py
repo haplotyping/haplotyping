@@ -576,19 +576,20 @@ class ValidateGeneral:
         return self._report[key]
         
         
-class ValidatePedigree(ValidateGeneral):
+class ValidateIndex(ValidateGeneral):
 
     default_checks = [
-                {"schema": "pedigree_varieties.schema.json", "sheet": "varieties"},
-                {"schema": "pedigree_synonyms.schema.json", "sheet": "synonyms"},
-                {"schema": "pedigree_countries.schema.json", "sheet": "countries"},
-                {"schema": "pedigree_ancestors.schema.json", "sheet": "ancestors"},
-                {"schema": "pedigree_breeders.schema.json", "sheet": "breeders"},
+                {"schema": "index_varieties.schema.json", "sheet": "varieties"},
+                {"schema": "index_synonyms.schema.json", "sheet": "synonyms"},
+                {"schema": "index_countries.schema.json", "sheet": "countries"},
+                {"schema": "index_ancestors.schema.json", "sheet": "ancestors"},
+                {"schema": "index_species.schema.json", "sheet": "species"},
+                {"schema": "index_breeders.schema.json", "sheet": "breeders"},
             ]
                  
     def __init__(self, dataPath:str, resourceFilename:str, **args):
         
-        super(ValidatePedigree, self).__init__(dataPath, resourceFilename, **args)
+        super(ValidateIndex, self).__init__(dataPath, resourceFilename, **args)
         
         #logging
         self._logger = logging.getLogger(__name__)
@@ -629,7 +630,7 @@ class ValidatePedigree(ValidateGeneral):
                 #check existence and readability schema
                 assert os.access(os.path.join(self._schemaPath,item["schema"]), os.R_OK)
                 #validate
-                self._validateResource(item["sheet"], item["schema"], "pedigree_"+item["sheet"], 1)
+                self._validateResource(item["sheet"], item["schema"], "index_"+item["sheet"], 1)
 
             #validate package
             self._validatePackage()
@@ -656,12 +657,12 @@ class ValidateData(ValidateGeneral):
                  "optional": True, "condition": ["experiments"]},
             ]
             
-    def __init__(self, dataPath:str, resourceFilename:str, pedigreePackage:str, **args):
+    def __init__(self, dataPath:str, resourceFilename:str, indexPackage:str, **args):
         
         super(ValidateData, self).__init__(dataPath, resourceFilename, **args)
         
         #get config
-        self._pedigreePackageName = pedigreePackage
+        self._indexPackageName = indexPackage
         
         #first check access to file   
         self._report.addReport("general", False)
@@ -669,25 +670,29 @@ class ValidateData(ValidateGeneral):
             self._report.addReportError("general","no read access to '{}'".format(self._resourceFilename))
             self._resourceFilename = None       
         else:
-            #first include pedigree
-            self._pedigreePackage = Package(os.path.join(self._dataPath,self._pedigreePackageName))
-            self._report.addReport("pedigree", False)
-            self._report.addReportDebug("pedigree", "read access to '{}'".format(self._pedigreePackage))               
+            #first include index
+            self._indexPackage = Package(os.path.join(self._dataPath,self._indexPackageName))
+            self._report.addReport("index", False)
+            self._report.addReportDebug("index", "read access to '{}'".format(self._indexPackage))               
             try:
-                if self._pedigreePackage.has_resource("pedigree_varieties"):
-                    self._package.add_resource(self._pedigreePackage.get_resource("pedigree_varieties"))
+                if self._indexPackage.has_resource("index_varieties"):
+                    self._package.add_resource(self._indexPackage.get_resource("index_varieties"))
                 else:
-                    self._report.addReportError("pedigree", "no varieties in pedigree")
-                if self._pedigreePackage.has_resource("pedigree_countries"):
-                    self._package.add_resource(self._pedigreePackage.get_resource("pedigree_countries"))
+                    self._report.addReportError("index", "no varieties in index")
+                if self._indexPackage.has_resource("index_countries"):
+                    self._package.add_resource(self._indexPackage.get_resource("index_countries"))
                 else:
-                    self._report.addReportError("pedigree", "no countries in pedigree")
-                if self._pedigreePackage.has_resource("pedigree_breeders"):
-                    self._package.add_resource(self._pedigreePackage.get_resource("pedigree_breeders"))
+                    self._report.addReportError("index", "no countries in index")
+                if self._indexPackage.has_resource("index_species"):
+                    self._package.add_resource(self._indexPackage.get_resource("index_species"))
                 else:
-                    self._report.addReportError("pedigree", "no breeders in pedigree")
+                    self._report.addReportError("index", "no species in index")
+                if self._indexPackage.has_resource("index_breeders"):
+                    self._package.add_resource(self._indexPackage.get_resource("index_breeders"))
+                else:
+                    self._report.addReportError("index", "no breeders in index")
             except Exception as e:
-                self._report.addReportError("pedigree", "problem with pedigree: {}".format(str(e)))
+                self._report.addReportError("index", "problem with index: {}".format(str(e)))
             #now start processing xlsx
             self._report.addReportDebug("general", "read access to '{}'".format(self._resourceFilename))               
             try:

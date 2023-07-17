@@ -54,7 +54,7 @@
         "uid"
       ],
       "reference": {
-        "resource": "pedigree_varieties",
+        "resource": "index_varieties",
         "fields": [
           "uid"
         ]

@@ -27,7 +27,7 @@ class ConstructDatabase:
         try:
             self._load_identifiers()
             self._connect_sqlite3()
-            self._exportPedigree()
+            self._exportIndex()
             self._exportResources()
         except Error as e:
             print(e)
@@ -78,26 +78,29 @@ class ConstructDatabase:
             os.remove(os.path.join(self._exportDir,self.dbFilename))
             
                 
-    def _exportPedigree(self):  
+    def _exportIndex(self):  
         #add new
         for filename in sorted(os.listdir(self._baseDir)):
             if os.path.isfile(os.path.join(self._baseDir,filename)):
-                if filename=="pedigree.package.json":
+                if filename=="index.package.json":
                     package = Package(os.path.join(self._baseDir,filename))
                     #create structure
                     self._logger.info("initialise database")
                     sql = """CREATE TABLE IF NOT EXISTS "variety" (
                                 "id" INTEGER NOT NULL,
+                                "type" VARCHAR(7) CHECK("type" IN ("variety","species")) NOT NULL,
                                 "uid" VARCHAR(13) NULL,
                                 "name" VARCHAR(255) NULL,
                                 "year_min" INTEGER NULL,
                                 "year_max" INTEGER NULL,
                                 "origin" VARCHAR(4) NULL,
+                                "species_id" INTEGER NULL,
                                 "breeder_id" INTEGER NULL,
                                 PRIMARY KEY ("id")
                             );
                             CREATE INDEX "variety_name" ON "variety" ("name");
                             CREATE INDEX "variety_origin" ON "variety" ("origin");
+                            CREATE INDEX "variety_species" ON "variety" ("species_id");
                             CREATE INDEX "variety_breeder" ON "variety" ("breeder_id");
                             CREATE UNIQUE INDEX "variety_uid" ON "variety" ("uid");
                             CREATE TABLE IF NOT EXISTS "variety_synonym" (
@@ -125,6 +128,12 @@ class ConstructDatabase:
                                 PRIMARY KEY ("id")
                             );
                             CREATE UNIQUE INDEX "country_uid" ON "country" ("uid");
+                            CREATE TABLE IF NOT EXISTS "species" (
+                                "id" INTEGER NOT NULL,
+                                "genus" VARCHAR(255) NOT NULL,
+                                "species" VARCHAR(255) NOT NULL,
+                                PRIMARY KEY ("id")
+                            );
                             CREATE TABLE IF NOT EXISTS "breeder" (
                                 "id" INTEGER NOT NULL,
                                 "name" VARCHAR(255) NOT NULL,
@@ -165,41 +174,46 @@ class ConstructDatabase:
                             CREATE INDEX "dataset_variety" ON "dataset" ("variety");"""
                     self._connection.executescript(sql)
                     #countries
-                    countries = pd.DataFrame(package.get_resource("pedigree_countries").read_rows())
+                    countries = pd.DataFrame(package.get_resource("index_countries").read_rows())
                     countries = countries[["code","name"]]
                     countries.columns = ["uid","name"]
                     countries.to_sql("country", con=self._connection, index=False, if_exists="append")
                     self._logger.info("add {} countries".format(len(countries)))
+                    #species
+                    species = pd.DataFrame(package.get_resource("index_species").read_rows())
+                    species = species[["id","genus","species"]]
+                    species.to_sql("species", con=self._connection, index=False, if_exists="append")
+                    self._logger.info("add {} species".format(len(species)))
                     #breeders
-                    breeders = pd.DataFrame(package.get_resource("pedigree_breeders").read_rows())
+                    breeders = pd.DataFrame(package.get_resource("index_breeders").read_rows())
                     breeders = breeders[["id","name","country"]]
                     breeders.to_sql("breeder", con=self._connection, index=False, if_exists="append")
                     self._logger.info("add {} breeders".format(len(breeders)))
                     #varieties
-                    varieties = pd.DataFrame(package.get_resource("pedigree_varieties").read_rows())
-                    varieties = varieties[["uid", "name", "yearMin", "yearMax", "origin", "breederId"]]
-                    varieties.columns = ["uid", "name", "year_min", "year_max", "origin", "breeder_id"]
+                    varieties = pd.DataFrame(package.get_resource("index_varieties").read_rows())
+                    varieties = varieties[["uid", "type","name", "yearMin", "yearMax", "origin", "speciesId","breederId"]]
+                    varieties.columns = ["uid", "type", "name", "year_min", "year_max", "origin", "species_id", "breeder_id"]
                     varieties.to_sql("variety", con=self._connection, index=False, if_exists="append")
                     self._logger.info("add {} varieties".format(len(varieties)))
                     #ancestors
-                    ancestors = pd.DataFrame(package.get_resource("pedigree_ancestors").read_rows())
+                    ancestors = pd.DataFrame(package.get_resource("index_ancestors").read_rows())
                     ancestors = ancestors[["id","variety", "ancestor", "type", "offspring"]]
                     ancestors.to_sql("variety_ancestor", con=self._connection, index=False, if_exists="append")
                     self._logger.info("add {} ancestors".format(len(ancestors)))
                     #synonyms
-                    synonyms = pd.DataFrame(package.get_resource("pedigree_synonyms").read_rows())
+                    synonyms = pd.DataFrame(package.get_resource("index_synonyms").read_rows())
                     synonyms = synonyms[["uid","synonym"]]
                     synonyms.to_sql("variety_synonym", con=self._connection, index=False, if_exists="append")
                     self._logger.info("add {} synonyms".format(len(synonyms)))
                     return
-        self._logger.error("no pedigree found in {}".format(self._baseDir))
+        self._logger.error("no index found in {}".format(self._baseDir))
                     
                     
     def _exportResources(self):  
         #add new
         for filename in sorted(os.listdir(self._baseDir)):
             if os.path.isfile(os.path.join(self._baseDir,filename)):
-                if filename=="pedigree.package.json":
+                if filename=="index.package.json":
                     pass
                 elif filename.endswith(".package.json"):                    
                     self._exportResource(os.path.join(self._baseDir,filename),os.path.basename(filename)[:-13])

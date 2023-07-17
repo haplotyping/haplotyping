@@ -1,65 +1,80 @@
 {
   "fields": [
     {
-      "name": "id",
-      "type": "integer",
+      "name": "uid",
+      "type": "string",
       "constraints": {
         "required": true,
         "unique": true
       }
     },
     {
-      "name": "variety",
+      "name": "type",
       "type": "string",
       "constraints": {
         "required": true,
-        "unique": false
+        "enum": ["variety","species"]
       }
     },
     {
-      "name": "ancestor",
+      "name": "name",
       "type": "string"
     },
     {
-      "name": "type",
+      "name": "yearMin",
+      "type": "integer"
+    },
+    {
+      "name": "yearMax",
+      "type": "integer"
+    },
+    {
+      "name": "origin",
       "type": "string"
     },
     {
-      "name": "offspring",
+      "name": "speciesId",
+      "type": "integer"
+    },
+    {
+      "name": "breederId",
       "type": "integer"
     }
+  ],
+  "primaryKey": [
+    "uid"
   ],
   "foreignKeys": [
     {
       "fields": [
-        "variety"
+        "speciesId"
       ],
       "reference": {
-        "resource": "pedigree_varieties",
-        "fields": [
-          "uid"
-        ]
-      }
-    },
-    {
-      "fields": [
-        "ancestor"
-      ],
-      "reference": {
-        "resource": "pedigree_varieties",
-        "fields": [
-          "uid"
-        ]
-      }
-    },
-    {
-      "fields": [
-        "offspring"
-      ],
-      "reference": {
-        "resource": "",
+        "resource": "index_species",
         "fields": [
           "id"
+        ]
+      }
+    },
+    {
+      "fields": [
+        "breederId"
+      ],
+      "reference": {
+        "resource": "index_breeders",
+        "fields": [
+          "id"
+        ]
+      }
+    },
+    {
+      "fields": [
+        "origin"
+      ],
+      "reference": {
+        "resource": "index_countries",
+        "fields": [
+          "code"
         ]
       }
     }

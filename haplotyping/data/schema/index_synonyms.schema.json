@@ -1,37 +1,31 @@
 {
   "fields": [
     {
-      "name": "id",
-      "type": "integer",
-      "constraints": {
-        "required": true,
-        "unique": true
-      }
-    },
-    {
-      "name": "name",
+      "name": "uid",
       "type": "string",
       "constraints": {
-        "required": true
+        "required": true,
+        "unique": false
       }
     },
     {
-      "name": "country",
-      "type": "string"
+      "name": "synonym",
+      "type": "string",
+      "constraints": {
+        "required": true,
+        "unique": false
+      }
     }
-  ],
-  "primaryKey": [
-    "id"
   ],
   "foreignKeys": [
     {
       "fields": [
-        "country"
+        "uid"
       ],
       "reference": {
-        "resource": "pedigree_countries",
+        "resource": "index_varieties",
         "fields": [
-          "code"
+          "uid"
         ]
       }
     }
