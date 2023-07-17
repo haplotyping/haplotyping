@@ -261,16 +261,24 @@ class VarietyList(Resource):
                             WHERE """ + condition_sql, tuple(condition_variables))  
             total = cursor.fetchone()[0]
             if start<total:
-                cursor.execute("""SELECT `variety`.`uid`, `variety`.`name`, `variety`.`origin`, 
+                cursor.execute("""SELECT `variety`.`uid`, `variety`.`type`, `variety`.`name`, `variety`.`origin`, 
                                 `country`.`name` AS `country`, 
                                 NULL AS `year`, `variety`.`year_min`, `variety`.`year_max`, 
                                 GROUP_CONCAT(DISTINCT `synonym`.`synonym`) AS `synonyms`, 
+                                `variety`.`species_id` AS `species_id`,
+                                TRIM(`species`.`genus` || ' ' || `species`.`species`) AS `species_name`,
+                                `species`.`genus` AS `species_genus`,
+                                `species`.`species` AS `species_species`,
+                                `variety`.`breeder_id` AS `breeder_id`,
+                                `breeder`.`name` AS `breeder_name`,
                                 COUNT(DISTINCT `dataset`.`id`) as `datasets` 
                                 FROM `variety` 
                                 LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` 
                                 AND NOT `dataset`.`uid` IS NULL AND NOT `dataset`.`type` IS NULL
                                 LEFT JOIN `collection` ON `dataset`.`collection_id` = `collection`.`id` 
                                 LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` 
+                                LEFT JOIN `species` ON `variety`.`species_id` = `species`.`id` 
+                                LEFT JOIN `breeder` ON `variety`.`breeder_id` = `breeder`.`id` 
                                 LEFT JOIN `variety_ancestor` AS `ancestor` ON `variety`.`uid` = `ancestor`.`variety` 
                                 LEFT JOIN `variety_ancestor` AS `offspring` ON `variety`.`uid` = `offspring`.`ancestor` 
                                 LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` 
@@ -278,7 +286,8 @@ class VarietyList(Resource):
                                             `condition_synonym`.`uid` 
                                 WHERE """+condition_sql+""" 
                                 GROUP BY `variety`.`id` 
-                                ORDER BY `variety`.`name`, `variety`.`uid` 
+                                ORDER BY CASE `variety`.`type` WHEN 'species' THEN 0 ELSE 1 END, 
+                                    `variety`.`name`, `variety`.`uid` 
                                 LIMIT ?,?""",tuple(condition_variables + [start,number]))  
                 resultList = [dict(row) for row in cursor.fetchall()]
             else:
@@ -343,14 +352,22 @@ class VarietyId(Resource):
             db_connection = haplotyping.service.API.get_db_connection()
             db_connection.row_factory = sqlite3.Row
             cursor = db_connection.cursor()
-            cursor.execute("""SELECT `variety`.`uid`, `variety`.`name`, `variety`.`origin`, 
+            cursor.execute("""SELECT `variety`.`uid`, `variety`.`type`, `variety`.`name`, `variety`.`origin`, 
                             `country`.`name` AS `country`, 
                             GROUP_CONCAT(DISTINCT `synonym`.`synonym`) AS `synonyms`, 
                             NULL AS `year`, `variety`.`year_min`, `variety`.`year_max`, 
+                            `variety`.`species_id` AS `species_id`,
+                            TRIM(`species`.`genus` || ' ' || `species`.`species`) AS `species_name`,
+                            `species`.`genus` AS `species_genus`,
+                            `species`.`species` AS `species_species`,
+                            `variety`.`breeder_id` AS `breeder_id`,
+                            `breeder`.`name` AS `breeder_name`,
                             NULL as `datasets` 
                             FROM `variety` 
                             LEFT JOIN `dataset` ON `variety`.`uid` = `dataset`.`variety` 
                             AND NOT (`dataset`.`uid` IS NULL) AND NOT (`dataset`.`type` IS NULL) 
+                            LEFT JOIN `species` ON `variety`.`species_id` = `species`.`id` 
+                            LEFT JOIN `breeder` ON `variety`.`breeder_id` = `breeder`.`id` 
                             LEFT JOIN `country` ON `variety`.`origin` = `country`.`uid` 
                             LEFT JOIN `variety_synonym` AS `synonym` ON `variety`.`uid` = `synonym`.`uid` 
                             WHERE `variety`.`uid` = ? 
