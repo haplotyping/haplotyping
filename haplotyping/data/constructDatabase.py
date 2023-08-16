@@ -30,7 +30,7 @@ class ConstructDatabase:
             self._exportIndex()
             self._exportResources()
         except Error as e:
-            print(e)
+            self._logger.error(e)
         finally:
             self._close_sqlite3()
             self._store_identifiers()

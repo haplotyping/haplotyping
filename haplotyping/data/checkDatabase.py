@@ -166,10 +166,10 @@ class CheckDatabase:
                                 collection["name"], locationsNotFound))
             if kmerNotFound>0:
                 self._logger.error("kmer collection {}: {} k-mer databases not found".format(
-                                collection["name"], locationsNotFound))
+                                collection["name"], kmerNotFound))
             if splitNotFound>0:
                 self._logger.error("kmer collection {}: {} splitting k-mer databases not found".format(
-                                collection["name"], locationsNotFound))
+                                collection["name"], splitNotFound))
                             
                     
 
