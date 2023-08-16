@@ -124,9 +124,12 @@ class CheckDatabase:
                 dataset = dict(zip(row.keys(), row))
                 if dataset["location"]!=None:
                     if not collection["location"]==None:
-                        kmerLocation = os.path.join(self._kmerDir,collection["location"],dataset["location"])
+                        kmerLocation = os.path.join(self._kmerDir,
+                                                    collection["location"],
+                                                    dataset["location"])
                     else:
-                        kmerLocation = os.path.join(self._kmerDir,dataset["location"])
+                        kmerLocation = os.path.join(self._kmerDir,
+                                                    dataset["location"])
                     if not os.path.exists(kmerLocation):   
                         self._logger.debug("kmer collection {}: location {} not found".format(
                                 collection["name"], kmerLocation))
