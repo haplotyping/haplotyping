@@ -1,19 +1,58 @@
 import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-import unittest, json, pathlib, urllib
+import unittest, tempfile, json, pathlib, urllib, socket, configparser
 
 import haplotyping, haplotyping.service
 
 class APITestCase(unittest.TestCase):
     
-    def setUp(self):
-        location = str(pathlib.Path().absolute())
-        location = location + pathlib.os.sep + "tests" + pathlib.os.sep + "service"
-        api = haplotyping.service.API(location, False)
-        app = api.process_api_messages(False)
-        app.config["TESTING"] = True
+    @classmethod
+    def setUpClass(self):
+        
+        #create temporary directory
+        self.tmpDirectory = tempfile.TemporaryDirectory()
+        self.tmpCacheDirectory = os.path.join(self.tmpDirectory.name,"cache")
+        os.mkdir(self.tmpCacheDirectory)
+        
+        #create config.ini
+        self.tmpConfigFile = os.path.join(self.tmpDirectory.name,"config.ini")
+        config_file = configparser.ConfigParser()
+        config_file["api"] = {
+            "port": self._get_free_port(),
+            "host": "::",
+            "threads": 10,
+            "debug": True,
+            "proxy_prefix": True
+        }
+        config_file["settings"] = {
+            "data_location_marker": "marker",
+            "data_location_kmer": "kmer",
+            "kmc_query_binary_location": os.path.join(os.path.abspath(os.path.dirname(__file__)),
+                                                      "../../../kmc_analysis/bin"),
+            "sqlite_db": "db.sqlite"
+        }
+        config_file["cache"] = {
+            "type": "FileSystemCache",
+            "dir": self.tmpCacheDirectory,
+            "threshold": 100000,
+            "timeout": 0
+        }
+        with open(self.tmpConfigFile,"w") as f:
+            config_file.write(f)
+        
+        #data
+        self.dataLocation = os.path.join(os.path.abspath(os.path.dirname(__file__)),"testdata")        
+        #start service
+        api = haplotyping.service.API(self.dataLocation, self.tmpConfigFile, False)
+        app = api.process_api_messages()
+        app.testing = True
         self.client = app.test_client()
+        
+    def _get_free_port():
+        sock = socket.socket()
+        sock.bind(('', 0))
+        return sock.getsockname()[1]
         
     def _test_paging(self, name, identifier):
         #get total
@@ -23,6 +62,7 @@ class APITestCase(unittest.TestCase):
         self.assertEqual(len(data["list"]),0,"unexpected length")
         number = 1
         total = data["total"]
+        self.assertTrue(data["total"]>0,"unexpected size (empty)")
         uidSet = set()
         #get countries
         for start in range(0,total,number):
@@ -85,6 +125,12 @@ class APITestCase(unittest.TestCase):
         data = json.loads(response.data)
         self.assertTrue(len(data["list"])>0,"expected results")
         collections = data["list"]
+        #get test entries - dataset
+        response = self.client.get("/api/dataset/?start=0&number="+str(n_varieties), 
+                                   headers={"accept": "application/json"})    
+        data = json.loads(response.data)
+        self.assertTrue(len(data["list"])>0,"expected results")
+        datasets = data["list"]
         #initialise year examples
         year_examples = {"single":set(),"maximum":set(),"minimum":set(),"range":set()}
         #search by name and check for year examples
@@ -96,16 +142,15 @@ class APITestCase(unittest.TestCase):
             data = json.loads(response.data)
             n+=data["total"]
             for j in range(len(data["list"])):
-                if (data["list"][j]["year"]["min"]==None) and (data["list"][j]["year"]["max"]==None):
-                    pass
-                elif (data["list"][j]["year"]["min"]==None):
-                    year_examples["maximum"].add(data["list"][j]["year"]["max"])
-                elif (data["list"][j]["year"]["max"]==None):
-                    year_examples["minimum"].add(data["list"][j]["year"]["min"])
-                elif (data["list"][j]["year"]["min"]==data["list"][j]["year"]["max"]):
-                    year_examples["single"].add(data["list"][j]["year"]["min"])
-                else:
-                    year_examples["range"].add((data["list"][j]["year"]["min"],data["list"][j]["year"]["max"],))
+                if "year" in data["list"][j]:
+                    if (data["list"][j]["year"]["min"]==None):
+                        year_examples["maximum"].add(data["list"][j]["year"]["max"])
+                    elif (data["list"][j]["year"]["max"]==None):
+                        year_examples["minimum"].add(data["list"][j]["year"]["min"])
+                    elif (data["list"][j]["year"]["min"]==data["list"][j]["year"]["max"]):
+                        year_examples["single"].add(data["list"][j]["year"]["min"])
+                    else:
+                        year_examples["range"].add((data["list"][j]["year"]["min"],data["list"][j]["year"]["max"],))
             self.assertTrue(len(data["list"])==1,"expected results for name "+varieties[i]["name"])
             self.assertTrue(data["list"][0]["name"]==varieties[i]["name"],"wrong name")
         self.assertTrue(n_varieties==n,"incorrect total for varieties searched by name")
@@ -132,17 +177,18 @@ class APITestCase(unittest.TestCase):
         collection_list = []
         for i in range(len(collections)):
             response = self.client.get("/api/variety/?"+
-                                   urllib.parse.urlencode({"start":0,"number":1,"collection":collections[i]["name"]}), 
+                                   urllib.parse.urlencode({"start":0,"number":1,"collection":collections[i]["uid"]}), 
                                    headers={"accept": "application/json"})    
             data = json.loads(response.data)
             n+=data["total"]
-            collection_list.append(collections[i]["name"])
-            self.assertTrue(len(data["list"])==1,"expected results for collection "+collections[i]["name"])
+            collection_list.append(collections[i]["uid"])
+            self.assertEqual(len(data["list"]),1,"expected results for collection "+collections[i]["name"])
             matches = 0
             for j in range(len(data["list"][0]["datasets"])):
-                if(data["list"][0]["datasets"][j]["collection"]==collections[i]["name"]) :
+                if(("collection" in data["list"][0]["datasets"][j]) and
+                   (data["list"][0]["datasets"][j]["collection"]["uid"]==collections[i]["uid"])) :
                     matches+=1
-            self.assertTrue(matches>0,"no datasets with collection "+collections[i]["name"])
+            self.assertTrue(matches>0,"no datasets with collection "+collections[i]["uid"])
         response = self.client.get("/api/variety/?"+
                                    urllib.parse.urlencode({"start":0,"number":1,"collection":",".join(collection_list)}), 
                                    headers={"accept": "application/json"})   
@@ -159,7 +205,7 @@ class APITestCase(unittest.TestCase):
             self.assertTrue(data["total"]>0,"expected results when searching for "+search_year)
             for j in range(len(data["list"])):
                 self.assertTrue(not((data["list"][j]["year"]["min"]==None) and 
-                                    (data["list"][j]["year"]["min"]==None)) ,
+                                    (data["list"][j]["year"]["max"]==None)) ,
                                 "incorrect result when searching for "+search_year)
                 self.assertTrue((data["list"][j]["year"]["max"]==None) or 
                                 (data["list"][j]["year"]["max"]>=year),
@@ -190,7 +236,7 @@ class APITestCase(unittest.TestCase):
             self.assertTrue(data["total"]>0,"expected results when searching for "+search_year)
             for j in range(len(data["list"])):
                 self.assertTrue(not((data["list"][j]["year"]["max"]==None) and 
-                                    (data["list"][j]["year"]["max"]==None)) ,
+                                    (data["list"][j]["year"]["min"]==None)) ,
                                 "incorrect result when searching for "+search_year)
                 self.assertTrue((not (data["list"][j]["year"]["max"]==None)) and 
                                 (data["list"][j]["year"]["max"]<=year),
@@ -204,7 +250,7 @@ class APITestCase(unittest.TestCase):
             self.assertTrue(data["total"]>0,"expected results when searching for "+search_year)
             for j in range(len(data["list"])):
                 self.assertTrue(not((data["list"][j]["year"]["max"]==None) and 
-                                    (data["list"][j]["year"]["max"]==None)) ,
+                                    (data["list"][j]["year"]["min"]==None)) ,
                                 "incorrect result when searching for "+search_year)
                 self.assertTrue((data["list"][j]["year"]["min"]==None) or
                                 (data["list"][j]["year"]["min"]>=year_range[0]),
@@ -214,7 +260,7 @@ class APITestCase(unittest.TestCase):
                                 "incorrect maximum year when searching for "+search_year)
         #search by parents       
         response = self.client.get("/api/variety/?"+
-                                   urllib.parse.urlencode({"start":0,"number":n_varieties,"parents": True}), 
+                                   urllib.parse.urlencode({"start":0,"number":n_varieties,"hasParents": True}), 
                                    headers={"accept": "application/json"}) 
         data = json.loads(response.data)
         n_parents_true = data["total"]
@@ -222,7 +268,7 @@ class APITestCase(unittest.TestCase):
             self.assertTrue(len(data["list"][j]["parents"])>0,
                             "unexpected entry without parents")
         response = self.client.get("/api/variety/?"+
-                                   urllib.parse.urlencode({"start":0,"number":n_varieties,"parents": False}), 
+                                   urllib.parse.urlencode({"start":0,"number":n_varieties,"hasParents": False}), 
                                    headers={"accept": "application/json"}) 
         data = json.loads(response.data)
         n_parents_false = data["total"]
@@ -233,7 +279,7 @@ class APITestCase(unittest.TestCase):
                             "unexpected total for condition on parents")
         #search by offspring     
         response = self.client.get("/api/variety/?"+
-                                   urllib.parse.urlencode({"start":0,"number":n_varieties,"offspring": True}), 
+                                   urllib.parse.urlencode({"start":0,"number":n_varieties,"hasOffspring": True}), 
                                    headers={"accept": "application/json"}) 
         data = json.loads(response.data)
         n_parents_true = data["total"]
@@ -241,7 +287,7 @@ class APITestCase(unittest.TestCase):
             self.assertTrue(len(data["list"][j]["offspring"])>0,
                             "unexpected entry without offspring")
         response = self.client.get("/api/variety/?"+
-                                   urllib.parse.urlencode({"start":0,"number":n_varieties,"offspring": False}), 
+                                   urllib.parse.urlencode({"start":0,"number":n_varieties,"hasOffspring": False}), 
                                    headers={"accept": "application/json"}) 
         data = json.loads(response.data)
         n_parents_false = data["total"]
@@ -251,40 +297,43 @@ class APITestCase(unittest.TestCase):
         self.assertEqual(n_parents_true+n_parents_false, n_varieties,
                             "unexpected total for condition on offspring")
         #search by dataset
-        for dataset in ["any","none","kmer","split"]:
+        for dataType in ["any","none","kmer","split","marker"]:
             response = self.client.get("/api/variety/?"+
-                                   urllib.parse.urlencode({"start":0,"number":n_varieties,"dataset": dataset}), 
+                                   urllib.parse.urlencode({"start":0,"number":n_varieties,"dataType": dataType}), 
                                    headers={"accept": "application/json"}) 
             data = json.loads(response.data)
-            if(dataset=="any"):
+            if(dataType=="any"):
                 n_any = data["total"]
-            elif(dataset=="none"):
+            elif(dataType=="none"):
                 n_none = data["total"]
-            elif(dataset=="kmer"):
+            elif(dataType=="kmer"):
                 n_kmer = data["total"]
-            elif(dataset=="split"):
+            elif(dataType=="split"):
                 n_split = data["total"]
             for i in range(len(data["list"])):
-                if(dataset=="any"):
+                if(dataType=="any"):
                     self.assertTrue(len(data["list"][i]["datasets"])>0,
-                            "unexpected entry with no datasets when dataset condition is "+dataset)
-                elif(dataset=="none"):
+                            "unexpected entry with no datasets when dataType condition is {}".format(dataType))
+                elif(dataType=="none"):
                     self.assertTrue(len(data["list"][i]["datasets"])==0,
-                            "unexpected entry with datasets when dataset condition is "+dataset)
-                elif(dataset=="kmer"):
+                            "unexpected entry with datasets when dataType condition is {}".format(dataType))
+                elif(dataType=="kmer"):
                     for j in range(len(data["list"][i]["datasets"])):
-                        self.assertTrue(not (data["list"][i]["datasets"][j]["kmer"]==None),
-                                "unexpected entry with dataset without 'kmer' when dataset condition is "+dataset)
-                elif(dataset=="split"):
+                        self.assertTrue((data["list"][i]["datasets"][j]["type"]=="kmer") or
+                                        (data["list"][i]["datasets"][j]["type"]=="split"),
+                                "unexpected entry with dataType other then '{}' when condition is {}".format(
+                                    dataType,dataType))
+                elif(dataType=="split"):
                     for j in range(len(data["list"][i]["datasets"])):
-                        self.assertTrue(not (data["list"][i]["datasets"][j]["split"]==None),
-                                "unexpected entry with dataset without 'split' when dataset condition is "+dataset)
+                        self.assertTrue(data["list"][i]["datasets"][j]["type"]==dataType,
+                                "unexpected entry with dataType other then '{}' when condition is {}".format(
+                                    dataType,dataType))
         self.assertTrue(n_kmer<=n_any,
-                            "unexpected number with 'kmer' for condition on datasets")
+                            "unexpected number with 'kmer' for condition dataType on datasets")
         self.assertTrue(n_split<=n_any,
-                            "unexpected number with 'split' for condition on datasets")
+                            "unexpected number with 'split' for condition dataType on datasets")
         self.assertEqual(n_any+n_none, n_varieties,
-                            "unexpected total for condition on datasets")
+                            "unexpected total for condition dataType on datasets")
         #get variety by uid
         for i in range(len(varieties)):
             response = self.client.get("/api/variety/"+varieties[i]["uid"], 
@@ -333,77 +382,41 @@ class APITestCase(unittest.TestCase):
         collection_list = []
         for i in range(len(collections)):
             response = self.client.get("/api/dataset/?"+
-                                   urllib.parse.urlencode({"start":0,"number":1,"collection":collections[i]["name"]}), 
+                                   urllib.parse.urlencode({"start":0,"number":1,"collection":collections[i]["uid"]}), 
                                    headers={"accept": "application/json"})    
             data = json.loads(response.data)
             n+=data["total"]
-            collection_list.append(collections[i]["name"])
-            self.assertTrue(len(data["list"])==1,"expected results for collection "+collections[i]["name"])
-            self.assertEqual(data["list"][0]["collection"],collections[i]["name"],
-                             "no dataset with collection "+collections[i]["name"])
-        response = self.client.get("/api/dataset/?"+
+            if data["total"]>0:
+                collection_list.append(collections[i]["name"])
+                self.assertTrue(len(data["list"])==1,"expected results for collection {}".format(collections[i]["uid"]))
+                self.assertTrue("collection" in data["list"][0],"no collection for dataset {}".format(collections[i]["uid"]))
+                self.assertEqual(data["list"][0]["collection"]["uid"],collections[i]["uid"],
+                                 "no dataset with collection {}".format(collections[i]["uid"]))
+        response = self.client.get("/api/collection/?"+
                                    urllib.parse.urlencode({"start":0,"number":1,"collection":",".join(collection_list)}), 
                                    headers={"accept": "application/json"})   
         data = json.loads(response.data)
         self.assertTrue(len(data["list"])==1,"expected results for multiple collections")
         self.assertTrue(data["total"]<=n,"incorrect total for multiple collections: "+",".join(collection_list))
         #search by variety 
-        response = self.client.get("/api/dataset/?"+
-                                   urllib.parse.urlencode({"start":0,"number":n_datasets,"variety": True}), 
+        response = self.client.get("/api/collection/?"+
+                                   urllib.parse.urlencode({"start":0,"number":n_datasets,"hasVariety": True}), 
                                    headers={"accept": "application/json"}) 
         data = json.loads(response.data)
         n_variety_true = data["total"]
         for j in range(len(data["list"])):
-            self.assertTrue(not(data["list"][j]["variety"]==None),
+            self.assertTrue((not "variety" in data["list"][j]) or (data["list"][j]["variety"]==None),
                             "unexpected entry without variety")
         response = self.client.get("/api/dataset/?"+
-                                   urllib.parse.urlencode({"start":0,"number":n_datasets,"variety": False}), 
+                                   urllib.parse.urlencode({"start":0,"number":n_datasets,"hasVariety": False}), 
                                    headers={"accept": "application/json"}) 
         data = json.loads(response.data)
         n_variety_false = data["total"]
         for j in range(len(data["list"])):
-            self.assertTrue(data["list"][j]["variety"]==None,
+            self.assertTrue((not "variety" in data["list"][j]["variety"]) or (data["list"][j]["variety"]==None),
                             "unexpected entry with variety")
         self.assertEqual(n_variety_true+n_variety_false, n_datasets,
-                            "unexpected total for condition on variety")
-        #search by kmer
-        response = self.client.get("/api/dataset/?"+
-                                   urllib.parse.urlencode({"start":0,"number":n_datasets,"kmer": True}), 
-                                   headers={"accept": "application/json"}) 
-        data = json.loads(response.data)
-        n_kmer_true = data["total"]
-        for j in range(len(data["list"])):
-            self.assertTrue(data["list"][j]["kmer"],
-                            "unexpected entry without kmer")
-        response = self.client.get("/api/dataset/?"+
-                                   urllib.parse.urlencode({"start":0,"number":n_datasets,"kmer": False}), 
-                                   headers={"accept": "application/json"}) 
-        data = json.loads(response.data)
-        n_kmer_false = data["total"]
-        for j in range(len(data["list"])):
-            self.assertTrue(not data["list"][j]["kmer"],
-                            "unexpected entry with kmer")
-        self.assertEqual(n_kmer_true+n_kmer_false, n_datasets,
-                            "unexpected total for condition on kmer")
-        #search by split
-        response = self.client.get("/api/dataset/?"+
-                                   urllib.parse.urlencode({"start":0,"number":n_datasets,"split": True}), 
-                                   headers={"accept": "application/json"}) 
-        data = json.loads(response.data)
-        n_split_true = data["total"]
-        for j in range(len(data["list"])):
-            self.assertTrue(data["list"][j]["split"],
-                            "unexpected entry without split")
-        response = self.client.get("/api/dataset/?"+
-                                   urllib.parse.urlencode({"start":0,"number":n_datasets,"split": False}), 
-                                   headers={"accept": "application/json"}) 
-        data = json.loads(response.data)
-        n_split_false = data["total"]
-        for j in range(len(data["list"])):
-            self.assertTrue(not data["list"][j]["split"],
-                            "unexpected entry with split")
-        self.assertEqual(n_split_true+n_split_false, n_datasets,
-                            "unexpected total for condition on split")
+                            "unexpected total for condition on variety {}".format(urllib.parse.urlencode({"start":0,"number":n_datasets,"variety": False})))
         #get dataset by uid
         for i in range(len(datasets)):
             response = self.client.get("/api/dataset/"+datasets[i]["uid"], 
@@ -430,6 +443,11 @@ class APITestCase(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code,200,"site not available")
         self.assertTrue(b"<html" in response.data and b"</html>" in response.data,"no html")
+
+    @classmethod
+    def tearDownClass(self):
+        if self.tmpDirectory:
+            self.tmpDirectory.cleanup()    
      
         
         

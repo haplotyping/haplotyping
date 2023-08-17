@@ -22,13 +22,14 @@ from haplotyping.service.api_split import cache as cache_api_split
 
 class API:
     
-    def __init__(self, location, configFile="config.ini"):
+    def __init__(self, location, configFile="config.ini", doStart = True):
                                 
         self.location = str(location)
         
         #set logging
         logger_server = logging.getLogger(__name__+".server")
         
+        self.doStart = doStart
         self.config = configparser.ConfigParser()
         self.config.read(os.path.join(self.location,configFile)) 
         logger_server.info("read configuration file") 
@@ -48,7 +49,7 @@ class API:
                 frame = frame.f_back
                 
         #restart on errors
-        while True:
+        while self.doStart:
             try:
                 process_api = Process(target=self.process_api_messages, args=[])
                 #start everything
@@ -218,13 +219,13 @@ class API:
         
         
         #--- start webserver ---
-        #app.run(host=self.config["api"].get("host", "::"), port=self.config["api"].get("port", "8080"), 
-        #        debug=self.config.getboolean("api","debug"), 
-        #        use_reloader=False)   
-        serve(app, 
-              host=self.config["api"].get("host", "::"), 
-              port=self.config["api"].get("port", "8080"), 
-              threads=self.config["api"].get("threads", "10"))                            
+        if self.doStart:
+            serve(app, 
+                  host=self.config["api"].get("host", "::"), 
+                  port=self.config["api"].get("port", "8080"), 
+                  threads=self.config["api"].get("threads", "10"))   
+        else:
+            return app
         
         
         

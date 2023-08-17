@@ -35,7 +35,7 @@ setuptools.setup(
     ],
     test_requires=[
       "pytest >= 7.4.0",
-      "pytest-order >= 1.1.0"
+      "pytest-ordering >= 0.6"
     ],
     classifiers=[
         "Programming Language :: Python :: 3",

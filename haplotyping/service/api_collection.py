@@ -42,8 +42,7 @@ class CollectionList(Resource):
                                 FROM `collection`
                                 INNER JOIN `dataset` ON `collection`.`id` = `dataset`.`collection_id`
                                 LEFT JOIN `variety` ON `dataset`.`variety` = `variety`.`uid`
-                                AND NOT `dataset`.`uid` IS NULL
-                                AND NOT `dataset`.`type` IS NULL
+                                WHERE NOT `dataset`.`uid` IS NULL AND NOT `dataset`.`type` IS NULL
                                 GROUP BY `collection`.`id` ORDER BY `collection`.`name`,
                                 `collection`.`type`, `collection`.`id` LIMIT ?,?""",(start,number,))  
                 resultList = [dict(row) for row in cursor.fetchall()]
@@ -71,8 +70,7 @@ class CollectionId(Resource):
                                 FROM `collection`
                                 INNER JOIN `dataset` ON `collection`.`id` = `dataset`.`collection_id`
                                 LEFT JOIN `variety` ON `dataset`.`variety` = `variety`.`uid`
-                                AND NOT `dataset`.`uid` IS NULL
-                                AND NOT `dataset`.`type` IS NULL
+                                WHERE NOT `dataset`.`uid` IS NULL AND NOT `dataset`.`type` IS NULL
                                 WHERE `collection`.`uid` = ?
                                 GROUP BY `collection`.`id`""",(uid,))  
             data = cursor.fetchone()

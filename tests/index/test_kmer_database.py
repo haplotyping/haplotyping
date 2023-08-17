@@ -1,18 +1,20 @@
 import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-import unittest, tempfile, logging, h5py, gzip, csv
+import unittest, tempfile, logging, h5py, gzip, csv, shutil, pytest
 import numpy as np
 from haplotyping.index.database import *
 
 class DatabaseTestCase(unittest.TestCase):
     
-    def setUp(self):
+    @classmethod
+    def setUpClass(self):
         
         logging.basicConfig(format="%(asctime)s | %(name)s |  %(levelname)s: %(message)s", datefmt="%m-%d-%y %H:%M:%S")
         logging.getLogger("haplotyping.index.database").setLevel(logging.ERROR)
         
         try:
+            self.serviceDataLocation = os.path.abspath("./tests/data/testdata/")
             self.dataLocation = os.path.abspath("./tests/index/testdata/") 
             self.sortedListLocation = self.dataLocation+"/kmer.list.sorted.gz"
             #get k from sorted list
@@ -53,6 +55,15 @@ class DatabaseTestCase(unittest.TestCase):
             self.database = haplotyping.index.Database(self.k, self.name, self.tmpDirectory.name+"/kmer.data", 
                                           self.sortedListLocation , self.unpairedReadFiles, self.pairedReadFiles,
                                           minimumFrequency=self.minimumFrequency)
+            #use as service testdata
+            if os.path.isfile(self.tmpIndexLocation):
+                os.makedirs(os.path.join(self.serviceDataLocation,"kmer/demoset/test/agria"), exist_ok=True)
+                shutil.copy2(os.path.join(self.dataLocation,"kmer.kmc.kmc_pre"),
+                             os.path.join(self.serviceDataLocation,"kmer/demoset/test/agria"))
+                shutil.copy2(os.path.join(self.dataLocation,"kmer.kmc.kmc_suf"),
+                             os.path.join(self.serviceDataLocation,"kmer/demoset/test/agria"))
+                shutil.copy2(self.tmpIndexLocation,
+                             os.path.join(self.serviceDataLocation,"kmer/demoset/test/agria/kmer.data.h5"))
         except:
             self.tmpDirectory.cleanup()
                 
@@ -153,8 +164,9 @@ class DatabaseTestCase(unittest.TestCase):
             for row in h5file["/relations/direct"]:
                 self.assertTrue((row[1][0],row[1][1],row[0][0],row[0][1],row[2],row[3],) 
                                     in directList,"direct relations not symmetric")              
-                
-    def tearDown(self):
-        if self.tmpDirectory:
+                    
+    @classmethod
+    def tearDownClass(self):
+        if self.tmpDirectory:            
             self.tmpDirectory.cleanup()
     
