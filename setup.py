@@ -33,6 +33,10 @@ setuptools.setup(
       "psutil >= 5.9.5",
       "metis >= 0.2a5"
     ],
+    test_requires=[
+      "pytest >= 7.4.0",
+      "pytest-order >= 1.1.0"
+    ],
     classifiers=[
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",

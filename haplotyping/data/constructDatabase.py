@@ -323,8 +323,12 @@ class ConstructDatabase:
                             for id,row in sequences[sequences["experiment_id"]==experiment_id].iterrows():
                                 variety = varieties.loc[row["variety_id"]]
                                 if variety["uid"]:
-                                    #use seperate collection for each sequence type
-                                    if (len(collectionList)==0) or not row["type"] in collectionList:
+                                    #use seperate collection for each sequence type and id
+                                    if ((len(collectionList)==0) or 
+                                        (not row["type"] in collectionList) or
+                                        ((row["type"] in collectionList) and 
+                                         (not experiment_id in collectionList[row["type"]]))
+                                       ):
                                         experiment_name = experiments.loc[experiment_id]["name"]
                                         locationResource = metadata.get("location","")
                                         locationResource = "" if locationResource==None else locationResource
@@ -334,11 +338,13 @@ class ConstructDatabase:
                                         (collectionId,collectionUid) = self._createCollection(
                                              resourceName, experiment_id, row["type"],
                                              metadata.get("name",resourceName), experiment_name, location)
-                                        collectionList[row["type"]] = {"collectionId": collectionId, 
+                                        if not row["type"] in collectionList:
+                                            collectionList[row["type"]] = {}
+                                        collectionList[row["type"]][experiment_id] = {"collectionId": collectionId, 
                                                                        "collectionUid": collectionUid}
                                     self._createDataset(variety["uid"],
-                                                        collectionList[row["type"]]["collectionId"],
-                                                        collectionList[row["type"]]["collectionUid"],
+                                                        collectionList[row["type"]][experiment_id]["collectionId"],
+                                                        collectionList[row["type"]][experiment_id]["collectionUid"],
                                                         row["variety_id"],row["location"])
 
                 #process marker data
