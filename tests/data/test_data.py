@@ -4,7 +4,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")
 import unittest, tempfile, logging, shutil, json, pytest
 import haplotyping.data
 
-class DatabaseTestCase(unittest.TestCase):
+class ServiceDataTestCase(unittest.TestCase):
     
     splitDatabase = "kmer.data.h5"
     kmerDatabase = "kmer.kmc"
@@ -19,8 +19,8 @@ class DatabaseTestCase(unittest.TestCase):
         
         try:            
             self.resourceNames = []
-            self.serviceLocation = os.path.abspath("./tests/service/testdata/")
-            self.dataLocation = os.path.abspath("./tests/data/testdata/") 
+            self.serviceLocation = os.path.join(os.path.abspath(os.path.dirname(__file__)), "../service/testdata/")
+            self.dataLocation = os.path.join(os.path.abspath(os.path.dirname(__file__)), "testdata/")
             #create temporary directory
             self.tmpDirectory = tempfile.TemporaryDirectory()
             os.mkdir(os.path.join(self.tmpDirectory.name,"data"))

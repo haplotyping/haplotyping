@@ -5,7 +5,7 @@ import unittest, tempfile, json, pathlib, urllib, socket, configparser
 
 import haplotyping, haplotyping.service
 
-class APITestCase(unittest.TestCase):
+class ServiceTestCase(unittest.TestCase):
     
     @classmethod
     def setUpClass(self):

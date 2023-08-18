@@ -1,1 +1,1 @@
-from tests.service.test_api import *
+from tests.service.test_service import *

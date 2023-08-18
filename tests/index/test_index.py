@@ -5,7 +5,7 @@ import unittest, tempfile, logging, h5py, gzip, csv, shutil, pytest
 import numpy as np
 from haplotyping.index.database import *
 
-class DatabaseTestCase(unittest.TestCase):
+class IndexTestCase(unittest.TestCase):
     
     @classmethod
     def setUpClass(self):
@@ -14,9 +14,9 @@ class DatabaseTestCase(unittest.TestCase):
         logging.getLogger("haplotyping.index.database").setLevel(logging.ERROR)
         
         try:
-            self.serviceDataLocation = os.path.abspath("./tests/data/testdata/")
-            self.dataLocation = os.path.abspath("./tests/index/testdata/") 
-            self.sortedListLocation = self.dataLocation+"/kmer.list.sorted.gz"
+            self.serviceDataLocation = os.path.join(os.path.abspath(os.path.dirname(__file__)), "../data/testdata/")
+            self.dataLocation = os.path.join(os.path.abspath(os.path.dirname(__file__)), "testdata/")
+            self.sortedListLocation = os.path.join(self.dataLocation,"kmer.list.sorted.gz")
             #get k from sorted list
             with gzip.open(self.sortedListLocation, "rt") as f: 
                 reader = csv.reader(f, delimiter="\t")

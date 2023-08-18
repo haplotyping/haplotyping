@@ -1,1 +1,1 @@
-from tests.index.test_kmer_database import *
+from tests.index.test_index import *
