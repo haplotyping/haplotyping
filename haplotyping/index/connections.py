@@ -401,7 +401,9 @@ class Connections:
             shutdown_event.set()
             #release memory
             shm_index.close()
+            shm_kmer.close()
             shm_index.unlink()
+            shm_kmer.unlink()
             sys.exit()
         finally:
             #terminate pools
