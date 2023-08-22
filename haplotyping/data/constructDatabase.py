@@ -80,9 +80,12 @@ class ConstructDatabase:
                 
     def _exportIndex(self):  
         #add new
+        indexFound = False
         for filename in sorted(os.listdir(self._baseDir)):
             if os.path.isfile(os.path.join(self._baseDir,filename)):
-                if filename=="index.package.json":
+                if filename=="index.xlsx":
+                    indexFound = True
+                elif filename=="index.package.json":
                     package = Package(os.path.join(self._baseDir,filename))
                     #create structure
                     self._logger.info("initialise database")
@@ -206,7 +209,10 @@ class ConstructDatabase:
                     synonyms.to_sql("variety_synonym", con=self._connection, index=False, if_exists="append")
                     self._logger.info("add {} synonyms".format(len(synonyms)))
                     return
-        self._logger.error("no index found in {}".format(self._baseDir))
+        if indexFound:
+            self._logger.error("no index package found, probably not validated")
+        else:
+            self._logger.error("no index found in {}".format(self._baseDir))
                     
                     
     def _exportResources(self):  

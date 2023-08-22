@@ -71,7 +71,7 @@ class CollectionId(Resource):
                                 INNER JOIN `dataset` ON `collection`.`id` = `dataset`.`collection_id`
                                 LEFT JOIN `variety` ON `dataset`.`variety` = `variety`.`uid`
                                 WHERE NOT `dataset`.`uid` IS NULL AND NOT `dataset`.`type` IS NULL
-                                WHERE `collection`.`uid` = ?
+                                AND `collection`.`uid` = ?
                                 GROUP BY `collection`.`id`""",(uid,))  
             data = cursor.fetchone()
             if data:
