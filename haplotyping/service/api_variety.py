@@ -141,6 +141,21 @@ def adjust_variety_response(item, collection, dataType, db_connection):
     item["parents"] = get_variety_parents(item["uid"], db_connection)
     #offspring
     item["offspring"] = get_variety_offspring(item["uid"], db_connection)
+    if collection==None:
+        for j in range(len(item["offspring"])):
+            item["offspring"][j]["datasets"] = get_variety_datasets(item["offspring"][j]["uid"], 
+                                                                    None, dataType, db_connection)
+            for i in range(len(item["offspring"][j]["datasets"])):
+                item["offspring"][j]["datasets"][i]["collection"] = {
+                    "uid": item["offspring"][j]["datasets"][i]["collection_uid"],
+                    "name": item["offspring"][j]["datasets"][i]["collection_name"],
+                    "type": item["offspring"][j]["datasets"][i]["collection_type"],
+                    "experiment": item["offspring"][j]["datasets"][i]["collection_experiment"]
+                }
+                del item["offspring"][j]["datasets"][i]["collection_uid"]
+                del item["offspring"][j]["datasets"][i]["collection_name"]
+                del item["offspring"][j]["datasets"][i]["collection_type"]
+                del item["offspring"][j]["datasets"][i]["collection_experiment"]
     #finished
     return item
         
