@@ -49,18 +49,19 @@ def get_variety_datasets(uid, collection, dataset, db_connection):
                    tuple(condition_variables)) 
     return [dict(row) for row in cursor.fetchall()]  
 
-def parents_tree(id,parentData):
+def parents_tree(id, parentData, collection, dataType, db_connection):
     parents = []   
     for item in parentData:
         if item["offspring"]==id:
             if item["ancestor"]==None:
                 parent = {"relation": item["type"],
-                          "parents": parents_tree(item["id"],parentData)}
+                          "parents": parents_tree(item["id"],parentData, collection, dataType, db_connection)}
                 parents.append(parent)
             else:
                 parent = {"uid": item["ancestor"],
                           "name": item["name"],
                           "relation": item["type"]}
+                parent = append_variety_datasets(parent, collection, dataType, db_connection)
                 parents.append(parent)
     return parents
 
@@ -72,27 +73,30 @@ def offspring_list(offspringData):
             "name": item["name"],
             "relation": "unknown" if item["type"]==None else item["type"],
             "direct": True if item["offspring"]==None else False
-        }
+        }        
         offspring.append(offspring_item)
     return offspring
         
-def get_variety_parents(uid, db_connection):
+def get_variety_parents(uid, collection, dataType, db_connection):
     cursor = db_connection.cursor()
     cursor.execute("""SELECT `variety_ancestor`.*, `variety`.`name` FROM `variety_ancestor` 
                     LEFT JOIN `variety` ON `variety_ancestor`.`ancestor` = `variety`.`uid` 
                     WHERE `variety_ancestor`.`variety` = ? 
                     ORDER BY `variety_ancestor`.`type` DESC""",(uid,)) 
     parentData = [dict(row) for row in cursor.fetchall()]
-    return parents_tree(None,parentData)
+    return parents_tree(None,parentData, collection, dataType, db_connection)
 
-def get_variety_offspring(uid, db_connection):
+def get_variety_offspring(uid, collection, dataType, db_connection):
     cursor = db_connection.cursor()
     cursor.execute("""SELECT `variety_ancestor`.*, `variety`.`name` FROM `variety_ancestor` 
                     LEFT JOIN `variety` ON `variety_ancestor`.`variety` = `variety`.`uid` 
                     WHERE `variety_ancestor`.`ancestor` = ? 
                     ORDER BY `variety`.`name`, `variety`.`uid`""",(uid,)) 
     offspringData = [dict(row) for row in cursor.fetchall()]
-    return offspring_list(offspringData)
+    offspringList = offspring_list(offspringData)
+    for j in range(len(offspringList)):
+        offspringList[j] = append_variety_datasets(offspringList[j], collection, dataType, db_connection)
+    return offspringList
 
 def year_description(year_min,year_max):
     if year_min==None and year_max==None:
@@ -105,6 +109,21 @@ def year_description(year_min,year_max):
         return str(year_min)
     else:
         return str(year_min)+"-"+str(year_max)
+    
+def append_variety_datasets(item, collection, dataType, db_connection):
+    item["datasets"] = get_variety_datasets(item["uid"], collection, dataType, db_connection)
+    for i in range(len(item["datasets"])):
+        item["datasets"][i]["collection"] = {
+            "uid": item["datasets"][i]["collection_uid"],
+            "name": item["datasets"][i]["collection_name"],
+            "type": item["datasets"][i]["collection_type"],
+            "experiment": item["datasets"][i]["collection_experiment"]
+        }
+        del item["datasets"][i]["collection_uid"]
+        del item["datasets"][i]["collection_name"]
+        del item["datasets"][i]["collection_type"]
+        del item["datasets"][i]["collection_experiment"]
+    return item
     
 def adjust_variety_response(item, collection, dataType, db_connection):
     #origin
@@ -125,37 +144,11 @@ def adjust_variety_response(item, collection, dataType, db_connection):
     if "synonyms" in item and not item["synonyms"]:
         del item["synonyms"]
     #datasets
-    item["datasets"] = get_variety_datasets(item["uid"], collection, dataType, db_connection)
-    for i in range(len(item["datasets"])):
-        item["datasets"][i]["collection"] = {
-            "uid": item["datasets"][i]["collection_uid"],
-            "name": item["datasets"][i]["collection_name"],
-            "type": item["datasets"][i]["collection_type"],
-            "experiment": item["datasets"][i]["collection_experiment"]
-        }
-        del item["datasets"][i]["collection_uid"]
-        del item["datasets"][i]["collection_name"]
-        del item["datasets"][i]["collection_type"]
-        del item["datasets"][i]["collection_experiment"]
-    #parents
-    item["parents"] = get_variety_parents(item["uid"], db_connection)
-    #offspring
-    item["offspring"] = get_variety_offspring(item["uid"], db_connection)
-    if collection==None:
-        for j in range(len(item["offspring"])):
-            item["offspring"][j]["datasets"] = get_variety_datasets(item["offspring"][j]["uid"], 
-                                                                    None, dataType, db_connection)
-            for i in range(len(item["offspring"][j]["datasets"])):
-                item["offspring"][j]["datasets"][i]["collection"] = {
-                    "uid": item["offspring"][j]["datasets"][i]["collection_uid"],
-                    "name": item["offspring"][j]["datasets"][i]["collection_name"],
-                    "type": item["offspring"][j]["datasets"][i]["collection_type"],
-                    "experiment": item["offspring"][j]["datasets"][i]["collection_experiment"]
-                }
-                del item["offspring"][j]["datasets"][i]["collection_uid"]
-                del item["offspring"][j]["datasets"][i]["collection_name"]
-                del item["offspring"][j]["datasets"][i]["collection_type"]
-                del item["offspring"][j]["datasets"][i]["collection_experiment"]
+    item = append_variety_datasets(item, collection, dataType, db_connection)
+    #parents with datasets
+    item["parents"] = get_variety_parents(item["uid"], collection, dataType, db_connection)
+    #offspring with datasets
+    item["offspring"] = get_variety_offspring(item["uid"], collection, dataType, db_connection)    
     #finished
     return item
         
