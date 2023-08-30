@@ -26,10 +26,8 @@ class ServiceTestCase(unittest.TestCase):
             "proxy_prefix": True
         }
         config_file["settings"] = {
-            "data_location_marker": "marker",
-            "data_location_kmer": "kmer",
-            "kmc_query_binary_location": os.path.join(os.path.abspath(os.path.dirname(__file__)),
-                                                      "../../../kmc_analysis/bin"),
+            "data_location_marker": os.path.join(os.path.abspath(os.path.dirname(__file__)),"testdata/marker"),
+            "data_location_kmer": os.path.join(os.path.abspath(os.path.dirname(__file__)),"testdata/kmer"),
             "sqlite_db": "db.sqlite"
         }
         config_file["cache"] = {
@@ -38,10 +36,25 @@ class ServiceTestCase(unittest.TestCase):
             "threshold": 100000,
             "timeout": 0
         }
+        
+        #try to find kmc_analysis (test using library problematic)
+#         kmc_query_library = os.path.join(os.path.abspath(os.path.dirname(__file__)),
+#                                                       "../../../kmc_analysis/lib/kmc_python.so")     
+        kmc_query_binary_location = os.path.join(os.path.abspath(os.path.dirname(__file__)),
+                                                      "../../../kmc_analysis/bin")
+#         if os.path.isfile(kmc_query_library):
+#             config_file["settings"]["kmc_query_library"] = kmc_query_library 
+#             self.kmcFound = True
+        if os.path.isdir(kmc_query_binary_location):
+            config_file["settings"]["kmc_query_binary_location"] = kmc_query_binary_location  
+            self.kmcFound = True
+        else:
+            self.kmcFound = False
+            
         with open(self.tmpConfigFile,"w") as f:
             config_file.write(f)
         
-        #data
+        #data        
         self.dataLocation = os.path.join(os.path.abspath(os.path.dirname(__file__)),"testdata")        
         #start service
         api = haplotyping.service.API(self.dataLocation, self.tmpConfigFile, False)
@@ -443,6 +456,77 @@ class ServiceTestCase(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code,200,"site not available")
         self.assertTrue(b"<html" in response.data and b"</html>" in response.data,"no html")
+        
+    def test_api_kmer(self):
+        #get dataset uid
+        response = self.client.get("/api/dataset/?hasVariety=true&dataType=split", headers={"accept": "application/json"})  
+        self.assertEqual(response.status_code,200,"get dataset with kmer database")
+        data = json.loads(response.data)
+        self.assertTrue(("list" in data) and (len(data["list"])>0),"no dataset with kmer database found")
+        uid = data["list"][0]["uid"]
+        #first check for kmc
+        self.assertTrue(self.kmcFound,"kmc not found, couldn't do these tests")        
+        #get frequency with mismatches (specific tests for this dataset, update if changed!)
+        kmer1 = "AGTATATACATCAACTACGAAAATGGAAAAG"
+        freq1 = 11
+        kmer2 = "AGTATATACATCAACTAGGAAAATGGAAAAG"
+        freq2 = 1
+        response = self.client.get("/api/kmer/{}/{}?mismatches=2".format(uid,kmer1), 
+                                   headers={"accept": "application/json"}) 
+        self.assertEqual(response.status_code,200,"get k-mer frequency")
+        data = json.loads(response.data)
+        self.assertTrue(("kmers" in data) and (kmer1 in data["kmers"]),
+                        "k-mer {} not found in result".format(kmer1))
+        self.assertEqual(data["kmers"][kmer1],freq1,"frequency {} expected to be {}".format(kmer1,freq1))
+        self.assertTrue(kmer2 in data["kmers"], "mismatch k-mer {} not found in result".format(kmer1))
+        self.assertEqual(data["kmers"][kmer2],freq2,"frequency {} expected to be {}".format(kmer1,freq1))
+        #get frequency for invalid k-mer
+        invalidKmer = "AAAA"
+        response = self.client.get("/api/kmer/{}/{}?mismatches=2".format(uid,invalidKmer), 
+                                   headers={"accept": "application/json"}) 
+        self.assertEqual(response.status_code,200,"get k-mer frequency")
+        data = json.loads(response.data)
+        self.assertTrue(("kmers" in data) and (len(data["kmers"])==0), "no k-mers expected")
+        #get multiple frequencies
+        response = self.client.post("/api/kmer/{}".format(uid), 
+                                   headers={"accept": "application/json"},json={"kmers":[kmer1,kmer2]}) 
+        self.assertEqual(response.status_code,200,"problem getting k-mers")
+        data = json.loads(response.data)
+        self.assertTrue("kmers" in data,"k-mers not found in result")
+        self.assertTrue(kmer1 in data["kmers"], "k-mer {} not found in result".format(kmer1))
+        self.assertEqual(data["kmers"][kmer1],freq1,"frequency {} expected to be {}".format(kmer1,freq1))
+        self.assertTrue(kmer2 in data["kmers"], "k-mer {} not found in result".format(kmer2))
+        self.assertEqual(data["kmers"][kmer2],freq2,"frequency {} expected to be {}".format(kmer1,freq1))
+        #get k-mers from sequence
+        sequence = "TATCAACCAAAAATAACCTTTCTTTGAAAACAAGTAATAAGATATGAAGATAAATGACAAGAGTGATATTCTGTATATACTTACAGCT"
+        response = self.client.post("/api/kmer/{}/sequence".format(uid), 
+                                   headers={"accept": "application/json"},json={"sequence":sequence})  
+        self.assertEqual(response.status_code,200,"problem getting k-mers from sequence")
+        data = json.loads(response.data)
+        k = data["info"]["kmer_length"]
+        self.assertTrue(("kmers" in data) and (len(data["kmers"])>0),"no k-mers in response")
+        self.assertEqual(len(data["kmers"]),1+len(sequence)-k,"unexpected number of k-mers")
+        #get path
+        kmer1 = sequence[0:k]
+        kmer2 = sequence[-k:]
+        response = self.client.get("/api/kmer/{}/{}/path/{}".format(uid,kmer1,kmer2), 
+                                   headers={"accept": "application/json"}) 
+        self.assertEqual(response.status_code,200,"get k-mer path {} - {}".format(kmer1,kmer2))
+        data = json.loads(response.data)
+        self.assertEqual(len(data),len(sequence),"unexpected path size")
+        #find nearest split
+        kmer = "AGTATATACATCAACTACGAAAATGGAAAAG"
+        response = self.client.get("/api/kmer/{}/{}/split".format(uid,kmer), 
+                                   headers={"accept": "application/json"}) 
+        self.assertEqual(response.status_code,200,"get k-mer nearest split {}".format(kmer))    
+        data = json.loads(response.data)
+        self.assertTrue(("distance" in data) and (data["distance"]>0),"distance not found in result")
+        self.assertTrue(("splittingKmers" in data) and (len(data["splittingKmers"])>0),"splitting k-mers not found in result")
+        self.assertTrue(("pathKmers" in data) and (len(data["pathKmers"])==data["distance"]),"path k-mers not found in result")
+            
+            
+        
+        
 
     @classmethod
     def tearDownClass(self):

@@ -51,10 +51,11 @@ class Kmer:
                                         frequencies,stats,status):
                     response = {"info": get_status(status), "stats": get_stats(stats), "kmers": {}}                
                     for i in range(n):
-                        response["kmers"][kmers[i]] = frequencies[i]
-                    return response
+                        response["kmers"][kmers[i]] = frequencies[i]                    
                 else:
-                    return None   
+                    response = {"info": get_status(status), "stats": get_stats(stats), "kmers": {}}
+                    response["stats"]["checked"] = None 
+                return response
             else:
                 outputFile = tempfile.NamedTemporaryFile()                
                 if lib.kmer_frequencies_mm(bytes(filename, "utf-8"),kmers_array,n,mm,bytes(outputFile.name, "utf-8"),
@@ -62,10 +63,11 @@ class Kmer:
                     result = [item.decode("ascii").strip().split("\t") for item in outputFile.readlines()]
                     response = {"info": get_status(status), "stats": get_stats(stats), "kmers": {}}
                     for item in result:
-                        response["kmers"][item[0]]=item[1]
-                    return response
+                        response["kmers"][item[0]]=item[1]                    
                 else:
-                    return None   
+                    response = {"info": get_status(status), "stats": get_stats(stats), "kmers": {}}
+                    response["stats"]["checked"] = None
+                return response
         except Exception as e:
             return None   
         finally:
@@ -81,7 +83,7 @@ class Kmer:
             result = p.communicate()
             if result[1]:
                 #raise Exception(result[1].decode("UTF-8").strip())
-                return None
+                pass
             else:
                 #kmers            
                 answers = result[0].decode("UTF-8").strip().split("\n")
@@ -112,7 +114,6 @@ class Kmer:
             return response
         except Exception as e:
             return str(e)
-            return None
     
     def kmc_binary_frequencies(binary_location: str, data_location: str, kmers: list = [], mm: int = 0):
         inputFile = None
@@ -129,7 +130,7 @@ class Kmer:
                 result = p.communicate()
                 if result[1]:
                     #raise Exception(result[1].decode("UTF-8").strip())
-                    return None
+                    pass
                 else:
                     #kmers            
                     answers = result[0].decode("UTF-8").strip().split("\n")
@@ -139,7 +140,7 @@ class Kmer:
                             number = int(items[1])
                             response["kmers"][items[0]] = number  
             #stats
-            response["stats"]["checked"] = None
+            response["stats"]["checked"] = (len(kmers) if mm==0 else None)
             response["stats"]["positive"] = len(response["kmers"])
             if response["stats"]["positive"]>0:
                 response["stats"]["minimum"] = min(response["kmers"].values())

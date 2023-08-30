@@ -56,6 +56,9 @@ class KmerSingle(Resource):
                 else:
                     location_kmc = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 data["dataset_location"],"kmer.kmc")
+                location_kmc = os.path.abspath(location_kmc)
+                if not os.path.isfile("{}.kmc_pre".format(location_kmc)):
+                    abort(500,"kmc database not found")
                 kmc_query_library = haplotyping.service.API.get_kmc_query_library()
                 kmc_query_binary_location = haplotyping.service.API.get_kmc_query_binary_location()
                 if kmc_query_library:
@@ -106,6 +109,12 @@ class KmerSplit(Resource):
                                                 dsData["dataset_location"],"kmer.kmc")
                     location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 dsData["dataset_location"],"kmer.data.h5")
+                location_kmc = os.path.abspath(location_kmc)
+                location_split = os.path.abspath(location_split)
+                if not os.path.isfile("{}.kmc_pre".format(location_kmc)):
+                    abort(500,"kmc database not found")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
                 kmc_query_library = haplotyping.service.API.get_kmc_query_library()
                 kmc_query_binary_location = haplotyping.service.API.get_kmc_query_binary_location()
                 
@@ -189,7 +198,10 @@ class KmerPath(Resource):
                                    data["collection_location"],data["dataset_location"],"kmer.kmc")
                 else:
                     location_kmc = os.path.join(haplotyping.service.API.get_data_kmer_location(),
-                                   data["dataset_location"],"kmer.kmc")
+                                   data["dataset_location"],"kmer.kmc")                
+                location_kmc = os.path.abspath(location_kmc)
+                if not os.path.isfile("{}.kmc_pre".format(location_kmc)):
+                    abort(500,"kmc database not found")                
                 kmc_query_library = haplotyping.service.API.get_kmc_query_library()
                 kmc_query_binary_location = haplotyping.service.API.get_kmc_query_binary_location()
                 #construct path
@@ -264,6 +276,9 @@ class KmerMultiple(Resource):
                 else:
                     location_kmc = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 data["dataset_location"],"kmer.kmc")
+                location_kmc = os.path.abspath(location_kmc)
+                if not os.path.isfile("{}.kmc_pre".format(location_kmc)):
+                    abort(500,"kmc database not found")                
                 kmc_query_library = haplotyping.service.API.get_kmc_query_library()
                 kmc_query_binary_location = haplotyping.service.API.get_kmc_query_binary_location()
                 if kmc_query_library:
@@ -328,7 +343,10 @@ class KmerSequence(Resource):
                                      data["collection_location"],data["dataset_location"],"kmer.kmc")
                 else:
                     location_kmc = os.path.join(haplotyping.service.API.get_data_kmer_location(),
-                                     data["dataset_location"],"kmer.kmc")
+                                     data["dataset_location"],"kmer.kmc")                    
+                location_kmc = os.path.abspath(location_kmc)
+                if not os.path.isfile("{}.kmc_pre".format(location_kmc)):
+                    abort(500,"kmc database not found")                
                 kmc_query_library = haplotyping.service.API.get_kmc_query_library()
                 kmc_query_binary_location = haplotyping.service.API.get_kmc_query_binary_location()
                 if kmc_query_library:

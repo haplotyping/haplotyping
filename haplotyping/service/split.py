@@ -175,7 +175,7 @@ class Split:
         return response
     
     def _kmer_direct_result(ckmerRow, directRows, h5file: h5py.File, expandBase=True):
-        if ckmerRow and directRows:
+        if (not ckmerRow==None) or (len(directRows)==0):
             response = {
                 "ckmer": ckmerRow[0].decode("ascii"),
                 "split": Split._translate_type(ckmerRow[1].decode("ascii")),
