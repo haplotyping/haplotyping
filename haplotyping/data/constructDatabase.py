@@ -162,6 +162,7 @@ class ConstructDatabase:
                                 "id" INTEGER NOT NULL,
                                 "uid" VARCHAR(13) NULL,
                                 "variety" VARCHAR(13) NULL,
+                                "accession" VARCHAR(255) NULL,
                                 "collection_id" INTEGER NOT NULL,
                                 "internal_id" INTEGER NOT NULL,
                                 "location" VARCHAR(255) NULL,
@@ -280,12 +281,14 @@ class ConstructDatabase:
         else:
             raise Exception("could not create collection")
         
-    def _createDataset(self,variety,collection_id,collection_uid,internal_id,location,type=None,subtype=None,version=None):
+    def _createDataset(self,variety,accession,collection_id,collection_uid,internal_id,
+                       location,type=None,subtype=None,version=None):
         uid = self._newDatasetUid(collection_uid, internal_id)
-        query = """INSERT OR IGNORE INTO `dataset` (`uid`,`variety`,`collection_id`,`internal_id`,
+        query = """INSERT OR IGNORE INTO `dataset` (`uid`,`variety`,`accession`,`collection_id`,`internal_id`,
                             `location`,`type`,`subtype`,`version`) 
-        VALUES (?,?,?,?,?,?,?,?)"""
-        self._connection.execute(query, (uid,variety, int(collection_id), int(internal_id), location, type, subtype, version))
+        VALUES (?,?,?,?,?,?,?,?,?)"""
+        self._connection.execute(query, (uid,variety, accession, int(collection_id), int(internal_id), 
+                                         location, type, subtype, version))
         self._connection.commit()
         
     def _getUint(maximumValue):
@@ -348,7 +351,7 @@ class ConstructDatabase:
                                             collectionList[row["type"]] = {}
                                         collectionList[row["type"]][experiment_id] = {"collectionId": collectionId, 
                                                                        "collectionUid": collectionUid}
-                                    self._createDataset(variety["uid"],
+                                    self._createDataset(variety["uid"],variety["accession"],
                                                         collectionList[row["type"]][experiment_id]["collectionId"],
                                                         collectionList[row["type"]][experiment_id]["collectionUid"],
                                                         row["variety_id"],row["location"])
@@ -470,7 +473,7 @@ class ConstructDatabase:
                                                      experiment_name, experiment_location)
                                 for id,row in varieties.loc[varietyList].iterrows():
                                     internal_id = resourceData["varietyIndex"][id]
-                                    self._createDataset(row["uid"], collectionId, collectionUid,
+                                    self._createDataset(row["uid"], row["accession"], collectionId, collectionUid,
                                                             internal_id, markerFilename, "marker")
                                     
                             

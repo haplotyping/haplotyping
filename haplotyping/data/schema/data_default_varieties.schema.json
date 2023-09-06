@@ -17,6 +17,13 @@
       }
     },
     {
+      "name": "accession",
+      "type": "string",
+      "constraints": {
+        "required": false
+      }
+    },
+    {
       "name": "name",
       "type": "string",
       "constraints": {

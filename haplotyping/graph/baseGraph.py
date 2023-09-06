@@ -468,12 +468,18 @@ class Graph:
                 if k in self._start:
                     entry["start"].add(k)
                 elif max(d[k][connectedList].values)==0:
-                    self._logger.debug("unexpected start entry {}".format(k))
+                    if k in self._end:
+                        pass
+                    else:
+                        self._logger.debug("unexpected start entry {}".format(k))
                     entry["start"].add(k)
                 if k in self._end:
                     entry["end"].add(k)
                 elif min(d[k][connectedList].values)==0:
-                    self._logger.debug("unexpected end entry {}".format(k))
+                    if k in self._start:
+                        pass
+                    else:
+                        self._logger.debug("unexpected end entry {}".format(k))
                     entry["end"].add(k)
             result.append(entry)
         return result
@@ -785,7 +791,7 @@ class Graph:
                 else:
                     path = computedPath
             #set or update connection
-            if orientatedCkmer in self._outgoing.keys():
+            if orientatedCkmer in self._incoming.keys():
                 if not self._incoming[orientatedCkmer]["problem"]:
                     assert self._incoming[orientatedCkmer]["distance"] == distance
                     assert self._incoming[orientatedCkmer]["number"] == number

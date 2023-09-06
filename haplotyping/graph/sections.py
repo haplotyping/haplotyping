@@ -187,8 +187,7 @@ class Sections():
                     sectionItemPath._varieties = set([self._sections._datasetVarieties[ds]["uid"] 
                                                       for ds in sectionItemPath._datasets 
                                                       if ds in self._sections._datasetVarieties])
-                    print(len(sectionItemPath._datasets))
-        
+                    
         def sectionNumber(self):
             return len(self._sectionItems)
         
@@ -377,6 +376,10 @@ class Sections():
                     #link start/end sections
                     for orientatedCkmer in sharedStart:
                         for orientatedBase in self._graph._orientatedCkmers[orientatedCkmer]._orientatedBases.values():
+                            #only if visible
+                            if not config["showAllBases"]:
+                                if not self._graph._orientatedBases[orientatedBase].candidate():
+                                    continue 
                             key1 = "{}_{}_{}_{}_{}".format(previousPrefix,
                                     orientatedBase[0],orientatedBase[1],orientatedCkmer[0],orientatedCkmer[1])
                             key2 = "{}_{}_{}_{}_{}".format(section_prefix,
@@ -535,7 +538,10 @@ class Sections():
                         orientatedCkmerInfo = self._graph._orientatedCkmers[partialPath["list"][-1]]
                         newPaths = 0
                         for orientatedCkmer in orientatedCkmerInfo._outgoing:
-                            if orientatedCkmer in self._orientatedCkmers and orientatedCkmer in self._connectedCkmers:
+                            #ignore cycles
+                            if orientatedCkmer in partialPath["list"]:                                
+                                pass
+                            elif orientatedCkmer in self._orientatedCkmers and orientatedCkmer in self._connectedCkmers:
                                 outgoingInfo = orientatedCkmerInfo._outgoing[orientatedCkmer]
                                 assert partialPath["sequence"][-self._graph._k:]==outgoingInfo["path"][:self._graph._k]
                                 newPartialPath = {"distance": partialPath["distance"] + outgoingInfo["distance"],

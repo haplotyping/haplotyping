@@ -116,6 +116,7 @@ class DatasetList(Resource):
             total = cursor.fetchone()[0]
             if start<total:
                 cursor.execute("SELECT `dataset`.`uid`, \
+                                `dataset`.`accession`, \
                                 `dataset`.`type`, \
                                 `dataset`.`subtype`, \
                                 `dataset`.`version`, \
@@ -164,6 +165,7 @@ class DatasetList(Resource):
                                 WHERE "+condition_sql, tuple(condition_variables))  
                 total = cursor.fetchone()[0]
                 cursor.execute("SELECT `dataset`.`uid`, \
+                                `dataset`.`accession`, \
                                 `dataset`.`type`, \
                                 `dataset`.`subtype`, \
                                 `dataset`.`version`, \
@@ -204,6 +206,7 @@ class DatasetId(Resource):
             db_connection.row_factory = sqlite3.Row
             cursor = db_connection.cursor()
             cursor.execute("SELECT `dataset`.`uid`, \
+                            `dataset`.`accession`, \
                             `dataset`.`type`, \
                             `dataset`.`subtype`, \
                             `dataset`.`version`, \
