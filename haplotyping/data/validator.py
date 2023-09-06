@@ -454,11 +454,13 @@ class ValidateGeneral:
                 return excelCoordinate(row,col)
             elif row and cols:
                 locations = [excelCoordinate(row,col) for col in cols]
-                locations.remove(None)
+                if None in locations:
+                    locations.remove(None)
                 return(",".join(locations))
             elif rows and col:
                 locations = [excelCoordinate(row,col) for row in rows]
-                locations.remove(None)
+                if None in locations:
+                    locations.remove(None)
                 return(",".join(locations))
             elif row or col:
                 return excelCoordinate(row,col)

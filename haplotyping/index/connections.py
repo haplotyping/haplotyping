@@ -96,10 +96,11 @@ class Connections:
                 with tables.open_file(pytablesFile, mode="w", title="Temporary storage") as pytablesStorage:
                     self._processReadFiles(indexFile, automatonFile, automatonMemory, pytablesStorage)
                     self._storeDirect(pytablesStorage)
+                    self.h5file.flush()
                     if not self.indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS:
                         self._processReads(pytablesStorage)
                         self._storeReads(pytablesStorage)
-                    self.h5file.flush()     
+                        self.h5file.flush()     
             except Exception as e:
                self._logger.error("problem occurred while processing reads: "+str(e))
             finally:
