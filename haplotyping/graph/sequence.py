@@ -381,7 +381,7 @@ class SequenceGraph(APIGraph):
         #find splits
         shortestDistances = self.getShortestDistances()
         for kmer in startAlternatives:
-            self._logger.debug("process start kmer {}".format(kmer))
+            self._logger.debug("check start kmer alternative")
             foundSplits = self._findSplit(kmer,"right")
             for orientatedCkmerKey in foundSplits["orientatedCkmers"]:
                 if orientatedCkmerKey in self._orientatedCkmers and orientatedCkmerKey in shortestDistances.keys():
@@ -394,7 +394,7 @@ class SequenceGraph(APIGraph):
                         self._setStart(orientatedCkmerKey)  
                         expandedStartCandidates+=1
         for kmer in endAlternatives:
-            self._logger.debug("process end kmer {}".format(kmer))
+            self._logger.debug("check end kmer alternative")
             foundSplits = self._findSplit(kmer,"left")
             for orientatedCkmerKey in foundSplits["orientatedCkmers"]:
                 if orientatedCkmerKey in self._orientatedCkmers.keys() and orientatedCkmerKey in shortestDistances.keys():
@@ -482,7 +482,7 @@ class SequenceGraph(APIGraph):
     
     def _fixMissingConnections(self):
         #compute k-mers with only single orientation (not necessary to extend this to double orientation?)
-        relevantKmers = set([c for c in self._ckmers if len(self._ckmers[c])==1])
+        relevantKmers = set([c for c in self._ckmers if len(self._ckmers[c]._orientated)==1])
         #compute distances
         shortestDistances = self.getShortestDistances()
         #define orientated canonical candidate k-mers

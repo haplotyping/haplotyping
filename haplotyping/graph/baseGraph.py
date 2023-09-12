@@ -471,7 +471,7 @@ class Graph:
                     if k in self._end:
                         pass
                     else:
-                        self._logger.debug("unexpected start entry {}".format(k))
+                        self._logger.debug("possible new start entry")
                     entry["start"].add(k)
                 if k in self._end:
                     entry["end"].add(k)
@@ -479,7 +479,7 @@ class Graph:
                     if k in self._start:
                         pass
                     else:
-                        self._logger.debug("unexpected end entry {}".format(k))
+                        self._logger.debug("possible new end entry")
                     entry["end"].add(k)
             result.append(entry)
         return result
@@ -645,6 +645,34 @@ class Graph:
               format(int((np.count_nonzero(self._distances["shortest"]==0)-len(self._distances["shortest"].index))/2),
                      np.count_nonzero(self._distances["shortest"]==0)-len(self._distances["shortest"].index)))
         
+        
+    class CanonicalKmer:
+        """internal object representing splitting canonical k-mers in the De Bruijn graph"""
+        
+        def __init__(self, graph, ckmer: str, number: int, split: str):
+            """
+            - ckmer: canonical representation of the splitting k-mer
+            - number: frequency
+            - split: location of the split (left/right/both)
+            """
+            #checks
+            assert len(ckmer)==graph._k
+            assert split in ["left","right","both"]
+            assert number>=0
+            #initialise
+            self._graph = graph
+            self._ckmer : str = str(ckmer)
+            self._split : str = str(split)
+            self._number : int = int(number)
+            #other variables
+            self._left : dict = {}
+            self._right : dict = {}
+            self._orientated : set = set([])
+            #check for duplicates
+            if self._ckmer in self._graph._ckmers.keys():
+                raise Exception("creating canonical k-mer that already exists")
+            #register
+            self._graph._ckmers[self._ckmer] = self
             
     class OrientatedCkmer:
         """internal object representing splitting orientated k-mers in the De Bruijn graph"""
@@ -688,10 +716,11 @@ class Graph:
                 raise Exception("creating k-mer with orientation that already exists")
             #register
             self._graph._orientatedCkmers[self._key] = self 
-            if self._ckmer in self._graph._ckmers.keys():
-                self._graph._ckmers[self._ckmer].add(self._key)
+            if not self._ckmer in self._graph._ckmers.keys():
+                self._canonicalKmer = self._graph.CanonicalKmer(graph, ckmer, number, split)
             else:
-                self._graph._ckmers[self._ckmer] = set([self._key])
+                self._canonicalKmer = self._graph._ckmers[self._ckmer]
+            self._canonicalKmer._orientated.add(self._key)
             #link bases
             if (self._split == "both") or (self._split == "right"):
                 base = self._ckmer[:-1]

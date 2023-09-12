@@ -520,26 +520,31 @@ class Connections:
             
     def _processReadFile(self, filename: str, queue_automaton, queue_index, queue_matches):
         startTime = time.time()
-        with gzip.open(filename, "rt") as f:
+        open_fn = gzip.open if filename.endswith(".gz") else open
+        with open_fn(filename, "rt") as f:
             readLengthMinimum=None
             readLengthMaximum=None
             readNumber=0
             totalReadLength=0
             while True:               
-                f.readline()
+                identifier = f.readline().rstrip()
                 sequence = f.readline().rstrip()  
-                f.readline()
-                f.readline()
+                plusline = f.readline().rstrip()
+                quality = f.readline().rstrip()
                 if sequence:
-                    readLengthMinimum=(len(sequence) if readLengthMinimum==None 
-                                       else min(readLengthMinimum,len(sequence)))
-                    readLengthMaximum=(len(sequence) if readLengthMaximum==None 
-                                       else max(readLengthMaximum,len(sequence)))
-                    readNumber+=1
-                    totalReadLength+=len(sequence)
-                    queue_automaton.put(sequence)
-                    if readNumber%1000000==0:
-                        self._logger.debug("- processed {} reads".format(readNumber)) 
+                    if not (identifier.startswith("@") and plusline.startswith("+") and len(sequence)==len(quality)):
+                        self._logger.error("invalid fastq-file {}, line {}".format(filename,4*readNumber))
+                        break
+                    else:
+                        readLengthMinimum=(len(sequence) if readLengthMinimum==None 
+                                           else min(readLengthMinimum,len(sequence)))
+                        readLengthMaximum=(len(sequence) if readLengthMaximum==None 
+                                           else max(readLengthMaximum,len(sequence)))
+                        readNumber+=1
+                        totalReadLength+=len(sequence)
+                        queue_automaton.put(sequence)
+                        if readNumber%1000000==0:
+                            self._logger.debug("- processed {} reads".format(readNumber)) 
                 else:
                     break
             endTime = time.time()
@@ -557,46 +562,55 @@ class Connections:
 
     def _processPairedReadFiles(self, filename0: str, filename1: str, queue_automaton, queue_index, queue_matches):
         startTime = time.time()
-        with gzip.open(filename0, "rt") as f0, gzip.open(filename1, "rt") as f1:
+        open_fn0 = gzip.open if filename0.endswith(".gz") else open
+        open_fn1 = gzip.open if filename1.endswith(".gz") else open
+        with open_fn0(filename0, "rt") as f0, open_fn1(filename1, "rt") as f1:
             readLengthMinimum=None
             readLengthMaximum=None
             readNumber=0
             totalReadLength=0
             while True:
                 #first of pair
-                f0.readline()
+                identifier0 = f0.readline().rstrip() 
                 sequence0 = f0.readline().rstrip()  
-                f0.readline()
-                f0.readline()
+                plusline0 = f0.readline().rstrip() 
+                quality0 = f0.readline().rstrip() 
                 #second of pair
-                f1.readline()
+                identifier1 = f1.readline().rstrip() 
                 sequence1 = haplotyping.General.reverse_complement(f1.readline().rstrip())
-                f1.readline()
-                f1.readline()
+                plusline1 = f1.readline().rstrip() 
+                quality1 = f1.readline().rstrip() 
                 #process
                 if sequence0 and sequence1:
-                    readLengthMinimum=(min(len(sequence0),len(sequence1)) if readLengthMinimum==None 
-                                           else min(readLengthMinimum,len(sequence0),len(sequence1)))
-                    readLengthMaximum=(max(len(sequence0),len(sequence1)) if readLengthMaximum==None 
-                                       else max(readLengthMaximum,len(sequence0),len(sequence1)))
-                    readNumber+=2  
-                    totalReadLength+=(len(sequence0)+len(sequence1))
-                    if sequence1[0:self.k] in sequence0:
-                        pos = sequence0.find(sequence1[0:self.k])
-                        rpos = sequence0.rfind(sequence1[0:self.k])
-                        if pos==rpos:
-                            match = sequence0[pos:]
-                            if sequence1[0:len(match)]==match:
-                                #process as single read because of minimal glue match of size k
-                                queue_automaton.put(sequence0[0:pos]+sequence1) 
-                            else:
-                                queue_automaton.put((sequence0,sequence1,))                                
-                        else:
-                            queue_automaton.put((sequence0,sequence1,))                            
+                    if not (identifier0.startswith("@") and plusline0.startswith("+") and len(sequence0)==len(quality0)):
+                        self._logger.error("invalid fastq-file {}, line {}".format(filename0,2*readNumber))
+                        break
+                    elif not (identifier1.startswith("@") and plusline1.startswith("+") and len(sequence1)==len(quality1)):
+                        self._logger.error("invalid fastq-file {}, line {}".format(filename1,2*readNumber))
+                        break
                     else:
-                        queue_automaton.put((sequence0,sequence1,))                        
-                    if readNumber%1000000==0:
-                        self._logger.debug("- processed {} paired reads".format(readNumber))                     
+                        readLengthMinimum=(min(len(sequence0),len(sequence1)) if readLengthMinimum==None 
+                                               else min(readLengthMinimum,len(sequence0),len(sequence1)))
+                        readLengthMaximum=(max(len(sequence0),len(sequence1)) if readLengthMaximum==None 
+                                           else max(readLengthMaximum,len(sequence0),len(sequence1)))
+                        readNumber+=2  
+                        totalReadLength+=(len(sequence0)+len(sequence1))
+                        if sequence1[0:self.k] in sequence0:
+                            pos = sequence0.find(sequence1[0:self.k])
+                            rpos = sequence0.rfind(sequence1[0:self.k])
+                            if pos==rpos:
+                                match = sequence0[pos:]
+                                if sequence1[0:len(match)]==match:
+                                    #process as single read because of minimal glue match of size k
+                                    queue_automaton.put(sequence0[0:pos]+sequence1) 
+                                else:
+                                    queue_automaton.put((sequence0,sequence1,))                                
+                            else:
+                                queue_automaton.put((sequence0,sequence1,))                            
+                        else:
+                            queue_automaton.put((sequence0,sequence1,))                        
+                        if readNumber%1000000==0:
+                            self._logger.debug("- processed {} paired reads".format(readNumber))                     
                 else:
                     break
             endTime = time.time()
