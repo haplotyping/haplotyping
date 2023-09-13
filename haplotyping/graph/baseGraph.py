@@ -649,6 +649,8 @@ class Graph:
     class CanonicalKmer:
         """internal object representing splitting canonical k-mers in the De Bruijn graph"""
         
+        SIDE = Literal["left","right"]
+        
         def __init__(self, graph, ckmer: str, number: int, split: str):
             """
             - ckmer: canonical representation of the splitting k-mer
@@ -673,6 +675,52 @@ class Graph:
                 raise Exception("creating canonical k-mer that already exists")
             #register
             self._graph._ckmers[self._ckmer] = self
+            
+        def __repr__(self):
+            info = []
+            info.append("{}x".format(self._number))
+            info.append("split {}".format(self._split))
+            return "CanonicalCkmer({} {}[{}])".format(self._ckmer,self._orientation,", ".join(info))
+        
+        def _setLeft(self, ckmer, side: SIDE, distance: int, number: int, problem: bool = None):
+            assert ckmer in self._graph._ckmers.keys()
+            assert side in SIDE
+            assert distance>0
+            assert number>=0
+            #set or update connection
+            if (ckmer in self._left.keys()) and (side in self._left[ckmer].keys()):
+                if not self._left[ckmer][side]["problem"]:
+                    assert self._left[ckmer][side]["distance"] == distance
+                    assert self._left[ckmer][side]["number"] == number
+                elif not problem==None:
+                    self._left[ckmer][side]["problem"] = problem
+            else:    
+                if not ckmer in self._left.keys():
+                    self._left[ckmer] = {}
+                self._left[ckmer][side] = {
+                    "distance": distance, "number": number, 
+                    "problem": problem
+                }            
+            
+        def _setRight(self, ckmer, side: SIDE, distance: int, number: int, problem: bool = None):
+            assert ckmer in self._graph._ckmers.keys()
+            assert side in SIDE
+            assert distance>0
+            assert number>=0
+            #set or update connection
+            if (ckmer in self._right.keys()) and (side in self._right[ckmer].keys()):
+                if not self._right[ckmer][side]["problem"]:
+                    assert self._right[ckmer][side]["distance"] == distance
+                    assert self._right[ckmer][side]["number"] == number
+                elif not problem==None:
+                    self._right[ckmer][side]["problem"] = problem
+            else:    
+                if not ckmer in self._right.keys():
+                    self._right[ckmer] = {}
+                self._right[ckmer][side] = {
+                    "distance": distance, "number": number, 
+                    "problem": problem
+                }                 
             
     class OrientatedCkmer:
         """internal object representing splitting orientated k-mers in the De Bruijn graph"""
@@ -842,6 +890,17 @@ class Graph:
                 self._graph._orientatedCkmers[orientatedCkmer]._setPreStart(1)
             elif not self._preStart == None:
                 self._graph._orientatedCkmers[orientatedCkmer]._setPreStart(self._preStart+1)
+            #update canonical k-mers
+            if self._orientation=="forward":
+                if orientatedCkmer[1]=="forward":
+                    self._ckmer._setLeft(self, ckmer, "right", distance: int, number: int, problem: bool = None):
+                else:
+                    self._ckmer._setLeft(self, ckmer, "left", distance: int, number: int, problem: bool = None):
+            else:
+                if orientatedCkmer[1]=="forward":
+                    self._ckmer._setRight(self, ckmer, "right", distance: int, number: int, problem: bool = None):
+                else:
+                    self._ckmer._setRight(self, ckmer, "left", distance: int, number: int, problem: bool = None):
             
         def _setOutgoing(self, orientatedCkmer, distance: int, number: int, problem: bool = None, path: str = None):
             assert orientatedCkmer in self._graph._orientatedCkmers.keys()
@@ -895,6 +954,17 @@ class Graph:
                 self._graph._orientatedCkmers[orientatedCkmer]._setPostEnd(1)
             elif not self._postEnd == None:
                 self._graph._orientatedCkmers[orientatedCkmer]._setPostEnd(self._postEnd+1)
+            #update canonical k-mers
+            if self._orientation=="forward":
+                if orientatedCkmer[1]=="forward":
+                    self._ckmer._setRight(self, ckmer, "right", distance: int, number: int, problem: bool = None):
+                else:
+                    self._ckmer._setRight(self, ckmer, "left", distance: int, number: int, problem: bool = None):
+            else:
+                if orientatedCkmer[1]=="forward":
+                    self._ckmer._setLeft(self, ckmer, "right", distance: int, number: int, problem: bool = None):
+                else:
+                    self._ckmer._setLeft(self, ckmer, "left", distance: int, number: int, problem: bool = None):
             
         def _unsetCandidate(self):
             if self.candidate():

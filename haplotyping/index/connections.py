@@ -548,14 +548,15 @@ class Connections:
                 else:
                     break
             endTime = time.time()
-            if readLengthMinimum>0:
-                self.readLengthMinimum=(readLengthMinimum if self.readLengthMinimum==None 
-                                        else min(self.readLengthMinimum,readLengthMinimum))
-            self.readLengthMaximum=(readLengthMaximum if self.readLengthMaximum==None 
-                                    else max(self.readLengthMaximum,readLengthMaximum))
-            self.readUnpairedTotal+=readNumber
-            self.readTotal+=readNumber
-            self.totalReadLength+=totalReadLength
+            if readNumber>0:
+                if readLengthMinimum>0:
+                    self.readLengthMinimum=(readLengthMinimum if self.readLengthMinimum==None 
+                                            else min(self.readLengthMinimum,readLengthMinimum))
+                self.readLengthMaximum=(readLengthMaximum if self.readLengthMaximum==None 
+                                        else max(self.readLengthMaximum,readLengthMaximum))
+                self.readUnpairedTotal+=readNumber
+                self.readTotal+=readNumber
+                self.totalReadLength+=totalReadLength
             self.processReadsTime+=endTime-startTime
         self._logger.info("processed {} reads".format(readNumber)) 
         return (readLengthMaximum,readNumber,totalReadLength,endTime-startTime)
@@ -614,14 +615,15 @@ class Connections:
                 else:
                     break
             endTime = time.time()
-            if readLengthMinimum>0:
-                self.readLengthMinimum=(readLengthMinimum if self.readLengthMinimum==None 
-                                        else min(self.readLengthMinimum,readLengthMinimum))
-            self.readLengthMaximum=(readLengthMaximum if self.readLengthMaximum==None 
-                                    else max(self.readLengthMaximum,readLengthMaximum))
-            self.readPairedTotal+=readNumber
-            self.readTotal+=readNumber
-            self.totalReadLength+=totalReadLength
+            if readNumber>0:
+                if readLengthMinimum>0:
+                    self.readLengthMinimum=(readLengthMinimum if self.readLengthMinimum==None 
+                                            else min(self.readLengthMinimum,readLengthMinimum))
+                self.readLengthMaximum=(readLengthMaximum if self.readLengthMaximum==None 
+                                        else max(self.readLengthMaximum,readLengthMaximum))
+                self.readPairedTotal+=readNumber
+                self.readTotal+=readNumber
+                self.totalReadLength+=totalReadLength
             self._logger.info("processed {} paired reads".format(readNumber)) 
             self.processReadsTime+=endTime-startTime
         return (readLengthMaximum,readNumber,totalReadLength,endTime-startTime)

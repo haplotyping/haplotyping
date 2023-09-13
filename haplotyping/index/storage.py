@@ -835,11 +835,19 @@ class Storage:
                     def reduceDistances(fromLink,fromDirection,distanceData):
                         
                         def delete_connection(fromLink,fromDirection,toLink,toDirection):
+                            #first
                             tableDeleteDirectRow = tableDeleteDirect.row
                             tableDeleteDirectRow["fromLink"] = fromLink
                             tableDeleteDirectRow["fromDirection"] = fromDirection
                             tableDeleteDirectRow["toLink"] = toLink
                             tableDeleteDirectRow["toDirection"] = toDirection
+                            tableDeleteDirectRow.append()
+                            #second
+                            tableDeleteDirectRow = tableDeleteDirect.row
+                            tableDeleteDirectRow["fromLink"] = toLink
+                            tableDeleteDirectRow["fromDirection"] = toDirection
+                            tableDeleteDirectRow["toLink"] = fromLink
+                            tableDeleteDirectRow["toDirection"] = fromDirection
                             tableDeleteDirectRow.append()
                         
                         #compute incorrect distances
