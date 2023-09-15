@@ -2,7 +2,7 @@ import haplotyping.index.database
 from multiprocessing import shared_memory, current_process
 from statistics import multimode
 from queue import Empty
-import ahocorasick, metis
+import ahocorasick, metis, networkit as nk
 import os, re, pickle, tables, statistics, logging, time, psutil
 import numpy as np, math
 from contextlib import ExitStack
@@ -2063,12 +2063,12 @@ class Storage:
         #initialize
         logger = logging.getLogger(__name__)  
         edges = []
-        disconnected = []
         
         #compute edges for partition graph
         numberOfKmers = h5file["split"]["ckmer"].shape[0]
         numberOfBases = h5file["split"]["base"].shape[0]
         numberOfDirect = h5file["relations"]["direct"].shape[0]
+        maxNumberOfPartitions = int(numberOfKmers ** (2/3))
         previousVertex = 0
         previousNeighbours = []
         logger.debug("create graph for partitioning")
@@ -2078,51 +2078,41 @@ class Storage:
                 i,i+len(block),numberOfDirect,int(100*(i+len(block))/numberOfDirect)))
             for j in range(len(block)):
                 while block[j][0][0]>previousVertex:
-                    if len(previousNeighbours)==0:
-                        disconnected.append(previousVertex)
                     edges.append(tuple(previousNeighbours))
                     previousVertex+=1
                     previousNeighbours = []
                 if not block[j][1][0] in previousNeighbours:
                     previousNeighbours.append(block[j][1][0])
         while numberOfKmers>previousVertex:
-            if len(previousNeighbours)==0:
-                disconnected.append(previousVertex)
             edges.append(tuple(previousNeighbours))
             previousVertex+=1
             previousNeighbours = []
+
+        #check symmetry graph
+        n_self = 0
+        n_asymmetric = 0
+        for i in range(len(edges)):
+            if i in edges[i]:
+                n_self+=1
+            for j in edges[i]:
+                if not i in edges[j]:
+                    n_asymmetric+=1
+        logger.debug("detected {} self connected nodes and {} asymmetric connections".format(
+            n_self,n_asymmetric))
             
-        #try to add paired connections for disconnected
-        if pytablesStorage.root.tmpPaired.shape[0]>0:
-            logger.debug("try to connect {} disconnected nodes with {} paired nodes".format(
-                len(disconnected),pytablesStorage.root.tmpPaired.shape[0]))
-            dataIterator = pytablesStorage.root.tmpPaired.itersorted("fromLink",checkCSI=True)
-            disconnectedIterator = iter(disconnected)
-            try:
-                dataRow = next(dataIterator)
-                disconnectedEntry = next(disconnectedIterator)
-                while True:
-                    if dataRow[0]>disconnectedEntry:
-                        disconnectedEntry = next(disconnectedIterator)
-                    else:
-                        if dataRow[0]==disconnectedEntry:
-                            if len(edges[disconnectedEntry])==0:
-                                edges[disconnectedEntry] = tuple([dataRow[1]])
-                                edges[dataRow[1]] = edges[dataRow[1]] + (dataRow[0],)
-                            elif not dataRow[1] in edges[disconnectedEntry]:
-                                edges[disconnectedEntry] = edges[disconnectedEntry] + (dataRow[1],)
-                                edges[dataRow[1]] = edges[dataRow[1]] + (dataRow[0],)
-                        dataRow = next(dataIterator)                                        
-            except StopIteration:
-                pass  
-            
-        #update disconnected
+        #update disconnected or only self connected
         disconnected = [i for i in range(len(edges)) if len(edges[i])==0]
-        logger.debug("connect {} disconnected nodes to base connections".format(len(disconnected)))
-        
+        selfconnected = [i for i in range(len(edges)) if len(edges[i])==1 and i in edges[i]]
+        logger.debug("connect {} disconnected and {} only self-connected nodes to base connections".format(
+            len(disconnected),len(selfconnected)))
+
+        #combine
+        disconnected = disconnected + selfconnected
+        disconnected.sort()
+
         #create memory for links with bases
         bases = h5file["split/base"]
-        ckmers = h5file["/split/ckmer"]
+        ckmers = h5file["split/ckmer"]
         disconnectedRows = ckmers[disconnected]
         for ckmerId,ckmerRow in zip(disconnected,disconnectedRows):
             if ckmerRow[1]==b"l":
@@ -2137,19 +2127,90 @@ class Storage:
             for baseId in baseIds:
                 ckmerLinks.update([baseEntry[1] for baseEntry in bases[baseId][2] if baseEntry[0]>0])
                 ckmerLinks.remove(ckmerId) 
-                if len(edges[ckmerId])==0:
-                    edges[ckmerId] = tuple(ckmerLinks)
-                    for ckmerLink in ckmerLinks:
+                #keep it symmetric
+                for ckmerLink in ckmerLinks:
+                    if not ckmerLink in edges[ckmerId]:
+                        edges[ckmerId] = edges[ckmerId] + (ckmerLink,)
+                    if not ckmerId in edges[ckmerLink]:
                         edges[ckmerLink] = edges[ckmerLink] + (ckmerId,)
-                        
-        #compute partitions
-        logger.debug("compute metis graph partitioning with at most {} partitions".format(maxNumberOfPartitions))
-        m = metis.adjlist_to_metis(edges)
-        del edges
-        (objval,partitions) = metis.part_graph(m,maxNumberOfPartitions)
-        (values, partitions, counts) = np.unique(partitions, return_inverse=True, return_counts=True) 
+
+        #connected components
+        g = nk.graph.Graph(weighted=False)
+        g.addNodes(len(edges))
+        for i in range(len(edges)):
+            for j in edges[i]:
+                g.addEdge(i,j)
+        cc = nk.components.ConnectedComponents(g)
+        cc.run()
+        ccList = cc.getComponents()
+        logger.debug("found {} connected components".format(len(ccList)))
+
+        #analyse connected components
+        nc_trivial = 0
+        nc_small = 0
+        trivialPartitions = []
+        smallPartitions = []
+        selectedNodes = []
+        partitionSize = int(len(edges)/maxNumberOfPartitions)
+        for component in ccList:
+            if len(component)<=2:
+                nc_trivial+=1
+                if (len(trivialPartitions)==0) or len(trivialPartitions[-1])>=partitionSize:
+                    trivialPartitions.append([])
+                trivialPartitions[-1].extend(component)
+            elif len(component)<=partitionSize:
+                nc_small+=1
+                smallPartitions.append(component)
+            else:
+                selectedNodes.extend(component)
+        logger.debug("distribute {} trivial components with at most 2 nodes over {} partitions".format(
+            nc_trivial,len(trivialPartitions)))
+        logger.debug("assign {} small components with at most {} nodes to separate partitions".format(
+            nc_small,partitionSize))
+        
+        #compute final partitions
+        partitions = [-1] * len(edges)
+        counts = []
+        for partition in trivialPartitions:
+            for node in partition:
+                partitions[node] = len(counts)
+            counts.append(len(partition))
+        for partition in smallPartitions:
+            for node in partition:
+                partitions[node] = len(counts)
+            counts.append(len(partition))
         numberOfPartitions = len(counts)
-        logger.debug("computed {} partitions - {}".format(numberOfPartitions,max(partitions)))
+
+        #compute normal partitions
+        if len(selectedNodes)>0:
+            #recompute number of partitions
+            newMaxNumberOfPartitions = int(len(selectedNodes)/partitionSize)
+            logger.debug("compute metis graph partitioning with at most {} partitions".format(
+                newMaxNumberOfPartitions))
+            #compute selected graph edges
+            selectedNodes.sort()
+            selectedMap = {selectedNodes[i]: i for i in range(len(selectedNodes))}
+            selectedEdges = [tuple([selectedMap[j] for j in edges[selectedNodes[i]]]) 
+                             for i in range(len(selectedNodes))]
+
+            m = metis.adjlist_to_metis(selectedEdges)
+            del selectedEdges
+            (objval,selectedPartitions) = metis.part_graph(m,newMaxNumberOfPartitions)
+            (selectedValues, selectedPartitions, selectedCounts) = np.unique(selectedPartitions, 
+                                                 return_inverse=True, return_counts=True) 
+            numberOfSelectedPartitions = len(selectedCounts)
+            logger.debug("computed {} regular partitions".format(numberOfSelectedPartitions))
+            #update final partitions
+            for i in range(len(selectedPartitions)):
+                partitions[selectedNodes[i]] = selectedPartitions[i] + numberOfPartitions
+            counts = counts + ([0] * numberOfSelectedPartitions)
+            for i in selectedCounts:
+                counts[i + numberOfPartitions] = selectedCounts[i]
+            numberOfPartitions = len(counts)
+            
+        #some checks
+        assert len([p for p in partitions if p<0])==0
+        assert sum(counts) == len(edges)
 
         #store partition in ckmer properties
         dsCkmer = h5file["/split/ckmer"]
