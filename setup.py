@@ -42,7 +42,7 @@ setuptools.setup(
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.10",
+    python_requires=">=3.11",
     test_suite="tests",
     include_package_data=True,
     package_data={"": ["data/schema/*.json"]},
