@@ -2204,7 +2204,7 @@ class Storage:
             for i in range(len(selectedPartitions)):
                 partitions[selectedNodes[i]] = selectedPartitions[i] + numberOfPartitions
             counts = counts + ([0] * numberOfSelectedPartitions)
-            for i in selectedCounts:
+            for i in range(len(selectedCounts)):
                 counts[i + numberOfPartitions] = selectedCounts[i]
             numberOfPartitions = len(counts)
             
