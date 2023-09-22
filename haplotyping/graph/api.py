@@ -1,5 +1,6 @@
 import logging,requests
 import haplotyping.graph
+import haplotyping.api
 import haplotyping.graph.baseGraph as baseGraph
 import pandas as pd
     
@@ -29,13 +30,8 @@ class APIGraph(baseGraph.Graph):
         #report to logger
         self._api_logger.debug("using dataset {}".format(self._uid))
         self._api_logger.debug("using API at {}".format(self._baseUrl))
-        #set authentication
-        if self._username and self._password:
-            self._apiAuth = requests.auth.HTTPBasicAuth(self._username, self._password)
-        else:
-            self._apiAuth = None
-        #set headers
-        self._apiHeaders = {"accept": "application/json"}
+        #api
+        self._api = haplotyping.api.API(url, username=username, password=password)        
         #checks
         self._api_initial_checks()
         
@@ -45,41 +41,33 @@ class APIGraph(baseGraph.Graph):
         """
         self._api_logger.debug("get dataset information from API")        
         #get dataset info
-        response = requests.post(self._baseUrl+"dataset/", json = {"uids": [self._uid]}, 
-                                 auth=self._apiAuth, headers=self._apiHeaders)
-        if response.ok:
-            data = response.json()
-            if data.get("total",0)==1:
-                dataset = data["list"][0]
-                if not (dataset["type"]=="kmer" or dataset["type"]=="split"):
-                    self._api_logger.error("dataset {} has no k-mer database".format(self._uid))
-                if not (dataset["type"]=="split"):
-                    self._api_logger.error("dataset {} has no splitting k-mer database".format(self._uid))   
-                if dataset["variety"]:
-                    self._variety = str(dataset["variety"]["name"])
-                    self._varietyUid = str(dataset["variety"]["uid"])
-                    self._api_logger.debug("set variety to '{}'".format(self._variety))
-                if dataset["collection"]:
-                    self._collection = str(dataset["collection"]["name"])
-                    self._api_logger.debug("set collection to '{}'".format(self._collection))
-                if self._variety:
-                    self._name = "'{}'".format(self._variety)
-                    if self._collection:
-                        self._name = "{} from '{}' collection".format(self._name,self._collection)
-                #get split info
-                response = requests.get(self._baseUrl+"split/"+self._uid+"/info", 
-                                        auth=self._apiAuth, headers=self._apiHeaders)
-                if response.ok:
-                    data = response.json()
-                    self._k = int(data["k"])
-                    self._api_logger.debug("set k-mer size to {}".format(self._k))
-                else:
-                    self._api_logger.error("request to {} didn't succeed".format(self._baseUrl)) 
-            else:
-                self._api_logger.error("dataset {} not found".format(self._uid))   
-        else:
-            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
-            
+        try:
+            dataset = self._api.getDatasetById(self._uid)
+            if not (dataset["type"]=="kmer" or dataset["type"]=="split"):
+                self._api_logger.error("dataset {} has no k-mer database".format(self._uid))
+            if not (dataset["type"]=="split"):
+                self._api_logger.error("dataset {} has no splitting k-mer database".format(self._uid))   
+            if dataset["variety"]:
+                self._variety = str(dataset["variety"]["name"])
+                self._varietyUid = str(dataset["variety"]["uid"])
+                self._api_logger.debug("set variety to '{}'".format(self._variety))
+            if dataset["collection"]:
+                self._collection = str(dataset["collection"]["name"])
+                self._api_logger.debug("set collection to '{}'".format(self._collection))
+            if self._variety:
+                self._name = "'{}'".format(self._variety)
+                if self._collection:
+                    self._name = "{} from '{}' collection".format(self._name,self._collection)
+            #get split info
+            try:
+                data = self._api.getSplitInfo(self._uid)
+                self._k = int(data["k"])
+                self._api_logger.debug("set k-mer size to {}".format(self._k))
+            except:
+                self._api_logger.error("k-mer database {} not found".format(self._uid)) 
+        except:
+            self._api_logger.error("dataset {} not found".format(self._uid))
+                    
     def getDatasetVarieties(self):
         return self._datasetVarieties
     

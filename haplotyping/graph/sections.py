@@ -1,4 +1,4 @@
-import logging,requests,re, html
+import logging,html
 import haplotyping.graph.baseGraph as baseGraph
 from haplotyping.graph.api import APIGraph
 from haplotyping.general import General
@@ -50,7 +50,7 @@ class Sections():
         
     def _createSections(self, connectedCandidates):
         #compute section start entries (not every connected start is necessarily a section start)
-        shortestDistances = self._graph.getShortestDistances()
+        connected = self._graph.getConnected()
         startEntries = connectedCandidates["start"]
         problematicStartEntries = set()
         for orientatedCkmer in startEntries:
@@ -59,7 +59,7 @@ class Sections():
                 baseLinkedOrientatedCkmers.update(self._graph._orientatedBases[orientatedBase]._orientatedCkmers)
             for otherOrientatedCkmer in baseLinkedOrientatedCkmers:
                 otherIncomingConnected = [k for k in connectedCandidates["connected"] 
-                                          if shortestDistances[k][otherOrientatedCkmer]<0]
+                                          if connected[otherOrientatedCkmer][k]]
                 if len(otherIncomingConnected)>0:
                     problematicStartEntries.add(orientatedCkmer)
                     break
@@ -97,7 +97,7 @@ class Sections():
         #add finalized sections
         self._parts.append(part)
         #try to order logically
-        self._parts = sorted(self._parts, key=lambda x: 0 if x._order==None else x._order)
+        self._parts = sorted(self._parts, key=lambda x: 0 if x._order is None else x._order)
                        
     def partNumber(self):
         return len(self._parts)
@@ -154,8 +154,8 @@ class Sections():
             
         def _append(self, item):
             self._sectionItems.append(item)
-            if not item._order == None:
-                self._order = (item._order if self._order==None else min(self._order,item._order))
+            if not item._order is None:
+                self._order = (item._order if self._order is None else min(self._order,item._order))
                 
         def _computePaths(self):
             self._pathNumber = 0
@@ -277,7 +277,7 @@ class Sections():
                         #create arm
                         armGraph=pg.subgraph(name="cluster_graph_arm_{}".format(self._graph._arms[j].key()))
                         with armGraph as ag:
-                            arm_name = "Arm {}".format(j+1)
+                            arm_name = "Arm {}".format(self._graph._arms[j].key())
                             if self._graph._arms[j].armType()=="incoming":
                                 arm_name = "Incoming {}".format(arm_name)
                                 arm_style = config["baseStyleIncomingArm"]
@@ -294,7 +294,7 @@ class Sections():
                                 continue
                             arm_label = ("<" + 
                                          "<font point-size=\"12\" color=\"grey\">{}</font><br/>".format(arm_name) + 
-                                         "<font point-size=\"10\">length: {} with {} nodes</font><br/>".format(
+                                         "<font point-size=\"10\">size {} with {} nodes</font><br/>".format(
                                              self._graph._arms[j].size(),self._graph._arms[j].n()) + 
                                          "<font point-size=\"8\">maximum frequency: {}x</font><br/>".format(
                                              self._graph._arms[j].maxFreq()) + 
@@ -473,8 +473,8 @@ class Sections():
             
             #set order
             for orientatedCkmer in self._orientatedCkmers:
-                if not self._graph._orientatedCkmers[orientatedCkmer]._order == None:
-                    self._order = (self._graph._orientatedCkmers[orientatedCkmer]._order if self._order==None else
+                if not self._graph._orientatedCkmers[orientatedCkmer]._order is None:
+                    self._order = (self._graph._orientatedCkmers[orientatedCkmer]._order if self._order is None else
                                    min(self._graph._orientatedCkmers[orientatedCkmer]._order,self._order))
                     
                 
