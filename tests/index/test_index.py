@@ -163,8 +163,117 @@ class IndexTestCase(unittest.TestCase):
             #test for symmetry, skip problematic
             for row in h5file["/relations/direct"]:
                 self.assertTrue((row[1][0],row[1][1],row[0][0],row[0][1],row[2],row[3],) 
-                                    in directList,"direct relations not symmetric")              
-                    
+                                    in directList,"direct relations not symmetric")  
+
+    def test_reads(self):
+        #store reads in memory
+        singleReads = []
+        pairedReads = []
+        for filename in self.unpairedReadFiles:
+            with gzip.open(filename, "rt") as f:
+                while True:               
+                    identifier = f.readline().rstrip()
+                    sequence = f.readline().rstrip()  
+                    plusline = f.readline().rstrip()
+                    quality = f.readline().rstrip()
+                    if sequence:
+                        self.assertTrue(identifier.startswith("@"),"problem fastq file")
+                        self.assertTrue(plusline.startswith("+"),"problem fastq file")
+                        self.assertEqual(len(sequence),len(quality),"problem fastq file")
+                        singleReads.append(sequence)
+                    else:
+                        break
+        for filenames in self.pairedReadFiles:
+            with gzip.open(filenames[0], "rt") as f0, gzip.open(filenames[1], "rt") as f1:
+                while True:
+                    #first of pair
+                    identifier0 = f0.readline().rstrip() 
+                    sequence0 = f0.readline().rstrip()  
+                    plusline0 = f0.readline().rstrip() 
+                    quality0 = f0.readline().rstrip() 
+                    #second of pair
+                    identifier1 = f1.readline().rstrip() 
+                    sequence1 = haplotyping.General.reverse_complement(f1.readline().rstrip())
+                    plusline1 = f1.readline().rstrip() 
+                    quality1 = f1.readline().rstrip() 
+                    #process
+                    if sequence0 and sequence1:
+                        self.assertTrue(identifier0.startswith("@"),"problem fastq file")
+                        self.assertTrue(plusline0.startswith("+"),"problem fastq file")
+                        self.assertEqual(len(sequence0),len(quality0),"problem fastq file")
+                        self.assertTrue(identifier1.startswith("@"),"problem fastq file")
+                        self.assertTrue(plusline1.startswith("+"),"problem fastq file")
+                        self.assertEqual(len(sequence1),len(quality1),"problem fastq file")
+                        if sequence1[0:self.k] in sequence0:
+                            pos = sequence0.find(sequence1[0:self.k])
+                            rpos = sequence0.rfind(sequence1[0:self.k])
+                            if pos==rpos:
+                                match = sequence0[pos:]
+                                if sequence1[0:len(match)]==match:
+                                    singleReads.append(sequence0[0:pos]+sequence1)
+                                else:
+                                    pairedReads.append((sequence0,sequence1,))                                
+                            else:
+                                pairedReads.append((sequence0,sequence1,))                            
+                        else:
+                            pairedReads.append((sequence0,sequence1,))  
+                    else:
+                        break
+        #get reads from database
+        with h5py.File(self.tmpIndexLocation,"r") as h5file:
+            numberofCkmer = h5file["split"]["ckmer"].shape[0]
+            numberofData = h5file["relations"]["readData"].shape[0]
+            numberofInfo = h5file["relations"]["readInfo"].shape[0]
+            numberofPartition = h5file["relations"]["readPartition"].shape[0]
+            
+            ckmerData = h5file["split"]["ckmer"][0:numberofCkmer]
+            readData = h5file["relations"]["readData"][0:numberofData]
+            readInfo = h5file["relations"]["readInfo"][0:numberofInfo]
+            readPartition = h5file["relations"]["readPartition"][0:numberofPartition]
+            #process
+            position = 0
+            link = 0
+            reads = []
+            readIds = []
+            for partition,row in enumerate(readPartition):
+                self.assertEqual(position,row[1][0])
+                self.assertEqual(link,row[0][0])
+                dataLength = 0
+                dataEntries = readData[row[0][0]:row[0][0]+row[0][1]]
+                for infoRow in readInfo[row[1][0]:row[1][0]+row[1][1]]:
+                    dataLength+=infoRow[0]
+                    reads.append([ckmerData[id][0].decode() for id in readData[link:link+infoRow[0]]])
+                    readIds.append([id for id in readData[link:link+infoRow[0]]])
+                    link+=infoRow[0]
+                self.assertEqual(dataLength,row[0][1])
+                position+=row[1][1]
+        #check existence reads from database
+        nonExisting = []
+        for readId,read in enumerate(reads):
+            readFound = False
+            for entry in singleReads:
+                found = True
+                for kmer in read:            
+                    rkmer = haplotyping.General.reverse_complement(kmer)
+                    if not (kmer in entry or rkmer in entry):
+                        found = False
+                        break
+                if found==True:
+                    readFound = True
+                    break
+            if not readFound:
+                for entry in pairedReads:
+                    found = True
+                    for kmer in read:            
+                        rkmer = haplotyping.General.reverse_complement(kmer)
+                        if not (kmer in entry[0] or rkmer in entry[0] or kmer in entry[1] or rkmer in entry[1]):
+                            found = False
+                            break
+                    if found==True:
+                        readFound = True
+                        break
+            self.assertTrue(readFound,"read not found")
+         
     @classmethod
     def tearDownClass(self):
         if self.tmpDirectory:            
