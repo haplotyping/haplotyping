@@ -411,25 +411,31 @@ class Storage:
                                 (matches1,direct1,tmpTotalChecks1,tmpTotalMatches1,) = compute_matches(item[1][0],item[1][1])
                                 totalChecks+=tmpTotalChecks0+tmpTotalChecks1
                                 totalMatches+=tmpTotalMatches0+tmpTotalMatches1
-                                if tmpTotalChecks0==0 and tmpTotalChecks1==0:
+                                if tmpTotalMatches0==0 and tmpTotalMatches1==0:
                                     pass
-                                elif tmpTotalChecks0==0:
-                                    if tmpTotalChecks1>1:
+                                elif tmpTotalMatches0==0:
+                                    if tmpTotalMatches1>1:
                                         queue_matches.put(((matches1, direct1,),))
                                         if (not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS) 
-                                            and tmpTotalChecks1>2):
+                                            and tmpTotalMatches1>2):
                                             store_matches(matches1,readData,readInfo)
-                                elif tmpTotalChecks1==0:
-                                    if tmpTotalChecks0>1:
+                                elif tmpTotalMatches1==0:
+                                    if tmpTotalMatches0>1:
                                         queue_matches.put(((matches0, direct0,),))
                                         if (not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS)
-                                            and tmpTotalChecks0>2):
+                                            and tmpTotalMatches0>2):
                                             store_matches(matches0,readData,readInfo)
                                 else:
                                     queue_matches.put(((matches0, direct0, ),
-                                                       (matches1, direct1, )))
+                                                       (matches1, direct1, )))                                    
                                     if (not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS)):
-                                        store_paired_matches(matches0,matches1,readData,readInfo)
+                                        if (tmpTotalMatches0>1) and (tmpTotalMatches1>1):
+                                            store_paired_matches(matches0,matches1,readData,readInfo)
+                                        else:
+                                            if tmpTotalMatches0>1:
+                                                store_matches(matches0,readData,readInfo)
+                                            if tmpTotalMatches1>1:
+                                                store_matches(matches1,readData,readInfo)
                     except Empty:
                         logger.debug("index ({}): empty".format(os.getpid()))
                         time.sleep(5)
@@ -694,29 +700,42 @@ class Storage:
                                 #register pair data for single matches
                                 if (len(links0)==1) and (len(links1)>0):
                                     pairFrom = links0[0][0]
+                                    pairTo = None
                                     minFreq = 0
                                     for link in links1:
                                         freq = kmer_properties[link[0]][1]
-                                        if freq==minFreq:
-                                            pairTo = min(pairTo,link[0])
+                                        #not informative
+                                        if link[0]==pairFrom:
+                                            pairFrom = None
+                                            break
+                                        #connect to first k-mer with minimum frequency
+                                        if freq==minFreq:                                            
+                                            pairTo = link[0] if (pairTo==None) else min(pairTo,link[0])
                                         elif minFreq==0 or freq<minFreq:
                                             minFreq = freq
                                             pairTo = link[0]
-                                    if not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS):
-                                        store_paired(pairFrom,pairTo)
+                                    if not pairFrom is None:
+                                        if not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS):
+                                            store_paired(pairFrom,pairTo)
                                 if (len(links1)==1) and (len(links0)>0):
                                     pairFrom = links1[0][0]
+                                    pairTo = None
                                     minFreq = 0
                                     for link in links0:
                                         freq = kmer_properties[link[0]][1]
+                                        #not informative
+                                        if link[0]==pairTo:
+                                            pairTo = None
+                                            break
+                                        #connect to first k-mer with minimum frequency
                                         if freq==minFreq:
-                                            pairTo = min(pairTo,link[0])
+                                            pairTo = link[0] if (pairTo==None) else min(pairTo,link[0])
                                         elif minFreq==0 or freq<minFreq:
                                             minFreq = freq
                                             pairTo = link[0]
-                                    if (not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS) 
-                                        and (len(links0)>1)):
-                                        store_paired(pairFrom,pairTo)
+                                    if not pairTo is None:
+                                        if not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS):
+                                            store_paired(pairFrom,pairTo)
                     except Empty:
                         logger.debug("matches ({}): empty".format(os.getpid()))
                         time.sleep(5)
@@ -1307,7 +1326,7 @@ class Storage:
                 # - last only if left splitting (1)
                 # - pairs only both if first right (2) and second left (1)
                 # - type-filtered: don't store pair direct connected
-                # - type-filtered: don't store fingle
+                # - type-filtered: don't store single
                 if len(nodes)>2:
                     filtering = [0] * len(nodes)
                     filtering[0] = 1 if types[0]|2==2 else 0
@@ -1336,16 +1355,20 @@ class Storage:
                         nLeft,nRight = _getNeighbours(nNodeId)
                         forwardNumber = _getConnections(nNodeId,left,right)
                         backwardNumber = _getConnections(nodeId,nLeft,nRight)
+                        #no direct connections (probably read error)
                         if forwardNumber==0 or backwardNumber==0:
                             filtered = _filterByType(newRow,newTypes,filtered)
                             newRow = [nNodeId]
                             newTypes = [0]
                         else:
+                            #direct connected
                             newRow.append(nNodeId)
+                            #not trivial (backward)
                             if backwardNumber>1:
                                 newTypes.append(1)
                             else:
                                 newTypes.append(0)
+                            #not trivial (forward)
                             if forwardNumber>1:
                                 newTypes[-2] |= 2
                         left = nLeft
@@ -1761,6 +1784,7 @@ class Storage:
                         partitionDataIndex = {}
                         partitionDataInfo = []
                         fData = 0
+                        mData = 0
                         for i in range(nReads):
                             rowData = tuple(partitionData[fData:fData+partitionLength[i]])
                             rowKey = hash(rowData)
@@ -1770,7 +1794,8 @@ class Storage:
                                 partitionDataIndex[rowKey] = len(partitionDataInfo)
                                 partitionDataInfo.append([partitionLength[i],1])
                                 readPartitionData.append(rowData)
-                                fData+=partitionLength[i]
+                                mData+=partitionLength[i]
+                            fData+=partitionLength[i]
                         if len(partitionDataInfo)>0:
                             readPartitionInfo.append([tuple(item) for item in partitionDataInfo])
                             maximumReadLength = max(maximumReadLength,max([item[0] 
@@ -1781,11 +1806,11 @@ class Storage:
                                                    for item in partitionDataInfo]))
                             maximumTotalReadNumber = max(maximumTotalReadNumber,len(partitionDataInfo))
                         #always store information for partition
-                        readPartition.append([(tData,fData,tReads,len(partitionDataInfo))])
+                        readPartition.append([(tData,mData,tReads,len(partitionDataInfo))])
                         pReads+=nReads
                         pData+=nData
                         tReads+=len(partitionDataInfo)
-                        tData+=fData
+                        tData+=mData
                         partition+=1
             while partition<numberOfPartitions:
                 readPartition.append((tData,0,tReads,0))
