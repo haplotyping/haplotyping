@@ -15,7 +15,7 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/haplotyping/haplotyping",
-    packages=setuptools.find_packages(),
+    packages=setuptools.find_packages(exclude=["tests","tests.*"]),
     install_requires=[
       "graphviz >= 0.20.1",
       "pandas >= 2.1.0",
@@ -34,16 +34,11 @@ setuptools.setup(
       "metis >= 0.2a5",
       "networkit >= 10.1",
     ],
-    test_requires=[
-      "pytest >= 7.4.0",
-      "pytest-ordering >= 0.6"
-    ],
     classifiers=[
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",
     ],
     python_requires=">=3.11",
-    test_suite="tests",
     include_package_data=True,
     package_data={"": ["data/schema/*.json"]},
 )
