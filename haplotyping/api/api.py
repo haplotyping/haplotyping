@@ -266,6 +266,23 @@ class API():
         else:
             self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
             return None
+
+    def getKmerDistribution(self, datasetUid):
+        """
+            get k-mer frequency distribution
+        
+            :param str datasetUid: dataset uid
+            :return: frequency distribution
+            :rtype: dict
+        """
+        request = "{}kmer/{}/distribution".format(self._baseUrl, datasetUid)
+        response = requests.get(request, auth=self._apiAuth, headers=self._apiHeaders)
+        if response.ok:
+            data = response.json()
+            return data
+        else:
+            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+            return None
         
     def getKmerFrequency(self, datasetUid, kmer, mismatches=0):
         """
@@ -400,6 +417,23 @@ class API():
         else:
             self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
             return None
+
+    def getSplitBaseDistribution(self, datasetUid):
+        """
+            get splitting k-mer base frequency distribution
+        
+            :param str datasetUid: dataset uid
+            :return: frequency distribution
+            :rtype: dict
+        """
+        request = "{}split/{}/base/distribution".format(self._baseUrl, datasetUid)
+        response = requests.get(request, auth=self._apiAuth, headers=self._apiHeaders)
+        if response.ok:
+            data = response.json()
+            return data
+        else:
+            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+            return None
         
     def getSplitBase(self, datasetUid:str, base):
         """
@@ -424,6 +458,23 @@ class API():
             self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
             return None
         
+    def getSplitKmerDistribution(self, datasetUid):
+        """
+            get splitting k-mer frequency distribution
+        
+            :param str datasetUid: dataset uid
+            :return: frequency distribution
+            :rtype: dict
+        """
+        request = "{}split/{}/kmer/distribution".format(self._baseUrl, datasetUid)
+        response = requests.get(request, auth=self._apiAuth, headers=self._apiHeaders)
+        if response.ok:
+            data = response.json()
+            return data
+        else:
+            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+            return None
+            
     def getSplitKmer(self, datasetUid:str, kmer):
         """
             get splitting k-mer(s)
@@ -486,6 +537,23 @@ class API():
             result.extend([{"position": m.start(), "orientation": "forward", "data": entry} 
                   for m in re.finditer(reverseCkmer, sequence)])
         return result
+
+    def getSplitDirectDistribution(self, datasetUid):
+        """
+            get splitting k-mer direct distance distribution
+        
+            :param str datasetUid: dataset uid
+            :return: distance distribution
+            :rtype: dict
+        """
+        request = "{}split/{}/kmer/direct/distribution".format(self._baseUrl, datasetUid)
+        response = requests.get(request, auth=self._apiAuth, headers=self._apiHeaders)
+        if response.ok:
+            data = response.json()
+            return data
+        else:
+            self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+            return None
         
     def getSplitDirect(self, datasetUid, kmer):
         """

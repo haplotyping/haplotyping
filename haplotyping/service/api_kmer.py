@@ -34,6 +34,32 @@ def _getDataset(uid):
     data = cursor.fetchone()
     return data
 
+@namespace.route("/<uid>/distribution")
+class KmerDistribution(Resource):
+    
+    @namespace.doc(description="Get k-mer frequency distribution from dataset defined by uid. Can only be used if a splitting k-mer database is available!")
+    
+    @cache.cached(make_cache_key=_make_cache_key)
+    def get(self,uid):
+        try:
+            dsData = _getDataset(uid)
+            if dsData:
+                if not dsData["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                dsData["collection_location"],dsData["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                dsData["dataset_location"],"kmer.data.h5")
+                location_split = os.path.abspath(location_split)
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
+                response = Split.kmer_distribution(location_split)
+                return Response(json.dumps(response), mimetype="application/json")                
+            else:
+                abort(404, "no dataset with k-mers for uid "+str(uid))
+        except Exception as e:
+            abort(e.code if hasattr(e,"code") else 500, str(e))
+
 @namespace.route("/<uid>/<kmer>")
 class KmerSingle(Resource):
     

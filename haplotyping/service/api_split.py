@@ -51,7 +51,33 @@ class SplitKmerInfo(Resource):
                 else:
                     location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 data["dataset_location"],"kmer.data.h5")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
                 response = Split.info(location_split)
+                return Response(json.dumps(response), mimetype="application/json")                
+            else:
+                abort(404, "no dataset with splitting k-mers for uid "+str(uid))
+        except Exception as e:
+            abort(e.code if hasattr(e,"code") else 500, str(e))
+
+@namespace.route("/<uid>/kmer/distribution")
+class SplitKmerDistribution(Resource):
+    
+    @namespace.doc(description="Get splitting k-mer frequency distribution from dataset defined by uid")
+    @cache.cached(make_cache_key=_make_cache_key)
+    def get(self,uid):
+        try:
+            data = _getDataset(uid)
+            if data:
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
+                response = Split.kmer_split_distribution(location_split)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
                 abort(404, "no dataset with splitting k-mers for uid "+str(uid))
@@ -74,6 +100,8 @@ class SplitKmerSingle(Resource):
                 else:
                     location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 data["dataset_location"],"kmer.data.h5")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
                 response = Split.kmer_info(location_split, kmer)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -103,7 +131,33 @@ class SplitKmerMultiple(Resource):
                 else:
                     location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 data["dataset_location"],"kmer.data.h5")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
                 response = Split.kmer_list_info(location_split, kmers)
+                return Response(json.dumps(response), mimetype="application/json")                
+            else:
+                abort(404, "no dataset with splitting k-mers for uid "+str(uid))
+        except Exception as e:
+            abort(e.code if hasattr(e,"code") else 500, str(e))
+
+@namespace.route("/<uid>/kmer/direct/distribution")
+class SplitKmerDirectDistribution(Resource):
+    
+    @namespace.doc(description="Get splitting k-mer direct connections distance distribution from dataset defined by uid")
+    @cache.cached(make_cache_key=_make_cache_key)
+    def get(self,uid):
+        try:
+            data = _getDataset(uid)
+            if data:
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
+                response = Split.kmer_split_direct_distribution(location_split)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
                 abort(404, "no dataset with splitting k-mers for uid "+str(uid))
@@ -126,6 +180,8 @@ class SplitKmerDirectSingle(Resource):
                 else:
                     location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 data["dataset_location"],"kmer.data.h5")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
                 response = Split.kmer_direct(location_split, kmer)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -155,6 +211,8 @@ class SplitKmerDirectMultiple(Resource):
                 else:
                     location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 data["dataset_location"],"kmer.data.h5")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
                 response = Split.kmer_list_direct(location_split, kmers)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -178,6 +236,8 @@ class SplitKmerReadSingle(Resource):
                 else:
                     location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 data["dataset_location"],"kmer.data.h5")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
                 response = Split.kmer_read(location_split, kmer)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -207,6 +267,8 @@ class SplitKmerReadMultiple(Resource):
                 else:
                     location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 data["dataset_location"],"kmer.data.h5")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
                 response = Split.kmer_list_read(location_split, kmers)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -230,6 +292,8 @@ class SplitKmerPairedSingle(Resource):
                 else:
                     location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 data["dataset_location"],"kmer.data.h5")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
                 response = Split.kmer_paired(location_split, kmer)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -259,6 +323,8 @@ class SplitKmerPairedMultiple(Resource):
                 else:
                     location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 data["dataset_location"],"kmer.data.h5")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
                 response = Split.kmer_list_paired(location_split, kmers)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -287,12 +353,39 @@ class SplitKmerSequence(Resource):
                 else:
                     location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 data["dataset_location"],"kmer.data.h5")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
                 response = Split.kmer_sequence_info(location_split, sequence)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
                 abort(404, "no dataset with splitting k-mers for uid "+str(uid))
         except Exception as e:
-            abort(e.code if hasattr(e,"code") else 500, str(e))      
+            abort(e.code if hasattr(e,"code") else 500, str(e))   
+
+@namespace.route("/<uid>/base/distribution")
+class SplitBaseDistribution(Resource):
+    
+    @namespace.doc(description="Get splitting k-mer base frequency distribution from dataset defined by uid")
+    @cache.cached(make_cache_key=_make_cache_key)
+    def get(self,uid):
+        try:
+            data = _getDataset(uid)
+            if data:
+                if not data["collection_location"]==None:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["collection_location"],data["dataset_location"],"kmer.data.h5")
+                else:
+                    location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
+                                                data["dataset_location"],"kmer.data.h5")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
+                response = Split.kmer_base_distribution(location_split)
+                return Response(json.dumps(response), mimetype="application/json")                
+            else:
+                abort(404, "no dataset with splitting k-mers for uid "+str(uid))
+        except Exception as e:
+            abort(e.code if hasattr(e,"code") else 500, str(e))
+            
             
 @namespace.route("/<uid>/base/<base>")
 class SplitBaseSingle(Resource):
@@ -310,6 +403,8 @@ class SplitBaseSingle(Resource):
                 else:
                     location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 data["dataset_location"],"kmer.data.h5")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
                 response = Split.base_info(location_split, base)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
@@ -339,6 +434,8 @@ class SplitBaseMultiple(Resource):
                 else:
                     location_split = os.path.join(haplotyping.service.API.get_data_kmer_location(),
                                                 data["dataset_location"],"kmer.data.h5")
+                if not os.path.isfile("{}".format(location_split)):
+                    abort(500,"split database not found")
                 response = Split.base_list_info(location_split, bases)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:

@@ -263,6 +263,55 @@ class Split:
             else:
                 response[k] = str(value)
         return response
+
+    def _kmer_distribution(h5file: h5py.File):
+        histogramTable = h5file.get("/histogram/kmer")
+        configTable = h5file.get("/config")
+        response = {}
+        response["k"] = int(configTable.attrs["k"])
+        response["minimumKmerFrequencies"] = int(configTable.attrs["minimumKmerFrequencies"])
+        response["maximumKmerFrequencies"] = int(configTable.attrs["maximumKmerFrequencies"])
+        response["numberKmers"] = int(configTable.attrs["numberKmers"])
+        response["totalKmerFrequencies"] = int(configTable.attrs["totalKmerFrequencies"])
+        response["frequencies"] = {int(item[0]): int(item[1]) for item in histogramTable}
+        return response
+
+    def _kmer_split_distribution(h5file: h5py.File):
+        histogramTable = h5file.get("/histogram/ckmer")
+        configTable = h5file.get("/config")
+        response = {}
+        response["k"] = int(configTable.attrs["k"])
+        response["minimumCanonicalSplitFrequency"] = int(configTable.attrs["minimumCanonicalSplitFrequency"])
+        response["maximumCanonicalSplitFrequency"] = int(configTable.attrs["maximumCanonicalSplitFrequency"])
+        response["numberCanonicalSplit"] = int(configTable.attrs["numberCanonicalSplit"])
+        response["numberCanonicalSplitBoth"] = int(configTable.attrs["numberCanonicalSplitBoth"])
+        response["numberCanonicalSplitLeft"] = int(configTable.attrs["numberCanonicalSplitLeft"])
+        response["numberCanonicalSplitRight"] = int(configTable.attrs["numberCanonicalSplitRight"])
+        response["totalCanonicalSplitFrequencies"] = int(configTable.attrs["totalCanonicalSplitFrequencies"])
+        response["frequencies"] = {int(item[0]): int(item[1]) for item in histogramTable}
+        return response
+
+    def _kmer_base_distribution(h5file: h5py.File):
+        histogramTable = h5file.get("/histogram/base")
+        configTable = h5file.get("/config")
+        response = {}
+        response["k"] = int(configTable.attrs["k"])
+        response["numberRightSplitBases"] = int(configTable.attrs["numberRightSplitBases"])
+        response["numberRightSplitKmers"] = int(configTable.attrs["numberRightSplitKmers"])
+        response["frequencies"] = {int(item[0]): int(item[1]) for item in histogramTable}
+        return response
+
+    def _kmer_split_direct_distribution(h5file: h5py.File):
+        histogramTable = h5file.get("/histogram/distance")
+        configTable = h5file.get("/config")
+        response = {}
+        response["k"] = int(configTable.attrs["k"])
+        response["maximumCycleLength"] = int(configTable.attrs["maximumCycleLength"])
+        response["maximumReversalLength"] = int(configTable.attrs["maximumReversalLength"])
+        response["numberCycles"] = int(configTable.attrs["numberCycles"])
+        response["numberReversals"] = int(configTable.attrs["numberReversals"])
+        response["frequencies"] = {int(item[0]): int(item[1]) for item in histogramTable}
+        return response
     
     def _kmer_info(h5file: h5py.File, kmer: str):
         ckmer = haplotyping.General.canonical(kmer)
@@ -468,6 +517,24 @@ class Split:
     def info(location_split: str):
         with h5py.File(location_split, mode="r") as h5file:            
             return Split._info(h5file)
+    
+   #---
+    
+    def kmer_distribution(location_split: str):
+        with h5py.File(location_split, mode="r") as h5file:            
+            return Split._kmer_distribution(h5file)
+
+    def kmer_split_distribution(location_split: str):
+        with h5py.File(location_split, mode="r") as h5file:            
+            return Split._kmer_split_distribution(h5file)
+
+    def kmer_base_distribution(location_split: str):
+        with h5py.File(location_split, mode="r") as h5file:            
+            return Split._kmer_base_distribution(h5file)
+
+    def kmer_split_direct_distribution(location_split: str):
+        with h5py.File(location_split, mode="r") as h5file:            
+            return Split._kmer_split_direct_distribution(h5file)
     
    #---
     
