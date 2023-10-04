@@ -426,7 +426,7 @@ class Split:
         readInfoTable = h5file.get("/relations/readInfo")
         (ckmerRow,id,cache) = Split._findItem(ckmer,ckmerTable)
         if ckmerRow:
-            kmerDict = {id: (ckmerRow[0].decode("ascii"),ckmerRow[1].decode("ascii"),int(ckmerRow[2]))}
+            kmerDict = {id: (ckmerRow[0].decode("ascii"),Split._translate_type(ckmerRow[1].decode("ascii")),int(ckmerRow[2]))}
             partitionRow = readPartitionTable[ckmerRow[5]]
             readDataList = readDataTable[partitionRow[0][0]:partitionRow[0][0]+partitionRow[0][1]]
             readInfoList = readInfoTable[partitionRow[1][0]:partitionRow[1][0]+partitionRow[1][1]]
