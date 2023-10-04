@@ -230,7 +230,7 @@ class Split:
                     for kmerId in read:
                         if not kmerId in kmerDict:
                             entry = ckmerTable[kmerId]
-                            kmerDict[kmerId] = (entry[0].decode("ascii"),entry[1].decode("ascii"),int(entry[2]))
+                            kmerDict[kmerId] = (entry[0].decode("ascii"),Split._kmer_read_result(entry[1].decode("ascii")),int(entry[2]))
                         kmerList.append(kmerDict[kmerId])
                     response.append({"kmers": kmerList, "number": int(item[1])})
                 n+=item[0]
