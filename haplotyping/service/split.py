@@ -456,7 +456,7 @@ class Split:
             ckmer = ckmerList[i]
             (ckmerRow,id,cache) = Split._findItem(ckmerList[i],ckmerTable,start,number,cache)
             if ckmerRow:
-                kmerDict[id] = (ckmerRow[0].decode("ascii"),ckmerRow[1].decode("ascii"),int(ckmerRow[2]))
+                kmerDict[id] = (ckmerRow[0].decode("ascii"),Split._translate_type(ckmerRow[1].decode("ascii")),int(ckmerRow[2]))
                 kmerIds.append(id)
                 partitions.add(ckmerRow[5])
                 start = id+1
