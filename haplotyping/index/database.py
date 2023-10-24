@@ -99,7 +99,9 @@ class Database:
         
         #logger
         self._logger = logging.getLogger(__name__)
-        self._logger.info("create data storage for "+str(name)+" in "+filenameBase)
+        self._logger.info("create data storage for {} in {}".format(name,filenameBase))
+        self._logger.debug("haplotyping package version {}".format(haplotyping._version.__version__))
+                          
         
         #store variables
         self.k=k

@@ -1329,10 +1329,10 @@ class Storage:
                 # - type-filtered: don't store single
                 if len(nodes)>2:
                     filtering = [0] * len(nodes)
-                    filtering[0] = 1 if types[0]|2==2 else 0
-                    filtering[-1] = 1 if types[-1]|1==1 else 0
+                    filtering[0] = 1 if types[0]&2==2 else 0
+                    filtering[-1] = 1 if types[-1]&1==1 else 0
                     for i in range(1,len(nodes)):
-                        if types[i-1]|2==2 and types[i]|1==1:
+                        if types[i-1]&2==2 and types[i]&1==1:
                             filtering[i-1] = 1
                             filtering[i] = 1
                     s = sum(filtering)
@@ -1370,7 +1370,7 @@ class Storage:
                                 newTypes.append(0)
                             #not trivial (forward)
                             if forwardNumber>1:
-                                newTypes[-2] |= 2
+                                newTypes[-2] &= 2
                         left = nLeft
                         right = nRight
                         nodeId = nNodeId

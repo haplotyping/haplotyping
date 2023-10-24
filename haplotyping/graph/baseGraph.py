@@ -602,7 +602,7 @@ class Graph:
         
     def getArms(self):
         return self._arms
-    
+
     def detectArms(self):
         """
         detect arms
@@ -684,7 +684,6 @@ class Graph:
                     for orientatedCkmer in outgoingArms[candidateCkmer]["orientatedCkmers"]:
                         arm._add(orientatedCkmer)
 
-    
     def resetArms(self):
         for orientatedCkmer in self._orientatedCkmers:
             self._orientatedCkmers[orientatedCkmer]._incomingArm = None
@@ -692,7 +691,39 @@ class Graph:
         for orientatedCkmer in self._orientatedCkmers:
             self._orientatedCkmers[orientatedCkmer]._unsetArm()          
         self._arms = []
-                
+
+    def getArm(self, armId):
+        if armId>=0 and armId<=len(self._arms):
+            return self._arms[armId]
+        else:
+            return None
+
+    def detectTransposonArmCandididates(self, boundaryDistance):
+        arms = self.getArms()
+        incomingArms = set([arm.id() for arm in arms if arm.armType()=="incoming"])
+        outgoingArms = set([arm.id() for arm in arms if arm.armType()=="outgoing"])
+        transposonCandidates = []
+        for id1 in outgoingArms:
+            arm1 = self.getArm(id1)
+            connection1 = self._orientatedCkmers[self.getArm(id1)._connection]
+            if connection1._position==None:
+                positions1 = list(connection1._estimatedPositions)
+            else:
+                positions1 = [connection1._position]
+            for id2 in incomingArms:
+                arm2 = self.getArm(id2)
+                connection2 = self._orientatedCkmers[self.getArm(id2)._connection] 
+                if connection2._position==None:
+                    positions2 = list(connection2._estimatedPositions)
+                else:
+                    positions2 = [connection2._position]
+                distance = min(positions2) - max(positions1)
+                if (distance>0) and (distance<boundaryDistance):
+                    transposonCandidates.append([id1,id2])
+        #return
+        self._logger.debug("found {} transposon candidate arm pairs".format(len(transposonCandidates)))   
+        return transposonCandidates
+    
     def _resetDistances(self):
         if not self._connected is None:
             self._logger.debug("reset computed connections for the De Bruijn Graph")  
@@ -818,6 +849,7 @@ class Graph:
                     else:
                         keyTo = (ckmer, "backward")
                 if not keyTo in self._graph._ckmers[ckmer]._orientated:
+                    print("ORIENTATE ckmer")
                     self._graph._ckmers[ckmer]._orientate(keyTo[1])
             for keyTo in self._graph._ckmers[ckmer]._orientated:
                 if keyTo[1]=="forward":
@@ -831,6 +863,7 @@ class Graph:
                     else:
                         keyFrom = (ckmer, "backward")
                 if not keyFrom in self._orientated:
+                    print("ORIENTATE ckmer")
                     self._graph._ckmers[ckmer]._orientate(keyTo[1])
             
         def _setRight(self, ckmer, side: SIDE, distance: int, number: int, problem: bool = None):
@@ -864,6 +897,7 @@ class Graph:
                     else:
                         keyTo = (ckmer, "forward")
                 if not keyTo in self._graph._ckmers[ckmer]._orientated:
+                    print("ORIENTATE ckmer")
                     self._graph._ckmers[ckmer]._orientate(keyTo[1])
             for keyTo in self._graph._ckmers[ckmer]._orientated:
                 if keyTo[1]=="forward":
@@ -877,6 +911,7 @@ class Graph:
                     else:
                         keyFrom = (ckmer, "forward")
                 if not keyFrom in self._orientated:
+                    print("ORIENTATE ckmer")
                     self._graph._ckmers[ckmer]._orientate(keyTo[1])
                 
         def _orientate(self, orientation):
@@ -1173,9 +1208,9 @@ class Graph:
         def arm(self):
             return self._type=="incomingArm" or self._type=="outgoingArm"
                 
-        def armKey(self):
+        def armId(self):
             if self.arm():
-                return [arm.key() for arm in self._arm]
+                return [arm.id() for arm in self._arm]
             else:
                 return None
                 
@@ -1332,7 +1367,7 @@ class Graph:
         internal object representing arm
         """
         
-        TYPE = Literal["incoming","outward"]
+        TYPE = Literal["incoming","outgoing"]
         
         def __init__(self, graph, orientatedCkmer, type: TYPE):
             self._type = type
@@ -1341,7 +1376,7 @@ class Graph:
             self._connection = None
             self._maxFreq = 0
             self._size = 0
-            self._key = None
+            self._id = None
             #mark incoming/outgoing arm
             assert orientatedCkmer in self._graph._orientatedCkmers
             if type=="incoming":
@@ -1353,8 +1388,8 @@ class Graph:
                 self._graph._orientatedCkmers[orientatedCkmer]._setOutgoingArm(self)
                 self._connection = orientatedCkmer                      
             #register arm
+            self._id = len(self._graph._arms)
             self._graph._arms.append(self)
-            self._key = len(self._graph._arms)
             
         def __repr__(self):
             if self._type=="incoming":
@@ -1383,8 +1418,8 @@ class Graph:
         def maxFreq(self):
             return self._maxFreq
         
-        def key(self):
-            return self._key
+        def id(self):
+            return self._id
         
         def n(self):
             return len(self._orientatedCkmers)

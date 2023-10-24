@@ -193,6 +193,59 @@ class SequenceGraph(APIGraph):
                     #continue at level until ready
                     pass
 
+    def _expandOrientatedCkmersDirection(self, expansionList, direction):
+        #define list of k-mers to check
+        kmer_keys = [k for k in expansionList 
+                     if not self._orientatedCkmers[k]._expanded]
+        #process
+        kmers = set([k[0] for k in kmer_keys])
+        #get direct connections
+        data = self._api.getSplitDirect(self._uid,sorted(kmers))
+        for item in data:
+            ckmer1 = item["ckmer"]
+            for orientation1 in ["forward","backward"]:
+                ckmerKey1 = (ckmer1,orientation1)
+                if ckmerKey1 in kmer_keys:
+                    for direction1 in item["direct"]:
+                        assert direction1 in ["left","right"]
+                        for directionItem in item["direct"][direction1]:                                
+                            ckmer2 = directionItem["ckmer"]
+                            direction2 = directionItem["connection"]["direction"]
+                            assert direction2 in ["left","right"]
+                            #incoming/outgoing
+                            if ((orientation1=="forward" and direction1=="right") or
+                                (orientation1=="backward" and direction1=="left")):
+                                #outgoing
+                                if direction=="outgoing":                                   
+                                    orientation2 = "backward" if direction2=="right" else "forward"
+                                    ckmerKey2 = (ckmer2,orientation2) 
+                                    if not ckmerKey2 in self._orientatedCkmers.keys():
+                                        self._createOrientatedCkmerFromEntry(directionItem, orientation2)
+                                    self._orientatedCkmers[ckmerKey1]._setOutgoing(ckmerKey2, 
+                                                                         directionItem["connection"]["distance"], 
+                                                                         directionItem["connection"]["number"],
+                                                                         directionItem["connection"]["problem"]>0)
+                                    self._orientatedCkmers[ckmerKey2]._setIncoming(ckmerKey1, 
+                                                                         directionItem["connection"]["distance"], 
+                                                                         directionItem["connection"]["number"],
+                                                                         directionItem["connection"]["problem"]>0)            
+                            else:
+                                #incoming
+                                if direction=="incoming":
+                                    orientation2 = "forward" if direction2=="right" else "backward"
+                                    ckmerKey2 = (ckmer2,orientation2) 
+                                    if not ckmerKey2 in self._orientatedCkmers.keys():
+                                        self._createOrientatedCkmerFromEntry(directionItem, orientation2)
+                                    self._orientatedCkmers[ckmerKey1]._setIncoming(ckmerKey2, 
+                                                                         directionItem["connection"]["distance"], 
+                                                                         directionItem["connection"]["number"],
+                                                                         directionItem["connection"]["problem"]>0)  
+                                    self._orientatedCkmers[ckmerKey2]._setOutgoing(ckmerKey1, 
+                                                                         directionItem["connection"]["distance"], 
+                                                                         directionItem["connection"]["number"],
+                                                                         directionItem["connection"]["problem"]>0)
+        
+
     def _expandOrientatedCkmers(self, level: int):
         """
         expand k-mers from defined level by finding direct connections
@@ -237,10 +290,10 @@ class SequenceGraph(APIGraph):
                             set_direct_kmers.add(ckmer2)
                             direction2 = directionItem["connection"]["direction"]
                             assert direction2 in ["left","right"]
-                            #inward/outward
+                            #incoming/outgoing
                             if ((orientation1=="forward" and direction1=="right") or
                                 (orientation1=="backward" and direction1=="left")):
-                                #outward
+                                #outgoing
                                 orientation2 = "backward" if direction2=="right" else "forward"
                                 ckmerKey2 = (ckmer2,orientation2) 
                                 if not ckmerKey2 in self._orientatedCkmers.keys():
@@ -255,7 +308,7 @@ class SequenceGraph(APIGraph):
                                                                      directionItem["connection"]["number"],
                                                                      directionItem["connection"]["problem"]>0)            
                             else:
-                                #inward
+                                #incoming
                                 orientation2 = "forward" if direction2=="right" else "backward"
                                 ckmerKey2 = (ckmer2,orientation2) 
                                 if not ckmerKey2 in self._orientatedCkmers.keys():

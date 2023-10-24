@@ -136,4 +136,5 @@ class APIGraph(baseGraph.Graph):
             self._datasetUids.update(datasetUids)
         #return result
         return pd.DataFrame(self._datasetFrequencies).transpose()
-                
+
+
