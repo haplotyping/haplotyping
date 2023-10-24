@@ -1370,7 +1370,7 @@ class Storage:
                                 newTypes.append(0)
                             #not trivial (forward)
                             if forwardNumber>1:
-                                newTypes[-2] &= 2
+                                newTypes[-2]|=2
                         left = nLeft
                         right = nRight
                         nodeId = nNodeId
