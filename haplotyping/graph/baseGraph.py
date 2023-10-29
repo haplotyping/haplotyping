@@ -218,8 +218,7 @@ class Graph:
                             node_color=config["nodeColorSelected"]
                             node_penwidth=config["nodePenWidthSelected"]
                         node_label = self._visualize_node_label(orientatedBase, orientatedCkmer)
-                        node_key = "{}_{}_{}_{}_{}".format(config["prefix"],
-                                orientatedBase[0],orientatedBase[1],orientatedCkmer[0],orientatedCkmer[1])
+                        node_key = self._visualize_node_key(config["prefix"],orientatedBase, orientatedCkmer)
                         c.node(node_key, label=node_label, color=node_color, style=node_style, 
                                fillcolor=node_fillcolor, penwidth=str(node_penwidth))
                         if ((config["showAllBases"] or config["showDeadEnds"]) 
@@ -359,8 +358,14 @@ class Graph:
         edge_label += ">"
         return edge_label
     
+    #node key definition
+    def _visualize_node_key(self, prefix, orientatedBase, orientatedCkmer):
+        return "{}_{}_{}_{}_{}".format(prefix,
+                                orientatedBase[0],orientatedBase[1],
+                                orientatedCkmer[0],orientatedCkmer[1])
+    
     #node label definition
-    def _visualize_node_label(self, orientatedBase: str, orientatedCkmer: str):
+    def _visualize_node_label(self, orientatedBase, orientatedCkmer):
         node_letter = "?"
         if orientatedBase[1]=="forward":
             if orientatedCkmer[1]=="forward":
@@ -849,7 +854,6 @@ class Graph:
                     else:
                         keyTo = (ckmer, "backward")
                 if not keyTo in self._graph._ckmers[ckmer]._orientated:
-                    print("ORIENTATE ckmer")
                     self._graph._ckmers[ckmer]._orientate(keyTo[1])
             for keyTo in self._graph._ckmers[ckmer]._orientated:
                 if keyTo[1]=="forward":
@@ -863,7 +867,6 @@ class Graph:
                     else:
                         keyFrom = (ckmer, "backward")
                 if not keyFrom in self._orientated:
-                    print("ORIENTATE ckmer")
                     self._graph._ckmers[ckmer]._orientate(keyTo[1])
             
         def _setRight(self, ckmer, side: SIDE, distance: int, number: int, problem: bool = None):
