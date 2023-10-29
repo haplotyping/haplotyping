@@ -8,6 +8,8 @@ setuptools.setup(
     version=__version__,
     author="Matthijs Brouwer",
     author_email="matthijs.brouwer@wur.nl",
+    long_description="k-mer based haplotyping software",
+    long_description_content_type="text/plain",
     description="Haplotyping",
     url="https://github.com/haplotyping/haplotyping",
     packages=setuptools.find_packages(exclude=["tests","tests.*"]),
