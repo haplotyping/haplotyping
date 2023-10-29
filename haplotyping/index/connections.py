@@ -101,8 +101,8 @@ class Connections:
                         self._processReads(pytablesStorage)
                         self._storeReads(pytablesStorage)
                         self.h5file.flush()     
-            except Exception as e:
-               self._logger.error("problem occurred while processing reads: "+str(e))
+            #except Exception as e:
+            #   self._logger.error("problem occurred while processing reads: "+str(e))
             finally:
                 try:
                     if not self.keepTemporaryFiles:

@@ -1602,16 +1602,16 @@ class Storage:
                             numberOfReads+=partitionSizes[i][0]
                             numberOfData+=partitionSizes[i][1]
                         #only merge if reads available
-                        if (numberOfReads>0) and (numberOfData>0):
-                            with tables.open_file(pytablesFileRange, mode="a") as pytablesStorageRange:
+                        with tables.open_file(pytablesFileRange, mode="a") as pytablesStorageRange:
                                 Storage.create_mergeReads_storage(pytablesStorageRange,
                                                       numberOfReads, numberOfData, numberOfKmers, 
                                                       numberOfPartitions, maximumReadLength)
+                        if (numberOfReads>0) and (numberOfData>0):
                             #merge
                             merge_reads_storage(pytablesFileRange, storageReadFiles, 
                                                 mergeStart, mergeEnd, partitionPosition)
-                            #now the file can be released for final merge
-                            queue_merges.put(pytablesFileRange) 
+                        #now the file can be released for final merge
+                        queue_merges.put(pytablesFileRange) 
                 except Empty:
                     time.sleep(1)
                     continue
