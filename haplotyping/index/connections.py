@@ -423,7 +423,10 @@ class Connections:
             pool_matches.join()
             #release memory
             shm_index.close()
-            shm_index.unlink()
+            try:
+                shm_index.unlink()
+            except Exception as e:
+                self._logger.debug("problem unlinking shared memory ({})".format(e))
             #collect created files 
             storageDirectFiles = Connections._collect_and_close_queue(queue_storageDirect)
             self.storageReadFiles = Connections._collect_and_close_queue(queue_storageReads)            
@@ -512,8 +515,10 @@ class Connections:
             pool_merges.join()
             #release memory
             shm_kmer.close()
-            shm_kmer.unlink()
-            
+            try:
+                shm_kmer.unlink()
+            except Exception as e:
+                self._logger.debug("problem unlinking shared memory ({})".format(e))
         self._logger.debug("created merged file")
         
         self._logger.debug("process {} files with read information".format(len(self.storageReadFiles)))        
@@ -774,8 +779,11 @@ class Connections:
                 #release memory
                 shm_kmer.close()
                 shm_direct.close()
-                shm_kmer.unlink()
-                shm_direct.unlink()
+                try:
+                    shm_kmer.unlink()
+                    shm_direct.unlink()
+                except Exception as e:
+                    self._logger.debug("problem unlinking shared memory ({})".format(e))
                 #get filtered readfiles
                 storageFilteredReadFiles = Connections._collect_and_close_queue(queue_filteredReads)   
                 
