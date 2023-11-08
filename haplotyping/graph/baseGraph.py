@@ -1247,7 +1247,7 @@ class Graph:
                             else:
                                 incomingArms[candidateCkmer] = {"size": d, "n": 0, "number": 0,
                                         "orientatedBases": set(), "orientatedCkmers": set()}
-                                sfor entry in other.intersection(connected.index[connected[orientatedCkmer]]):
+                                for entry in other.intersection(connected.index[connected[orientatedCkmer]]):
                                     incomingArms[candidateCkmer]["n"]+=1
                                     incomingArms[candidateCkmer]["number"]=max(incomingArms[candidateCkmer]["number"],
                                         self._orientatedCkmers[entry]._number)
