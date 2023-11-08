@@ -16,7 +16,6 @@ class Graph:
         self._ckmers : dict = {}
         self._orientatedCkmers : dict = {}
         self._orientatedBases : dict = {}
-        self._missingConnections : dict = {}
         self._selected : set = set()
         self._connected = None
         self._directDistances = None
@@ -35,17 +34,472 @@ class Graph:
     
     def name(self):
         return self._name
-        
+
     def visualize(self, *args, **kwargs):
-        
+        """visualize the De Bruijn graph"""
         #initialise configuration
-        config = {
+        initConfig = {
+            "type": "basic",
+            "showDeadEnds": True,
+            "showArms": False,
+            "showPotentialTransposons": True,
+            "hideDeadEndBefore": [],
+            "hideDeadEndAfter": [],
+            "nodeFillColorDefault": "white",
+            "nodeFillColorSelection": "orange",
+            "nodeColorDefault": "grey",
+            "nodePenWidthDefault": 1,
+            "nodeColorSelected": "blue",
+            "nodePenWidthSelected": 3,
+            "nodeFillColorIncomingArm": "lightblue",
+            "nodeColorIncomingArm": "black",
+            "nodeFillColorOutgoingArm": "lightcoral",
+            "nodeColorOutgoingArm": "black",
+            "nodeFillColorCandidate": "lightyellow1",
+            "nodeFillColorSelectionCandidate": "red",
+            "nodeColorCandidate": "black",
+            "nodeFillColorStartEnd": "yellow",
+            "nodeFillColorSelectionStartEnd": "darkred",
+            "nodeColorStartEnd": "black",
+            "edgeColorDefault": "grey",
+            "edgePenWidthDefault": 1,
+            "edgeStyleDefault": "solid",
+            "edgeColorAuto": "grey",
+            "edgePenWidthAuto": 1,
+            "edgeStyleAuto": "dashed",
+            "edgeColorMissingPath": "red", 
+            "edgeStyleMissingPath": "dashed",
+            "restrictedListOfOrientatedCkmers": False,
+            "selection": False,
+            "containerGraph": False,
+            "prefix": "graph"
+        }
+        #construct config
+        config = kwargs.copy()
+        for key, value in initConfig.items():
+            if not key in config.keys():
+                config[key] = initConfig[key]
+
+        #translate selection to orientated k-mers
+        config["selectionOrientatedCkmers"] = False
+        selection = set()
+        if config["selection"]:
+            if isinstance(config["selection"],str):
+                for i in range(len(config["selection"])-(self._k-1)):
+                    kmer = config["selection"][i:i+self._k]
+                    ckmer = General.canonical(kmer)
+                    if ckmer in self._ckmers:
+                        selection.update(self._ckmers[ckmer]._orientated)
+            elif hasattr(config["selection"], "__iter__"):
+                for kmer in config["selection"]:
+                    if isinstance(kmer,str) and (len(kmer)==self._k):
+                        ckmer = General.canonical(kmer)
+                        if ckmer in self._ckmers.keys():
+                            selection.update(self._ckmers[ckmer]._orientated)
+                    elif isinstance(kmer,tuple) and (len(kmer)==2) and (len(kmer[0])==self._k):
+                        if kmer in self._orientatedCkmers.keys():
+                            selection.add(kmer)
+            if len(selection)>0:
+                config["selectionOrientatedCkmers"] = list(selection)
+
+        #create graph
+        if config["containerGraph"]:
+            g = config["containerGraph"]
+        else:
+            g = Digraph()
+            graph_label = "Graph"
+            if self._name:
+                graph_label = "{} {}".format(graph_label,html.escape(self._name))
+            g.attr(label=graph_label, labelloc="t", nodesep="0", ranksep="0")
+
+        if config["type"] == "basic":
+            return self._visualizeBasic(g, **config)
+        elif config["type"] == "advanced":
+            return self._visualizeAdvanced(g, **config)
+        else:
+            if config["containerGraph"]:
+                return ([],{})
+            else:
+                return g
+    
+    def _visualizeBasic(self, g, *args, **kwargs):
+
+        def connectArm(arm_key,arm, **kwargs):
+            node_key = self._visualize_node_key(config["prefix"],arm.connection())
+            if arm.armType()=="incoming":
+                g.edge(arm_key,node_key,style="dashed", 
+                                       color="grey", rankdir="lr", constraint="true")
+            elif arm.armType()=="outgoing":
+                g.edge(node_key,arm_key,style="dashed", 
+                                       color="grey", rankdir="lr", constraint="true")   
+         
+        #initialise configuration
+        basicConfig = {
+            "showAllNodes": False,
+            "nodeNumberFontSize": 10,
+            "nodePenWidthSelected": 2,
+            "edgeDistanceFontSize": 10,
+            "edgeNumberFontSize": 8,
+            "edgeArrowSize": 0.5
+        }
+        #construct config
+        config = kwargs.copy()
+        for key, value in basicConfig.items():
+            if not key in config.keys():
+                config[key] = basicConfig[key]
+
+        g.attr(rankdir="TB", nodesep="0.3")
+
+        #remember edges and nodes
+        edges = set()
+        nodes = {}
+
+        if config["restrictedListOfOrientatedCkmers"]:
+            for orientatedCkmer in self._orientatedCkmers:
+                if not orientatedCkmer in config["restrictedListOfOrientatedCkmers"]:
+                    continue
+                elif not (config["showAllNodes"] or self._orientatedCkmers[orientatedCkmer].candidate()):
+                    continue
+                else:
+                    #define layout
+                    node_style="filled"
+                    node_color=config["nodeColorDefault"]
+                    node_penwidth=config["nodePenWidthDefault"]
+                    if config["selectionOrientatedCkmers"] and (orientatedCkmer in config["selectionOrientatedCkmers"]):
+                        node_fillcolor=config["nodeFillColorSelection"]
+                    else:
+                        node_fillcolor=config["nodeFillColorDefault"]
+                    if self._orientatedCkmers[orientatedCkmer].candidate():
+                        if config["selectionOrientatedCkmers"] and (orientatedCkmer in config["selectionOrientatedCkmers"]):
+                            node_fillcolor=config["nodeFillColorSelectionCandidate"]
+                        else:
+                            node_fillcolor=config["nodeFillColorCandidate"]
+                        node_color=config["nodeColorCandidate"]
+                    if orientatedCkmer in self._start or orientatedCkmer in self._end:
+                        if config["selectionOrientatedCkmers"] and (orientatedCkmer in config["selectionOrientatedCkmers"]):
+                            node_fillcolor=config["nodeFillColorSelectionStartEnd"]
+                        else:
+                            node_fillcolor=config["nodeFillColorStartEnd"]
+                        node_color=config["nodeColorStartEnd"]
+                    if orientatedCkmer in self._selected:
+                        node_color=config["nodeColorSelected"]
+                        node_penwidth=config["nodePenWidthSelected"]
+                    node_key = self._visualize_node_key(config["prefix"],orientatedCkmer)
+                    node_label = self._visualize_basic_node_label(orientatedCkmer,
+                                                                    {"number": config["nodeNumberFontSize"]}, config)
+                    nodes[orientatedCkmer] = {"node": node_key}
+                    g.node(node_key, shape="circle",
+                           label=node_label, color=node_color, style=node_style, 
+                           fillcolor=node_fillcolor, penwidth=str(node_penwidth),
+                           width="0.2", margin="0.01")
+
+            for orientatedCkmer1 in self._orientatedCkmers:
+                if not orientatedCkmer1 in config["restrictedListOfOrientatedCkmers"]:
+                    continue
+                elif not (config["showAllNodes"] or self._orientatedCkmers[orientatedCkmer1].candidate()):
+                    continue
+                else:
+                    node_key1 = self._visualize_node_key(config["prefix"],orientatedCkmer1)
+                    for orientatedCkmer2 in self._orientatedCkmers[orientatedCkmer1]._outgoing:
+                        if not orientatedCkmer2 in config["restrictedListOfOrientatedCkmers"]:
+                            continue
+                        elif not (config["showAllNodes"] or self._orientatedCkmers[orientatedCkmer2].candidate()):
+                            continue
+                        else:
+                            node_key2 = self._visualize_node_key(config["prefix"],orientatedCkmer2)
+                            #only pass once
+                            edgeKey = (node_key1, node_key2)
+                            if edgeKey in edges:
+                                continue
+                            else:
+                                edges.add(edgeKey)
+                            props = self._orientatedCkmers[orientatedCkmer1]._outgoing[orientatedCkmer2]
+                            edge_label = self._visualize_edge_label(props, {"distance": config["edgeDistanceFontSize"],
+                                                                            "number": config["edgeNumberFontSize"]}, config)
+                            # edge_label = "{}".format(props["distance"])
+                            edge_direction = "forward"
+                            edge_constraint="true"
+                            edge_color = config["edgeColorDefault"]
+                            edge_penwidth = config["edgePenWidthDefault"]
+                            edge_style = config["edgeStyleDefault"]
+                            edge_arrowsize = config["edgeArrowSize"]
+                            #detect auto generated edges
+                            if props["number"]==0:
+                                edge_color = config["edgeColorAuto"]
+                                edge_penwidth = config["edgePenWidthAuto"]
+                                edge_style = config["edgeStyleAuto"]
+                            if props["path"] is None:
+                                edge_color = config["edgeColorMissingPath"]
+                                edge_style = config["edgeStyleMissingPath"]
+                            #create the edge
+                            g.edge(node_key1, node_key2, label=edge_label, 
+                                   constraint=edge_constraint, style=edge_style, arrowsize=str(edge_arrowsize),
+                                   dir=edge_direction, color=edge_color, penwidth=str(edge_penwidth)) 
+        else:            
+            #start with connected candidates
+            connectedCandidates = self.getConnectedCandidates()
+            for i in range(len(connectedCandidates)):
+                #add nodes
+                g.node("{}_connected_{}_start".format(config["prefix"],i), shape="point", style="invis")
+                for orientatedCkmer in connectedCandidates[i]["connected"]:
+                    #define layout
+                    node_style="filled"
+                    node_fillcolor=config["nodeFillColorCandidate"]
+                    node_color=config["nodeColorCandidate"]
+                    node_penwidth=config["nodePenWidthDefault"]
+                    if config["selectionOrientatedCkmers"] and (orientatedCkmer in config["selectionOrientatedCkmers"]):
+                        node_fillcolor=config["nodeFillColorSelectionCandidate"]
+                    else:
+                        node_fillcolor=config["nodeFillColorCandidate"]
+                    if orientatedCkmer in self._start or orientatedCkmer in self._end:
+                        if config["selectionOrientatedCkmers"] and (orientatedCkmer in config["selectionOrientatedCkmers"]):
+                            node_fillcolor=config["nodeFillColorSelectionStartEnd"]
+                        else:
+                            node_fillcolor=config["nodeFillColorStartEnd"]
+                        node_color=config["nodeColorStartEnd"]
+                    if orientatedCkmer in self._selected:
+                        node_color=config["nodeColorSelected"]
+                        node_penwidth=config["nodePenWidthSelected"]
+                    node_key = self._visualize_node_key(config["prefix"],orientatedCkmer)
+                    node_label = self._visualize_basic_node_label(orientatedCkmer,
+                                                                    {"number": config["nodeNumberFontSize"]}, config)
+                    nodes[orientatedCkmer] = {"node": node_key}
+                    g.node(node_key, shape="circle",
+                           label=node_label, color=node_color, style=node_style, 
+                           fillcolor=node_fillcolor, penwidth=str(node_penwidth),
+                           width="0.2", margin="0.01")
+                g.node("{}_connected_{}_end".format(config["prefix"],i), shape="point", style="invis")    
+    
+                #add connections
+                for orientatedCkmer in connectedCandidates[i]["start"]:
+                    if orientatedCkmer in connectedCandidates[i]["connected"]:
+                        node_key = self._visualize_node_key(config["prefix"],orientatedCkmer)
+                        g.edge("{}_connected_{}_start".format(config["prefix"],i), node_key,
+                               weight="1", style="invis")
+                for orientatedCkmer1 in connectedCandidates[i]["connected"]:
+                    node_key1 = self._visualize_node_key(config["prefix"],orientatedCkmer1)
+                    for orientatedCkmer2 in self._orientatedCkmers[orientatedCkmer1]._outgoing:
+                        if orientatedCkmer2 in connectedCandidates[i]["connected"]:
+                            node_key2 = self._visualize_node_key(config["prefix"],orientatedCkmer2)
+                            props = self._orientatedCkmers[orientatedCkmer1]._outgoing[orientatedCkmer2]
+                            #only pass once
+                            edgeKey = (node_key1, node_key2)
+                            if edgeKey in edges:
+                                continue
+                            else:
+                                edges.add(edgeKey)
+                            props = self._orientatedCkmers[orientatedCkmer1]._outgoing[orientatedCkmer2]
+                            edge_label = self._visualize_edge_label(props, {"distance": config["edgeDistanceFontSize"],
+                                                                            "number": config["edgeNumberFontSize"]}, config)
+                            # edge_label = "{}".format(props["distance"])
+                            edge_direction = "forward"
+                            edge_constraint="true"
+                            edge_color = config["edgeColorDefault"]
+                            edge_penwidth = config["edgePenWidthDefault"]
+                            edge_style = config["edgeStyleDefault"]
+                            edge_arrowsize = config["edgeArrowSize"]
+                            #detect auto generated edges
+                            if props["number"]==0:
+                                edge_color = config["edgeColorAuto"]
+                                edge_penwidth = config["edgePenWidthAuto"]
+                                edge_style = config["edgeStyleAuto"]
+                            if props["path"] is None:
+                                edge_color = config["edgeColorMissingPath"]
+                                edge_style = config["edgeStyleMissingPath"]
+                            #create the edge
+                            g.edge(node_key1, node_key2, label=edge_label, 
+                                   constraint=edge_constraint, style=edge_style, arrowsize=str(edge_arrowsize),
+                                   dir=edge_direction, color=edge_color, penwidth=str(edge_penwidth)) 
+                for orientatedCkmer in connectedCandidates[i]["end"]:
+                    if orientatedCkmer in connectedCandidates[i]["connected"]:
+                        node_key = self._visualize_node_key(config["prefix"],orientatedCkmer)
+                        g.edge(node_key,"{}_connected_{}_end".format(config["prefix"],i),weight="1",style="invis")
+    
+            if config["showAllNodes"]:
+                #add all other nodes
+                for orientatedCkmer in self._orientatedCkmers:
+                    if not orientatedCkmer in nodes:
+                        #define layout
+                        node_style="filled"
+                        if config["selectionOrientatedCkmers"] and (orientatedCkmer in config["selectionOrientatedCkmers"]):
+                            node_fillcolor=config["nodeFillColorSelection"]
+                        else:
+                            node_fillcolor=config["nodeFillColorDefault"]
+                        node_color=config["nodeColorDefault"]
+                        node_penwidth=config["nodePenWidthDefault"]
+                        node_key = self._visualize_node_key(config["prefix"],orientatedCkmer)
+                        node_label = self._visualize_basic_node_label(orientatedCkmer,
+                                                                        {"number": config["nodeNumberFontSize"]}, config)
+                        nodes[orientatedCkmer] = {"node": node_key}
+                        g.node(node_key, shape="circle",
+                               label=node_label, color=node_color, style=node_style, 
+                               fillcolor=node_fillcolor, penwidth=str(node_penwidth),
+                               width="0.2", margin="0.01")
+                #add all missing connections
+                for orientatedCkmer1 in self._orientatedCkmers:
+                    node_key1 = self._visualize_node_key(config["prefix"],orientatedCkmer1)
+                    for orientatedCkmer2 in self._orientatedCkmers[orientatedCkmer1]._outgoing:
+                        node_key2 = self._visualize_node_key(config["prefix"],orientatedCkmer2)
+                        #only pass once
+                        edgeKey = (node_key1, node_key2)
+                        if edgeKey in edges:
+                            continue
+                        else:
+                            edges.add(edgeKey)
+                        props = self._orientatedCkmers[orientatedCkmer1]._outgoing[orientatedCkmer2]
+                        edge_label = self._visualize_edge_label(props, {"distance": config["edgeDistanceFontSize"],
+                                                                        "number": config["edgeNumberFontSize"]}, config)
+                        edge_direction  = "forward"
+                        edge_constraint = "true"
+                        edge_color = config["edgeColorDefault"]
+                        edge_penwidth = config["edgePenWidthDefault"]
+                        edge_style = config["edgeStyleDefault"]
+                        edge_arrowsize = config["edgeArrowSize"]
+                        #detect auto generated edges
+                        if props["number"]==0:
+                            edge_color = config["edgeColorAuto"]
+                            edge_penwidth = config["edgePenWidthAuto"]
+                            edge_style = config["edgeStyleAuto"]
+                        if props["path"] is None:
+                            edge_color = config["edgeColorMissingPath"]
+                            edge_style = config["edgeStyleMissingPath"]
+                        #create the edge
+                        g.edge(node_key1, node_key2, label=edge_label, 
+                               constraint=edge_constraint, style=edge_style, arrowsize=str(edge_arrowsize),
+                               dir=edge_direction, color=edge_color, penwidth=str(edge_penwidth)) 
+        
+        #dead ends
+        if ((config["showAllNodes"] or config["showDeadEnds"])):
+            edge_arrowsize = config["edgeArrowSize"]
+            for orientatedCkmer in nodes:
+                if (not orientatedCkmer in config["hideDeadEndBefore"]
+                    and not self._orientatedCkmers[orientatedCkmer]._incomingDeadEnd is None):
+                    node_key = self._visualize_node_key(config["prefix"],orientatedCkmer)
+                    dead_key = "{}_{}_{}_{}".format(config["prefix"],
+                                orientatedCkmer[0],orientatedCkmer[1],
+                                self._orientatedCkmers[orientatedCkmer]._incomingDeadEnd[0])
+                    g.node(dead_key, shape="point")
+                    edge_label = self._visualize_dead_end_label(
+                          self._orientatedCkmers[orientatedCkmer]._incomingDeadEnd[1], {"distance": config["edgeDistanceFontSize"],
+                                                                    "number": config["edgeNumberFontSize"]}, config)
+                    edge_direction  = "forward"
+                    edge_constraint = "true"
+                    edge_color = config["edgeColorAuto"]
+                    edge_penwidth = config["edgePenWidthAuto"]
+                    edge_style = config["edgeStyleAuto"]
+                    edge_arrowsize = config["edgeArrowSize"]
+                    g.edge(dead_key, node_key, label=edge_label, 
+                           constraint=edge_constraint, style=edge_style, arrowsize=str(edge_arrowsize),
+                           dir=edge_direction, color=edge_color, penwidth=str(edge_penwidth))
+                if (not orientatedCkmer in config["hideDeadEndAfter"]
+                    and not self._orientatedCkmers[orientatedCkmer]._outgoingDeadEnd is None):
+                    node_key = self._visualize_node_key(config["prefix"],orientatedCkmer)
+                    dead_key = "{}_{}_{}_{}".format(config["prefix"],
+                        orientatedCkmer[0],orientatedCkmer[1],
+                        self._orientatedCkmers[orientatedCkmer]._outgoingDeadEnd[0])
+                    g.node(dead_key, shape="point")
+                    edge_label = self._visualize_dead_end_label(
+                          self._orientatedCkmers[orientatedCkmer]._outgoingDeadEnd[1], {"distance": config["edgeDistanceFontSize"],
+                                                                    "number": config["edgeNumberFontSize"]}, config)
+                    edge_direction  = "forward"
+                    edge_constraint = "true"
+                    edge_color = config["edgeColorAuto"]
+                    edge_penwidth = config["edgePenWidthAuto"]
+                    edge_style = config["edgeStyleAuto"]
+                    edge_arrowsize = config["edgeArrowSize"]
+                    g.edge(node_key, dead_key, label=edge_label, 
+                           constraint=edge_constraint, style=edge_style, arrowsize=str(edge_arrowsize),
+                           dir=edge_direction, color=edge_color, penwidth=str(edge_penwidth))
+
+        arms = self.getArms()
+        if config["showAllNodes"]:
+            #warn if relevant
+            if config["showArms"] and len(arms)>0:
+                self._logger.warning("can't show {} detected arms if alls nodes are shown".format(len(arms)))
+            if config["showPotentialTransposons"]:
+                transposonCandidateArms = self._detectTransposonArmCandidates()
+                if len(transposonCandidateArms)>0:
+                    self._logger.warning("can't show {} detected transposon candidates if alls nodes are shown".format(
+                        len(transposonCandidateArms)))
+        else:
+            processedArms = set()
+            #show arms
+            if config["showArms"]:
+                #show potential transposons
+                if config["showPotentialTransposons"]:
+                    transposonCandidateArms = self._detectTransposonArmCandidates()
+                    for i in range(len(transposonCandidateArms)):
+                        arm1 = self.getArm(transposonCandidateArms[i][0])
+                        arm2 = self.getArm(transposonCandidateArms[i][1])
+                        if arm1.connection() in nodes and arm2.connection() in nodes:
+                            processedArms.add(arm1.id())
+                            processedArms.add(arm2.id())
+                            arm_key1, arm_key2 = self._visualizeTransposon(g,i,arm1,arm2,**config)
+                            connectArm(arm_key1,arm1,**config)
+                            connectArm(arm_key2,arm2,**config)
+                #loop over arms
+                for i in range(len(arms)):
+                    arm = arms[i]
+                    #only if no potential transposon
+                    if arm.id() in processedArms:
+                        continue
+                    else:
+                        processedArms.add(arm.id())
+                    #only if visible
+                    if arm.connection() in nodes:
+                        #create arm
+                        arm_key = self._visualizeArm(g,arm,**config)
+                        connectArm(arm_key,arm,**config)
+            #show potential transposons
+            elif config["showPotentialTransposons"]:
+                transposonCandidateArms = self._detectTransposonArmCandidates()
+                for i in range(len(transposonCandidateArms)):
+                    arm1 = self.getArm(transposonCandidateArms[i][0])
+                    arm2 = self.getArm(transposonCandidateArms[i][1])
+                    if arm1.connection() in nodes and arm2.connection() in nodes:
+                        node_key1 = self._visualize_node_key(config["prefix"],arm1.connection())
+                        node_key2 = self._visualize_node_key(config["prefix"],arm2.connection())
+                        self._visualizeTransposonConnection(g, node_key1,node_key2, **config)
+        if config["containerGraph"]:
+            return (list(edges), nodes)
+        else:
+            return g
+
+
+    def _visualizeAdvanced(self, g, *args, **kwargs):
+        def connectArm(arm_key, arm, **kwargs):
+            orientatedCkmersArm = arm._orientatedCkmers.intersection(orientatedCkmerNodes.keys())
+            if len(orientatedCkmersArm)==0:
+                for node_key in orientatedCkmerNodes[arm.connection()].values():
+                    if arm.armType()=="incoming":
+                        g.edge(arm_key,node_key,style="dashed", 
+                                               color="grey", rankdir="lr", constraint="true")
+                    elif arm.armType()=="outgoing":
+                        g.edge(node_key,arm_key,style="dashed", 
+                                               color="grey", rankdir="lr", constraint="true")
+            else:
+                for orientatedCkmer in orientatedCkmersArm:
+                    for node_key in orientatedCkmerNodes[orientatedCkmer].values():
+                        if arm.armType()=="incoming":
+                            if(len(set(self._orientatedCkmers[orientatedCkmer]._incoming.keys())
+                                   .intersection(orientatedCkmerNodes))>0):
+                                break
+                            g.edge(arm_key,node_key,style="dashed", 
+                                                   color="grey", rankdir="lr", constraint="true")
+                        elif arm.armType()=="outgoing":
+                            if(len(set(self._orientatedCkmers[orientatedCkmer]._outgoing.keys())
+                                   .intersection(orientatedCkmerNodes))>0):
+                                break
+                            g.edge(node_key,arm_key,style="dashed", 
+                                                   color="grey", rankdir="lr", constraint="true")
+                        
+        #initialise configuration
+        advancedConfig = {
             "showAllBases": False,
             "showPrePostBases": True,
             "showPrePostBasesMaxSteps": 2,
-            "showDeadEnds": True,
-            "hideDeadEndBefore": [],
-            "hideDeadEndAfter": [],
+            "baseFontSize": 6,
+            "baseNumberFontSize": 6,
             "baseStyleDefault": "filled",
             "baseFillColorDefault": "white",
             "basePenWidthDefault": 1,
@@ -62,48 +516,21 @@ class Graph:
             "baseFillColorPrePost": "white",
             "basePenWidthPrePost": 1,
             "baseColorPrePost": "grey",
-            "nodeFillColorDefault": "white",
-            "nodeColorDefault": "grey",
-            "nodePenWidthDefault": 1,
-            "nodeColorSelected": "blue",
-            "nodePenWidthSelected": 3,
-            "nodeFillColorIncomingArm": "lightblue",
-            "nodeColorIncomingArm": "black",
-            "nodeFillColorOutgoingArm": "lightcoral",
-            "nodeColorOutgoingArm": "black",
-            "nodeFillColorCandidate": "lightyellow1",
-            "nodeColorCandidate": "black",
-            "nodeFillColorStartEnd": "yellow",
-            "nodeColorStartEnd": "black",
-            "edgeColorDefault": "grey",
-            "edgePenWidthDefault": 1,
-            "edgeStyleDefault": "solid",
-            "edgeColorAuto": "grey",
-            "edgePenWidthAuto": 1,
-            "edgeStyleAuto": "dashed",
-            "edgeColorMissingPath": "red", 
-            "edgeStyleMissingPath": "dashed",
-            "restrictedListOfOrientatedCkmers": False,
-            "containerGraph": False,
-            "prefix": "graph"
+            "nodeNumberFontSize": 8,
+            "nodeLetterFontSize": 14,
+            "edgeDistanceFontSize": "14",
+            "edgeNumberFontSize": "8"
         }
-        for key, value in kwargs.items():
-            if key in config.keys():
-                config[key] = value
-        
-        #create graph
-        if config["containerGraph"]:
-            g = config["containerGraph"]
-        else:
-            g = Digraph()
-            graph_label = "Graph"
-            if self._name:
-                graph_label = "{} {}".format(graph_label,html.escape(self._name))
-            g.attr(label=graph_label, labelloc="t", nodesep="0", ranksep="0")
-        
+        #construct config
+        config = kwargs.copy()
+        for key, value in advancedConfig.items():
+            if not key in config.keys():
+                config[key] = advancedConfig[key]
+
         #define base containers and bases
         orientatedBaseContainers = {}
         orientatedCkmerNodes = {}
+        edges = set()
         
         def setOrientatedBaseContainer(orientatedBase, container):
             orientatedBaseContainers[orientatedBase] = container
@@ -126,9 +553,8 @@ class Graph:
             for orientatedCkmer in config["restrictedListOfOrientatedCkmers"]:
                 restrictedListOfBases.update(self._orientatedCkmers[orientatedCkmer]._orientatedBases.values())
             sortedOrientatedBaseList = [base for base in sortedOrientatedBaseList if base in restrictedListOfBases]
-            
+        
         #loop over sorted orientated bases
-        test = False
         for orientatedBase in sortedOrientatedBaseList:
             
             #optionally, hide bases
@@ -154,7 +580,7 @@ class Graph:
                                                           orientatedBase[0],orientatedBase[1])
                 orientatedBaseContainer=g.subgraph(name=orientatedBaseContainerName)
                 with orientatedBaseContainer as obc:
-                    obc.attr(style="invis",nodesep="0", ranksep="0")
+                    obc.attr(style="invis", nodesep="0", ranksep="0")
                 setOrientatedBaseContainer(orientatedBase,orientatedBaseContainerName) 
             else:
                 orientatedBaseContainerName=orientatedBaseContainers[orientatedBase]
@@ -162,7 +588,7 @@ class Graph:
                 with orientatedBaseContainer as obc:
                     obc.attr(style="filled", color="lightgrey", fillcolor="whitesmoke", label="")
                 setOrientatedBaseContainer(orientatedBase,orientatedBaseContainerName) 
-              
+
             #now create the actual orientated base container in the container
             orientatedBaseContainer=g.subgraph(name=orientatedBaseContainerName)  
             with orientatedBaseContainer as obc:      
@@ -191,34 +617,47 @@ class Graph:
                         base_fillcolor=config["baseFillColorOrder"]
                         base_color=config["baseColorOrder"]
                         base_penwidth=config["basePenWidthOrder"]
-                    base_label = self._visualize_base_label(orientatedBase) 
+                    base_label = self._visualize_base_label(orientatedBase, {"base": config["baseFontSize"],
+                                                                             "number": config["baseNumberFontSize"]}, config) 
                     c.attr(style=base_style, color=base_color, 
                            fillcolor=base_fillcolor, label=base_label, penwidth=str(base_penwidth))
                     #add k-mers to base container
                     for orientatedCkmer in self._orientatedBases[orientatedBase]._orientatedCkmers:  
                         #define layout
                         node_style="filled"
-                        node_fillcolor=config["nodeFillColorDefault"]
+                        if config["selectionOrientatedCkmers"] and (orientatedCkmer in config["selectionOrientatedCkmers"]):
+                            node_fillcolor=config["nodeFillColorSelection"]
+                        else:
+                            node_fillcolor=config["nodeFillColorDefault"]
                         node_color=config["nodeColorDefault"]
                         node_penwidth=config["nodePenWidthDefault"]
                         if orientatedCkmer in self._orientatedCkmers.keys():
                             if self._orientatedCkmers[orientatedCkmer].candidate():
-                                node_fillcolor=config["nodeFillColorCandidate"]
+                                if config["selectionOrientatedCkmers"] and (orientatedCkmer in config["selectionOrientatedCkmers"]):
+                                    node_fillcolor=config["nodeFillColorSelectionCandidate"]
+                                else:
+                                    node_fillcolor=config["nodeFillColorCandidate"]
                                 node_color=config["nodeColorCandidate"]
-                            elif self._orientatedCkmers[orientatedCkmer].incomingArmType():
-                                node_fillcolor=config["nodeFillColorIncomingArm"]
-                                node_color=config["nodeColorIncomingArm"]
-                            elif self._orientatedCkmers[orientatedCkmer].outgoingArmType():
-                                node_fillcolor=config["nodeFillColorOutgoingArm"]
-                                node_color=config["nodeColorOutgoingArm"]
+                            elif (not config["showAllBases"]) and config["showArms"]:
+                                if self._orientatedCkmers[orientatedCkmer].incomingArmType():
+                                    node_fillcolor=config["nodeFillColorIncomingArm"]
+                                    node_color=config["nodeColorIncomingArm"]
+                                elif self._orientatedCkmers[orientatedCkmer].outgoingArmType():
+                                    node_fillcolor=config["nodeFillColorOutgoingArm"]
+                                    node_color=config["nodeColorOutgoingArm"]
                         if orientatedCkmer in self._start or orientatedCkmer in self._end:
-                            node_fillcolor=config["nodeFillColorStartEnd"]
+                            if config["selectionOrientatedCkmers"] and (orientatedCkmer in config["selectionOrientatedCkmers"]):
+                                node_fillcolor=config["nodeFillColorSelectionStartEnd"]
+                            else:
+                                node_fillcolor=config["nodeFillColorStartEnd"]
                             node_color=config["nodeColorStartEnd"]
                         if orientatedCkmer in self._selected:
                             node_color=config["nodeColorSelected"]
                             node_penwidth=config["nodePenWidthSelected"]
-                        node_label = self._visualize_node_label(orientatedBase, orientatedCkmer)
-                        node_key = self._visualize_node_key(config["prefix"],orientatedBase, orientatedCkmer)
+                        node_label = self._visualize_advanced_node_label(orientatedBase, orientatedCkmer,
+                                                                {"letter": config["nodeLetterFontSize"], 
+                                                                 "number": config["nodeNumberFontSize"]}, config)
+                        node_key = self._visualize_node_key(config["prefix"],orientatedCkmer, orientatedBase)
                         c.node(node_key, label=node_label, color=node_color, style=node_style, 
                                fillcolor=node_fillcolor, penwidth=str(node_penwidth))
                         if ((config["showAllBases"] or config["showDeadEnds"]) 
@@ -230,7 +669,7 @@ class Graph:
                             g.node(dead_key, shape="point")
                             g.edge(dead_key, node_key, constraint="true",
                               label=self._visualize_dead_end_label(
-                                  self._orientatedCkmers[orientatedCkmer]._incomingDeadEnd[1]),
+                                  self._orientatedCkmers[orientatedCkmer]._incomingDeadEnd[1], {}, config),
                                    dir="forward", color=config["edgeColorAuto"], weight="1",
                                    style=config["edgeStyleAuto"], penwidth=str(config["edgePenWidthAuto"]))
                         if ((config["showAllBases"] or config["showDeadEnds"])
@@ -242,20 +681,20 @@ class Graph:
                             g.node(dead_key, shape="point")
                             g.edge(node_key, dead_key, constraint="true", 
                               label=self._visualize_dead_end_label(
-                                  self._orientatedCkmers[orientatedCkmer]._outgoingDeadEnd[1]),
+                                  self._orientatedCkmers[orientatedCkmer]._outgoingDeadEnd[1], {}, config),
                                    dir="forward", color=config["edgeColorAuto"], weight="1",
                                    style=config["edgeStyleAuto"], penwidth=str(config["edgePenWidthAuto"]))
                         #register
                         if orientatedCkmer in orientatedCkmerNodes.keys():
                             assert orientatedBase[1] not in orientatedCkmerNodes[orientatedCkmer]
-                            orientatedCkmerNodes[orientatedCkmer][orientatedBase[1]] = node_key
+                            orientatedCkmerNodes[orientatedCkmer]["{}_{}".format(config["prefix"],orientatedBase[1])] = node_key
                             for other_node_key in orientatedCkmerNodes[orientatedCkmer].values():
                                 if not node_key==other_node_key:
                                     g.edge(other_node_key, node_key, constraint="false",
                                        dir="none", color="grey", style="dashed", penwidth="2")  
                                     
                         else:
-                            orientatedCkmerNodes[orientatedCkmer] = {orientatedBase[1]: node_key}
+                            orientatedCkmerNodes[orientatedCkmer] = {"{}_{}".format(config["prefix"],orientatedBase[1]): node_key}
                             
         #try to sort orientated k-mers
         maxOrientatedCkmerOrder = (0 if len(self._orientatedBases)==0 
@@ -272,23 +711,18 @@ class Graph:
             sortedOrientatedCkmerList = [ckmer for ckmer in sortedOrientatedCkmerList 
                                          if ckmer in config["restrictedListOfOrientatedCkmers"]]
         
-        #remember edges
-        edges = set()
-
         #loop over the sorted orientated k-mers
+        forward_key = "{}_{}".format(config["prefix"],"forward")
+        backward_key = "{}_{}".format(config["prefix"],"backward")
         for orientatedCkmer in sortedOrientatedCkmerList:
             if orientatedCkmer in orientatedCkmerNodes.keys():                
                 kmerSet = self._orientatedCkmers[orientatedCkmer]._incoming.keys()
                 for connectedCkmer in kmerSet:
-                    if connectedCkmer in orientatedCkmerNodes.keys():
-                        edgeKey = connectedCkmer + orientatedCkmer
-                        if edgeKey in edges:
-                            #only pass once
-                            continue
-                        else:
-                            edges.add(edgeKey)
+                    if connectedCkmer in orientatedCkmerNodes.keys():                        
                         edge_label = self._visualize_edge_label(
-                            self._orientatedCkmers[orientatedCkmer]._incoming[connectedCkmer]
+                            self._orientatedCkmers[orientatedCkmer]._incoming[connectedCkmer], 
+                                                    {"distance": config["edgeDistanceFontSize"],
+                                                     "number": config["edgeNumberFontSize"]}, config
                         )
                         edge_direction = "forward"
                         edge_constraint="true"
@@ -301,71 +735,245 @@ class Graph:
                             edge_penwidth = config["edgePenWidthAuto"]
                             edge_style = config["edgeStyleAuto"]
                         #choose preferred nodes for the edges
-                        if "backward" in orientatedCkmerNodes[orientatedCkmer]:
-                            node = orientatedCkmerNodes[orientatedCkmer]["backward"]
+                        if backward_key in orientatedCkmerNodes[orientatedCkmer]:
+                            node = orientatedCkmerNodes[orientatedCkmer][backward_key]
                         else:
-                            node = orientatedCkmerNodes[orientatedCkmer]["forward"]
-                        if "forward" in orientatedCkmerNodes[connectedCkmer]:
-                            connectedNode = orientatedCkmerNodes[connectedCkmer]["forward"]
+                            node = orientatedCkmerNodes[orientatedCkmer][forward_key]
+                        if forward_key in orientatedCkmerNodes[connectedCkmer]:
+                            connectedNode = orientatedCkmerNodes[connectedCkmer][forward_key]
                         else:
-                            connectedNode = orientatedCkmerNodes[connectedCkmer]["backward"]
+                            connectedNode = orientatedCkmerNodes[connectedCkmer][backward_key]
                         if self._orientatedCkmers[orientatedCkmer]._incoming[connectedCkmer]["path"] is None:
                             edge_color = config["edgeColorMissingPath"]
                             edge_style = config["edgeStyleMissingPath"]
-                        #create the edge
-                        g.edge(connectedNode, node, label=edge_label, constraint=edge_constraint, style=edge_style, 
+                        #create the edge only once
+                        edgeKey = (connectedNode, node)
+                        if not edgeKey in edges:
+                            edges.add(edgeKey)
+                            g.edge(connectedNode, node, label=edge_label, constraint=edge_constraint, style=edge_style, 
                                    dir=edge_direction, color=edge_color, penwidth=str(edge_penwidth))  
                         
-        #draw missing connections
-        for oc1 in self._missingConnections:
-            if oc1 in orientatedCkmerNodes:
-                for oc2 in self._missingConnections[oc1]:
-                    if oc2 in orientatedCkmerNodes:
-                        for d1 in orientatedCkmerNodes[oc1]:
-                            n1 = orientatedCkmerNodes[oc1][d1]
-                            for d2 in orientatedCkmerNodes[oc2]:
-                                n2 = orientatedCkmerNodes[oc2][d2]
-                                g.edge(n1,n2, constraint="false",
-                                   dir="none", color="grey", penwidth="1", style="dashed")  
-                    
-        return g
+        arms = self.getArms()
+        if config["showAllBases"]:
+            #warn if relevant
+            if config["showArms"] and len(arms)>0:
+                self._logger.warning("can't show {} detected arms if alls bases are shown".format(len(arms)))
+            if config["showPotentialTransposons"]:
+                transposonCandidateArms = self._detectTransposonArmCandidates()
+                if len(transposonCandidateArms)>0:
+                    self._logger.warning("can't show {} detected transposon candidates if alls bases are shown".format(
+                        len(transposonCandidateArms)))
+        else:
+            processedArms = set()
+            #show arms
+            if config["showArms"]:
+                #show potential transposons
+                if config["showPotentialTransposons"]:
+                    transposonCandidateArms = self._detectTransposonArmCandidates()
+                    for i in range(len(transposonCandidateArms)):
+                        arm1 = self.getArm(transposonCandidateArms[i][0])
+                        arm2 = self.getArm(transposonCandidateArms[i][1])
+                        if arm1.connection() in orientatedCkmerNodes and arm2.connection() in orientatedCkmerNodes:
+                            processedArms.add(arm1.id())
+                            processedArms.add(arm2.id())
+                            arm_key1, arm_key2 = self._visualizeTransposon(g,i,arm1,arm2,**config)
+                            connectArm(arm_key1,arm1,**config)
+                            connectArm(arm_key2,arm2,**config)
+                #loop over arms
+                for i in range(len(arms)):
+                    arm = arms[i]
+                    #only if no potential transposon
+                    if arm.id() in processedArms:
+                        continue
+                    else:
+                        processedArms.add(arm.id())
+                    #only if visible
+                    if arm.connection() in orientatedCkmerNodes:
+                        #create arm
+                        arm_key = self._visualizeArm(g,arm,**config)
+                        connectArm(arm_key,arm,**config)
+            #show potential transposons
+            elif config["showPotentialTransposons"]:
+                transposonCandidateArms = self._detectTransposonArmCandidates()
+                for i in range(len(transposonCandidateArms)):
+                    arm1 = self.getArm(transposonCandidateArms[i][0])
+                    arm2 = self.getArm(transposonCandidateArms[i][1])
+                    if arm1.connection() in orientatedCkmerNodes and arm2.connection() in orientatedCkmerNodes:
+                        orientatedCkmersArm1 = arm1._orientatedCkmers.intersection(orientatedCkmerNodes.keys())
+                        orientatedCkmersArm2 = arm2._orientatedCkmers.intersection(orientatedCkmerNodes.keys())
+                        if len(orientatedCkmersArm1)==0:
+                            orientatedCkmersArm1.add(arm1.connection())
+                        if len(orientatedCkmersArm2)==0:
+                            orientatedCkmersArm1.add(arm2.connection())
+                        for orientatedCkmer1 in orientatedCkmersArm1:
+                            for node_key1 in orientatedCkmerNodes[orientatedCkmer1].values():
+                                for orientatedCkmer2 in orientatedCkmersArm2:
+                                    for node_key2 in orientatedCkmerNodes[orientatedCkmer2].values():
+                                        self._visualizeTransposonConnection(g,node_key1,node_key2, **config)
+        if config["containerGraph"]:
+            return (list(edges), orientatedCkmerNodes)
+        else:
+            return g
     
+    #arm
+    def _visualizeArm(self, g, arm, *args, **kwargs):
+        initConfig = {
+                "type": "basic",
+                "prefix": "arm",
+                "armIncomingStyle": "filled",
+                "armIncomingFillColor": "lightblue",
+                "armIncomingPenWidth": 1,
+                "armIncomingColor": "black",
+                "armOutgoingStyle": "filled",
+                "armOutgoingFillColor": "lightcoral",
+                "armOutgoingPenWidth": 1,
+                "armOutgoingColor": "black"
+            }
+        config = kwargs.copy()
+        for key, value in initConfig.items():
+            if not key in config.keys():
+                config[key] = value
+
+        armPrefix = "arm_{}_{}".format(config["prefix"],arm.id())
+                    
+        arm_name = "Arm {}".format(arm.id())
+        if arm.armType()=="incoming":
+            arm_name = "Incoming {}".format(arm_name)
+            arm_style = config["armIncomingStyle"]
+            arm_fillcolor = config["armIncomingFillColor"]
+            arm_penwidth = config["armIncomingPenWidth"]
+            arm_color = config["armIncomingColor"]
+        elif arm.armType()=="outgoing":
+            arm_name = "Outgoing {}".format(arm_name)
+            arm_style = config["armOutgoingStyle"]
+            arm_fillcolor = config["armOutgoingFillColor"]
+            arm_penwidth = config["armOutgoingPenWidth"]
+            arm_color = config["armOutgoingColor"]
+        else:
+            return
+        armGraph=g.subgraph(name="cluster_graph_{}".format(armPrefix))
+        with armGraph as ag:
+            if config["type"]=="basic":
+                arm_label = ("<" + 
+                             "<font point-size=\"12\" color=\"grey\">{}</font><br/>".format(arm_name) + 
+                             "<font point-size=\"10\">{} nodes</font><br/>".format(arm.n()) + 
+                             "<font point-size=\"8\">max {}x</font>".format(arm.maxFreq()) + 
+                             ">")
+            
+            else:
+                arm_label = ("<" + 
+                         "<font point-size=\"12\" color=\"grey\">{}</font><br/>".format(arm_name) + 
+                         "<font point-size=\"10\">size {} with {} nodes</font><br/>".format(
+                             arm.size(),arm.n()) + 
+                         "<font point-size=\"8\">maximum frequency: {}x</font><br/>".format(
+                             arm.maxFreq()) + 
+                         ">")
+            ag.attr(label=arm_label, style=arm_style, fillcolor=arm_fillcolor, 
+                color=arm_color, penwidth=str(arm_penwidth), labelloc="t", nodesep="0", ranksep="0")
+
+            arm_key = "arm_{}_{}".format(armPrefix,arm.armType())
+            ag.node(arm_key, shape="point")
+        return arm_key
+
+    def _visualizeTransposon(self, g, id, arm1, arm2, **kwargs):
+        initConfig = {
+            "prefix": "graph",
+            "transposonStyle": "dashed,filled",
+            "transposonFillColor": "orange",
+            "transposonPenWidth": 1,
+            "transposonColor": "black"
+        }
+        config = kwargs.copy()
+        for key,value in initConfig.items():
+            if not key in config.keys():
+                config[key] = value
+        transposonGraph=g.subgraph(name="cluster_{}_transposon_{}_{}_{}".format(config["prefix"],id,arm1.id(),arm2.id()))
+        with transposonGraph as tg:
+            transposon_label = "Potential Transposon"
+            transposon_style = config["transposonStyle"]
+            transposon_fillcolor = config["transposonFillColor"]
+            transposon_penwidth = config["transposonPenWidth"]
+            transposon_color = config["transposonColor"]
+            tg.attr(label=transposon_label, style=transposon_style, fillcolor=transposon_fillcolor, 
+                    color=transposon_color, penwidth=str(transposon_penwidth), 
+                    constraint="false", rankdir="TB", labelloc="t", nodesep="0", ranksep="0")
+            #arms
+            arm_key1 = self._visualizeArm(tg,arm1,**config)
+            arm_key2 = self._visualizeArm(tg,arm2,**config)
+            tg.edge(arm_key1,arm_key2,weight="1",style="invis")
+        return arm_key1,arm_key2
+
+    def _visualizeTransposonConnection(self, g, arm_key1, arm_key2, **kwargs):
+        initConfig = {
+            "transposonEdgeFontColor": "blue",
+            "transposonEdgeStyle": "dotted",
+            "transposonEdgePenwidth": 2,
+            "transposonEdgeFontSize": 12,
+            "transposonEdgeColor": "blue"
+        }
+        config = kwargs.copy()
+        for key,value in initConfig.items():
+            if not key in config.keys():
+                config[key] = value
+        edge_label = ("<" + 
+                     "<font point-size=\"{}\" color=\"{}\">possible<br/> transposon</font>".format(
+                         config["transposonEdgeFontSize"], config["transposonEdgeColor"]
+                     ) + 
+                     ">")
+        edge_style = config["transposonEdgeStyle"]
+        edge_color = config["transposonEdgeColor"]
+        edge_penwidth = config["transposonEdgePenwidth"]
+        g.edge(arm_key1, arm_key2,style=edge_style, 
+                   label=edge_label, color=edge_color, rankdir="lr", 
+                   constraint="true", penwidth=str(edge_penwidth))
+        
     #base label definition
-    def _visualize_base_label(self, orientatedBase: str):
-        base_label = "<" + "<font point-size=\"6\">"
+    def _visualize_base_label(self, orientatedBase: tuple, fontSize:dict = {}, config:dict = {}):
+        base_label = "<"
+        base_label += "<font point-size=\"{}\">".format(fontSize.get("base","0"))
         if orientatedBase[1]=="forward":
             base_label += orientatedBase[0]+"*"
         elif orientatedBase[1]=="backward":
             base_label += "*"+General.reverse_complement(orientatedBase[0])
         else:
             base_label += "---orientation unknown---"
-        base_label +="<br/><font color=\"grey\">"
-        base_label +=str(self._orientatedBases[orientatedBase]._number)+"x"
-        base_label +="</font></font>" + ">"
+        base_label +="<br/><font point-size=\"{}\" color=\"grey\">{}x</font></font>".format(
+            fontSize.get("number","0"),self._orientatedBases[orientatedBase]._number)
+        base_label +=">"
         return base_label
     
     #edge label definition
-    def _visualize_edge_label(self, info: dict):
+    def _visualize_edge_label(self, info: dict, fontSize:dict = {}, config:dict = {}):
         edge_label = "<"
-        edge_label += "<font color=\"grey\">"+str(info["distance"])+"</font><br/>"
-        edge_label += "<font point-size=\"8\">"+str(info["number"])+"x</font>" 
+        edge_label += "<font point-size=\"{}\" color=\"grey\">{}</font><br/>".format(fontSize.get("distance","0"), info["distance"])
+        edge_label += "<font point-size=\"{}\">{}x</font>".format(fontSize.get("number","0"), info["number"])
         edge_label += ">"
         return edge_label
     
-    def _visualize_dead_end_label(self, distance: int):
+    def _visualize_dead_end_label(self, distance: int, fontSize:dict = {}, config:dict = {}):
         edge_label = "<"
-        edge_label += "<font color=\"grey\">"+str(distance)+"</font>" 
+        edge_label += "<font point-size=\"{}\" color=\"grey\">{}</font>".format(fontSize.get("distance","0"), distance)
         edge_label += ">"
         return edge_label
     
     #node key definition
-    def _visualize_node_key(self, prefix, orientatedBase, orientatedCkmer):
-        return "{}_{}_{}_{}_{}".format(prefix,
-                                orientatedBase[0],orientatedBase[1],
-                                orientatedCkmer[0],orientatedCkmer[1])
+    def _visualize_node_key(self, prefix, orientatedCkmer: tuple, orientatedBase: tuple = None):
+        if orientatedBase is None:
+            return "{}_{}_{}".format(prefix,
+                                    orientatedCkmer[0],orientatedCkmer[1])
+        else:
+            return "{}_{}_{}_{}_{}".format(prefix,
+                                    orientatedBase[0],orientatedBase[1],
+                                    orientatedCkmer[0],orientatedCkmer[1])
     
     #node label definition
-    def _visualize_node_label(self, orientatedBase, orientatedCkmer):
+    def _visualize_basic_node_label(self, orientatedCkmer: tuple, fontSize:dict = {}, config:dict = {}):
+        node_label = "<" + "<font point-size=\"{}\">{}x</font>".format(
+            fontSize.get("number","0"),self._orientatedCkmers[orientatedCkmer]._number)
+        node_label += ">"
+        return node_label
+    
+    def _visualize_advanced_node_label(self, orientatedBase: tuple, orientatedCkmer: tuple, fontSize:dict = {}, config:dict = {}):
         node_letter = "?"
         if orientatedBase[1]=="forward":
             if orientatedCkmer[1]=="forward":
@@ -381,9 +989,9 @@ class Graph:
             elif orientatedCkmer[1]=="backward":
                 assert orientatedBase[0]==orientatedCkmer[0][:-1]
                 node_letter = General.reverse_complement(orientatedCkmer[0][-1])
-        node_label = "<" + "<font color=\"blue\">"+node_letter+"</font>" 
-        node_label +="<font point-size=\"8\">"
-        node_label +=str(self._orientatedCkmers[orientatedCkmer]._number)+"x</font>"
+        node_label = "<" + "<font point-size=\"{}\" color=\"blue\">{}</font>".format(fontSize.get("letter","0"),node_letter)
+        node_label +="<font point-size=\"{}\">{}x</font>".format(
+            fontSize.get("number","0"),self._orientatedCkmers[orientatedCkmer]._number)
         node_label += ">"
         return node_label
     
@@ -500,7 +1108,7 @@ class Graph:
             list2 = set(self._directDistances.index)
             if not list1==list2:
                 self._computeDirectDistances()    
-        return self._directDistances
+        return self._directDistances.copy()
     
     def _computeDirectDistances(self):
         #initialise
@@ -523,7 +1131,7 @@ class Graph:
             list2 = set(self._directNumbers.index)
             if not list1==list2:
                 self._computeDirectNumbers()    
-        return self._directNumbers 
+        return self._directNumbers.copy()
                            
     def _computeDirectNumbers(self):
         #initialise
@@ -546,7 +1154,7 @@ class Graph:
             list2 = set(self._connected.index)
             if not list1==list2:
                 self._computeConnected()
-        return self._connected
+        return self._connected.copy()
     
     """compute connected orientated k-mers"""
     def _computeConnected(self):
@@ -605,10 +1213,7 @@ class Graph:
         else:
             return(sorted(distances)[0])
         
-    def getArms(self):
-        return self._arms
-
-    def detectArms(self):
+    def _detectArms(self):
         """
         detect arms
         """
@@ -642,7 +1247,7 @@ class Graph:
                             else:
                                 incomingArms[candidateCkmer] = {"size": d, "n": 0, "number": 0,
                                         "orientatedBases": set(), "orientatedCkmers": set()}
-                                for entry in other.intersection(connected.index[connected[orientatedCkmer]]):
+                                sfor entry in other.intersection(connected.index[connected[orientatedCkmer]]):
                                     incomingArms[candidateCkmer]["n"]+=1
                                     incomingArms[candidateCkmer]["number"]=max(incomingArms[candidateCkmer]["number"],
                                         self._orientatedCkmers[entry]._number)
@@ -689,7 +1294,7 @@ class Graph:
                     for orientatedCkmer in outgoingArms[candidateCkmer]["orientatedCkmers"]:
                         arm._add(orientatedCkmer)
 
-    def resetArms(self):
+    def _resetArms(self):
         for orientatedCkmer in self._orientatedCkmers:
             self._orientatedCkmers[orientatedCkmer]._incomingArm = None
             self._orientatedCkmers[orientatedCkmer]._outgoingArm = None
@@ -697,14 +1302,20 @@ class Graph:
             self._orientatedCkmers[orientatedCkmer]._unsetArm()          
         self._arms = []
 
+    def getArms(self):
+        return self._arms
+
     def getArm(self, armId):
         if armId>=0 and armId<=len(self._arms):
             return self._arms[armId]
         else:
             return None
 
-    def detectTransposonArmCandididates(self, boundaryDistance):
+    def _detectTransposonArmCandidates(self, boundaryDistance: int = None):
+        if boundaryDistance is None:
+            boundaryDistance = 3*self._k
         arms = self.getArms()
+        connected = self.getConnected()
         incomingArms = set([arm.id() for arm in arms if arm.armType()=="incoming"])
         outgoingArms = set([arm.id() for arm in arms if arm.armType()=="outgoing"])
         transposonCandidates = []
@@ -715,9 +1326,11 @@ class Graph:
                 positions1 = list(connection1._estimatedPositions)
             else:
                 positions1 = [connection1._position]
-            for id2 in incomingArms:
+            for id2 in incomingArms:                
                 arm2 = self.getArm(id2)
-                connection2 = self._orientatedCkmers[self.getArm(id2)._connection] 
+                connection2 = self._orientatedCkmers[self.getArm(id2)._connection]
+                if connected.loc[list(arm2._orientatedCkmers)][list(arm1._orientatedCkmers)].values.sum()>0:
+                    continue
                 if connection2._position==None:
                     positions2 = list(connection2._estimatedPositions)
                 else:
@@ -726,7 +1339,6 @@ class Graph:
                 if (distance>0) and (distance<boundaryDistance):
                     transposonCandidates.append([id1,id2])
         #return
-        self._logger.debug("found {} transposon candidate arm pairs".format(len(transposonCandidates)))   
         return transposonCandidates
     
     def _resetDistances(self):
@@ -900,7 +1512,6 @@ class Graph:
                     else:
                         keyTo = (ckmer, "forward")
                 if not keyTo in self._graph._ckmers[ckmer]._orientated:
-                    print("ORIENTATE ckmer")
                     self._graph._ckmers[ckmer]._orientate(keyTo[1])
             for keyTo in self._graph._ckmers[ckmer]._orientated:
                 if keyTo[1]=="forward":
@@ -914,7 +1525,6 @@ class Graph:
                     else:
                         keyFrom = (ckmer, "forward")
                 if not keyFrom in self._orientated:
-                    print("ORIENTATE ckmer")
                     self._graph._ckmers[ckmer]._orientate(keyTo[1])
                 
         def _orientate(self, orientation):

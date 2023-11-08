@@ -2,6 +2,7 @@ import logging,html
 import haplotyping.graph.baseGraph as baseGraph
 from haplotyping.graph.api import APIGraph
 from haplotyping.general import General
+import haplotyping
 from graphviz import Digraph
 
 class Sections():
@@ -29,7 +30,7 @@ class Sections():
     def getOrientatedCkmers(self):
         orientatedCkmers = set()
         for i in range(self.partNumber()):
-            orientatedCkmers.update(self.part(i+1).getOrientatedCkmers())
+            orientatedCkmers.update(self.part(i).getOrientatedCkmers())
         return orientatedCkmers
         
     def getCandidates(self):
@@ -60,7 +61,7 @@ class Sections():
             for otherOrientatedCkmer in baseLinkedOrientatedCkmers:
                 otherIncomingConnected = [k for k in connectedCandidates["connected"] 
                                           if connected[otherOrientatedCkmer][k]]
-                if len(otherIncomingConnected)>0:
+                if len(otherIncomingConnected)>1:
                     problematicStartEntries.add(orientatedCkmer)
                     break
         if len(problematicStartEntries)>0:
@@ -71,7 +72,7 @@ class Sections():
                 self._logger.debug("ignore {} start entries, continue with {} for sections".format(
                     len(problematicStartEntries),len(startEntries)))
         #now try to create sections       
-        part = self.Part(self)   
+        part = self.SectionsPart(self)   
         partOrientatedCkmers = set()
         sectionItem = self.SectionItem(startEntries, connectedCandidates["start"], connectedCandidates["end"],
                                        connectedCandidates["connected"],self._graph)
@@ -102,9 +103,9 @@ class Sections():
     def partNumber(self):
         return len(self._parts)
     
-    def part(self, i=1):
-        if i>0 and i<=len(self._parts):
-            return self._parts[i-1]
+    def part(self, i=0):
+        if i>=0 and i<len(self._parts):
+            return self._parts[i]
         else:
             return None
         
@@ -118,15 +119,26 @@ class Sections():
         graph_label = "<<font point-size=\"12\" color=\"grey\">{}</font>>".format(graph_label)
         g.attr(label=graph_label, labelloc="t", nodesep="0", ranksep="0")        
                 
+        edges = set()
+        nodes = {}
+
+        partConfig = kwargs.copy()
         for i in range(len(self._parts)):
-            kwargs["containerGraph"] = g
-            kwargs["prefix"] = "graph_part_{}".format(i)
-            kwargs["label"] = "Part {}".format(i+1)
-            self._parts[i].visualize(*args, **kwargs)
+            partConfig["containerGraph"] = g
+            partConfig["prefix"] = "graph_part_{}".format(i)
+            partConfig["label"] = "Part {}".format(i)
+            newEdges, newNodes = self._parts[i].visualize(*args, **partConfig)
+            edges.update(newEdges)
+            for key,value in newNodes.items():
+                if key in nodes:
+                    for name,nodeKey in newNodes[key].items():
+                        nodes[key][name] = nodeKey
+                else:
+                    nodes[key] = value.copy()
         return g
                        
     
-    class Part():
+    class SectionsPart():
         
         def __init__(self, sections):
             """
@@ -161,19 +173,22 @@ class Sections():
             self._pathNumber = 0
             numbers = {sectionItemPath.getOrientatedCkmers()[0]: 1 for sectionItemPath in self._sectionItems[0]._paths}
             for sectionItem in self._sectionItems:
+                extended = set()
                 newNumbers = {sectionItemPath.getOrientatedCkmers()[-1]: 0 for sectionItemPath in sectionItem._paths}
-                for sectionItemPath in sectionItem._paths:
+                for sectionItemPath in sectionItem._paths:            
                     orientatedCkmers = sectionItemPath.getOrientatedCkmers()
+                    if orientatedCkmers[0] in numbers.keys():
+                        extended.add(orientatedCkmers[0])
                     newNumbers[orientatedCkmers[-1]] = (newNumbers[orientatedCkmers[-1]] 
                                                                + numbers.get(orientatedCkmers[0],1))
-                numbers = newNumbers
                 for orientatedCkmer in numbers:
-                    if not orientatedCkmer in sectionItem._end["ckmers"]:
+                    if not orientatedCkmer in extended:
                         self._pathNumber += numbers[orientatedCkmer]
+                numbers = newNumbers
             #add all remaining   
             for orientatedCkmer in numbers:
                 if orientatedCkmer in sectionItem._end["ckmers"]:
-                    self._pathNumber += numbers[orientatedCkmer]            
+                    self._pathNumber += numbers[orientatedCkmer]         
             
         def _processDatasetFrequencies(self, ignoreDatasets=[]):
             for sectionItem in self._sectionItems:
@@ -192,8 +207,14 @@ class Sections():
             return len(self._sectionItems)
         
         def section(self, i):
-            if i>0 and i<=self.sectionNumber():
-                return self._sectionItems[i-1]
+            if i>=0 and i<self.sectionNumber():
+                return self._sectionItems[i]
+
+        def pathNumber(self):
+            return self._pathNumber
+            
+        def paths(self):
+            return self.SectionsPartPathIterator(self)
         
         def getOrientatedCkmers(self):
             orientatedCkmers = set()
@@ -209,27 +230,92 @@ class Sections():
             return set(candidates)
         
         def visualize(self, *args, **kwargs):  
-        
-            config = {
-                "baseStyleIncomingArm": "filled",
-                "baseFillColorIncomingArm": "lightblue",
-                "basePenWidthIncomingArm": 1,
-                "baseColorIncomingArm": "black",
-                "baseStyleOutgoingArm": "filled",
-                "baseFillColorOutgoingArm": "lightcoral",
-                "basePenWidthOutgoingArm": 1,
-                "baseColorOutgoingArm": "black",
+
+            def connectArm(arm_key, arm, **kwargs):
+                #create and connect arm            
+                orientatedCkmer = arm.connection()
+                orientatedCkmersArm = arm._orientatedCkmers
+                if orientatedCkmer in nodes or len(orientatedCkmersArm.intersection(nodes))>0:
+                    if len(orientatedCkmersArm.intersection(nodes))>0:
+                        for orientatedCkmerArm in orientatedCkmersArm.intersection(nodes):
+                            if arm.armType()=="incoming":
+                                if(len(set(self._graph._orientatedCkmers[orientatedCkmerArm]._incoming.keys())
+                                               .intersection(nodes))>0):
+                                    continue
+                                if orientatedCkmerArm in endNodes:
+                                    pg.edge(arm_key,endNodes[orientatedCkmerArm],style="dashed", 
+                                                       color="grey", rankdir="lr", constraint="true")
+                                else:
+                                    for ckmerKey in nodes[orientatedCkmerArm].values():
+                                        pg.edge(arm_key,ckmerKey,style="dashed", 
+                                                       color="grey", rankdir="lr", constraint="true")
+                            elif arm.armType()=="outgoing":
+                                if(len(set(self._graph._orientatedCkmers[orientatedCkmerArm]._outgoing.keys())
+                                               .intersection(nodes))>0):
+                                    continue
+                                if orientatedCkmerArm in startNodes:
+                                    pg.edge(startNodes[orientatedCkmerArm],arm_key,style="dashed", 
+                                                       color="grey", rankdir="lr", constraint="true")
+                                else:
+                                    for ckmerKey in nodes[orientatedCkmerArm].values():
+                                        pg.edge(ckmerKey,arm_key,style="dashed", 
+                                                       color="grey", rankdir="lr", constraint="true")
+                    else:
+                        for ckmerKey in nodes[orientatedCkmer].values():
+                            if arm.armType()=="incoming":
+                                pg.edge(arm_key,ckmerKey,style="dashed", 
+                                               color="grey", rankdir="lr", constraint="true")
+                            elif arm.armType()=="outgoing":
+                                pg.edge(ckmerKey,arm_key,style="dashed", 
+                                               color="grey", rankdir="lr", constraint="true")
+ 
+            def getNodeKeys(arm,nodes,startNodes,endNodes):
+                keyList = []
+                orientatedCkmer = arm.connection()
+                orientatedCkmersArm = arm._orientatedCkmers
+                if orientatedCkmer in nodes or len(orientatedCkmersArm.intersection(nodes))>0:
+                    if len(orientatedCkmersArm.intersection(nodes))>0:
+                        for orientatedCkmerArm in orientatedCkmersArm.intersection(nodes):
+                            if arm.armType()=="incoming":
+                                if(len(set(self._graph._orientatedCkmers[orientatedCkmerArm]._incoming.keys())
+                                               .intersection(nodes))>0):
+                                    continue
+                                if orientatedCkmerArm in endNodes:
+                                    keyList.append(endNodes[orientatedCkmerArm])
+                                else:
+                                    for ckmerKey in nodes[orientatedCkmerArm].values():
+                                        keyList.append(ckmerKey)
+                            elif arm.armType()=="outgoing":
+                                if(len(set(self._graph._orientatedCkmers[orientatedCkmerArm]._outgoing.keys())
+                                               .intersection(nodes))>0):
+                                    continue
+                                if orientatedCkmerArm in startNodes:
+                                    keyList.append(startNodes[orientatedCkmerArm])
+                                else:
+                                    for ckmerKey in nodes[orientatedCkmerArm].values():
+                                        keyList.append(ckmerKey)
+                    else:
+                        for ckmerKey in nodes[orientatedCkmer].values():
+                            if arm.armType()=="incoming":
+                                keyList.append(ckmerKey)
+                            elif arm.armType()=="outgoing":
+                                keyList.append(ckmerKey)
+                return keyList
+            
+            initConfig = {
+                "showArms": False,
+                "showPotentialTransposons": False,
                 "baseStylePart": "filled",
                 "baseFillColorPart": "beige",
                 "basePenWidthPart": 1,
                 "baseColorPart": "grey",
                 "containerGraph": False,
-                "showAllBases": False,
                 "prefix": "graph",
                 "label": None
             }
-            for key, value in kwargs.items():
-                if key in config.keys():
+            config = kwargs.copy()
+            for key, value in initConfig.items():
+                if not key in config.keys():
                     config[key] = value
                     
             #create graph
@@ -237,6 +323,11 @@ class Sections():
                 g = config["containerGraph"]
             else:
                 g = Digraph()
+
+            edges = set()
+            nodes = {}
+            startNodes = {}
+            endNodes = {}
             
             partGraph=g.subgraph(name="cluster_{}".format(config["prefix"]))      
             
@@ -260,135 +351,257 @@ class Sections():
                 graph_color = config["baseColorPart"]
                 pg.attr(label=graph_label, style=graph_style, fillcolor=graph_fillcolor, 
                         color=graph_color, penwidth=str(graph_penwidth), labelloc="t", nodesep="0", ranksep="0")
-
-                #arms
-                orientatedCkmersSections = self.getOrientatedCkmers()
-                for j in range(len(self._graph._arms)):
-                    if self._graph._arms[j].connection() in orientatedCkmersSections:
-                        #only if visible
-                        if not config["showAllBases"]:
-                            orientatedCkmer = self._graph._arms[j].connection()
-                            hideArm = False
-                            for orientatedBase in self._graph._orientatedCkmers[orientatedCkmer]._orientatedBases.values():
-                                if not self._graph._orientatedBases[orientatedBase].candidate():
-                                    hideArm = True
-                            if hideArm:
-                                continue
-                        #create arm
-                        armGraph=pg.subgraph(name="cluster_graph_arm_{}".format(self._graph._arms[j].id()))
-                        with armGraph as ag:
-                            arm_name = "Arm {}".format(self._graph._arms[j].id())
-                            if self._graph._arms[j].armType()=="incoming":
-                                arm_name = "Incoming {}".format(arm_name)
-                                arm_style = config["baseStyleIncomingArm"]
-                                arm_fillcolor = config["baseFillColorIncomingArm"]
-                                arm_penwidth = config["basePenWidthIncomingArm"]
-                                arm_color = config["baseColorIncomingArm"]
-                            elif self._graph._arms[j].armType()=="outgoing":
-                                arm_name = "Outgoing {}".format(arm_name)
-                                arm_style = config["baseStyleOutgoingArm"]
-                                arm_fillcolor = config["baseFillColorOutgoingArm"]
-                                arm_penwidth = config["basePenWidthOutgoingArm"]
-                                arm_color = config["baseColorOutgoingArm"]
-                            else:
-                                continue
-                            arm_label = ("<" + 
-                                         "<font point-size=\"12\" color=\"grey\">{}</font><br/>".format(arm_name) + 
-                                         "<font point-size=\"10\">size {} with {} nodes</font><br/>".format(
-                                             self._graph._arms[j].size(),self._graph._arms[j].n()) + 
-                                         "<font point-size=\"8\">maximum frequency: {}x</font><br/>".format(
-                                             self._graph._arms[j].maxFreq()) + 
-                                         ">")
-                            ag.attr(label=arm_label, style=arm_style, fillcolor=arm_fillcolor, 
-                                color=arm_color, penwidth=str(arm_penwidth), labelloc="t", nodesep="0", ranksep="0")
-
-                            ag.node("arm_{}_{}".format(self._graph._arms[j].armType(),
-                                                       self._graph._arms[j].id()), shape="point")
+                
                 #sections
                 previousPrefix = ""
+                newEdges = set()
+                newNodes = {}
+                sectionConfig = config.copy()
+                sectionConfig["containerGraph"] = pg
+                sectionConfig["showPotentialTransposons"] = False
+                sectionConfig["showArms"] = False
+                sectionConfig["showAllBases"] = False
+                sectionConfig["showAllNodes"] = False
                 for j in range(self.sectionNumber()):
-                    sectionItem = self.section(j+1)
+                    sectionItem = self.section(j)
                     section_prefix = "graph_section_{}".format(j)
-                    section_label = "Section {} of {}".format(j+1,self.sectionNumber())
+                    section_label = "Section {}".format(j)
                     sharedStart = (self._sectionItems[j-1]._orientatedCkmers.intersection(sectionItem._orientatedCkmers) 
                                    if j>0 else set())
                     sharedEnd = (self._sectionItems[j+1]._orientatedCkmers.intersection(sectionItem._orientatedCkmers) 
-                                   if j<(self.sectionNumber()-1) else set())
-                    kwargs["containerGraph"] = pg
-                    kwargs["prefix"] = section_prefix
-                    kwargs["label"] = section_label
-                    kwargs["hideDeadEndBefore"] = sharedStart
-                    kwargs["hideDeadEndAfter"] = sharedEnd
+                                   if j<(self.sectionNumber()-2) else set())
+                    sectionConfig["prefix"] = section_prefix
+                    sectionConfig["label"] = section_label
+                    sectionConfig["hideDeadEndBefore"] = sharedStart
+                    sectionConfig["hideDeadEndAfter"] = sharedEnd
                     #create section graph
-                    self._sectionItems[j].visualize(*args, **kwargs)
-                    #detect arm connections
-                    for orientatedCkmer in sectionItem._orientatedCkmers:
-                        if self._graph._orientatedCkmers[orientatedCkmer].arm():
-                            for orientatedBase in self._graph._orientatedCkmers[orientatedCkmer]._orientatedBases.values():
-                                #only if visible
-                                if not config["showAllBases"]:
-                                    if not self._graph._orientatedBases[orientatedBase].candidate():
-                                        continue 
-                                #connect arm
-                                ckmerKey = "{}_{}_{}_{}_{}".format(section_prefix,
-                                            orientatedBase[0],orientatedBase[1],orientatedCkmer[0],orientatedCkmer[1])
-                                if self._graph._orientatedCkmers[orientatedCkmer].incomingArmType():
-                                    for armId in self._graph._orientatedCkmers[orientatedCkmer].armId():                     
-                                        fullArmId = "arm_incoming_{}".format(armId)
-                                        if not orientatedCkmer in sharedStart:
-                                            pg.edge(fullArmId,ckmerKey,style="dashed", 
-                                                   color="grey", rankdir="lr", constraint="true")
-                                elif self._graph._orientatedCkmers[orientatedCkmer].outgoingArmType():
-                                    for armId in self._graph._orientatedCkmers[orientatedCkmer].armId():                     
-                                        fullArmId = "arm_outgoing_{}".format(armId)
-                                        if not orientatedCkmer in sharedEnd:
-                                            pg.edge(ckmerKey,fullArmId,style="dashed", 
-                                                   color="grey", rankdir="lr", constraint="true")
-                                #only one connection if multiple bases
-                                break
+                    previousEdges = newEdges.copy()
+                    previousNodes = newNodes.copy()
+                    newEdges, newNodes = self._sectionItems[j].visualize(*args, **sectionConfig)
+                    edges.update(newEdges)
+                    for key,value in newNodes.items():
+                        if key in nodes:
+                            for name,nodeKey in newNodes[key].items():
+                                nodes[key][name] = nodeKey
                         else:
-                            incomingArm = self._graph._orientatedCkmers[orientatedCkmer].incomingArm()
-                            if incomingArm:
-                                for orientatedBase in \
-                                         self._graph._orientatedCkmers[orientatedCkmer]._orientatedBases.values():
-                                    ckmerKey = "{}_{}_{}_{}_{}".format(section_prefix,
-                                            orientatedBase[0],orientatedBase[1],orientatedCkmer[0],orientatedCkmer[1])
-                                    armId = "arm_incoming_{}".format(incomingArm.id())
-                                    if (not orientatedCkmer in sharedStart and 
-                                        not len(incomingArm._orientatedCkmers.intersection(
-                                            orientatedCkmersSections))>0):
-                                        pg.edge(armId,ckmerKey,style="dashed", 
-                                           color="grey", rankdir="lr", constraint="true")
-                                    break
-                            outgoingArm = self._graph._orientatedCkmers[orientatedCkmer].outgoingArm()
-                            if outgoingArm:
-                                for orientatedBase in \
-                                         self._graph._orientatedCkmers[orientatedCkmer]._orientatedBases.values():
-                                    ckmerKey = "{}_{}_{}_{}_{}".format(section_prefix,
-                                            orientatedBase[0],orientatedBase[1],orientatedCkmer[0],orientatedCkmer[1])
-                                    armId = "arm_outgoing_{}".format(outgoingArm.id())
-                                    if (not orientatedCkmer in sharedEnd and 
-                                        not len(outgoingArm._orientatedCkmers.intersection(
-                                            orientatedCkmersSections))>0):
-                                        pg.edge(ckmerKey,armId,style="dashed", 
-                                           color="grey", rankdir="lr", constraint="true")
-                                    break
+                            nodes[key] = value.copy()
+                    #update start and end
+                    for key,value in newNodes.items():
+                        if key in sharedStart:
+                            for name,nodeKey in newNodes[key].items():
+                                startNodes[key] = nodeKey
+                        if key in sharedEnd:
+                            for name,nodeKey in newNodes[key].items():
+                                endNodes[key] = nodeKey
                     #link start/end sections
                     for orientatedCkmer in sharedStart:
-                        for orientatedBase in self._graph._orientatedCkmers[orientatedCkmer]._orientatedBases.values():
+                        if orientatedCkmer in previousNodes and orientatedCkmer in newNodes:
+                            for ckmerKey1 in previousNodes[orientatedCkmer].values():
+                                for ckmerKey2 in newNodes[orientatedCkmer].values():
+                                    edge_key = (ckmerKey1, ckmerKey2,)
+                                    #single edges
+                                    if not edge_key in edges:
+                                        edges.add(edge_key)
+                                        pg.edge(ckmerKey1, ckmerKey2, style="dashed", color="grey", dir="none", rankdir="tb", constraint="true")
+                    previousPrefix = section_prefix                          
+                #arms
+                if config["showArms"]:
+                    arms = self._graph.getArms()
+                    processedArms = set()
+                    orientatedCkmersSections = self.getOrientatedCkmers()
+                    #show potential transposons
+                    if config["showPotentialTransposons"]:
+                        transposonCandidateArms = self._graph._detectTransposonArmCandidates()
+                        for i in range(len(transposonCandidateArms)):
+                            arm1 = self._graph.getArm(transposonCandidateArms[i][0])
+                            arm2 = self._graph.getArm(transposonCandidateArms[i][1])
                             #only if visible
-                            if not config["showAllBases"]:
-                                if not self._graph._orientatedBases[orientatedBase].candidate():
-                                    continue 
-                            key1 = "{}_{}_{}_{}_{}".format(previousPrefix,
-                                    orientatedBase[0],orientatedBase[1],orientatedCkmer[0],orientatedCkmer[1])
-                            key2 = "{}_{}_{}_{}_{}".format(section_prefix,
-                                    orientatedBase[0],orientatedBase[1],orientatedCkmer[0],orientatedCkmer[1])
-                            pg.edge(key1,key2,style="dashed", color="grey", rankdir="tb", constraint="true")
-                    previousPrefix = section_prefix                        
-                        
-            return g
+                            orientatedCkmer1 = arm1.connection()
+                            orientatedCkmer2 = arm2.connection()
+                            orientatedCkmersArm1 = arm1._orientatedCkmers
+                            orientatedCkmersArm2 = arm2._orientatedCkmers
+                            if ((orientatedCkmer1 in nodes or len(orientatedCkmersArm1.intersection(nodes))>0) and
+                                (orientatedCkmer2 in nodes or len(orientatedCkmersArm2.intersection(nodes))>0)):
+                                processedArms.add(arm1.id())
+                                processedArms.add(arm2.id())
+                                arm_key1, arm_key2 = self._graph._visualizeTransposon(pg,i,arm1,arm2,**config)
+                                connectArm(arm_key1,arm1,**config)
+                                connectArm(arm_key2,arm2,**config)
+                    for j in range(len(arms)):
+                        arm = arms[j]
+                        #only if no potential transposon
+                        if arm.id() in processedArms:
+                            continue
+                        else:
+                            processedArms.add(arm.id())
+                        #only if visible
+                        armNodeKeys = getNodeKeys(arm,nodes,startNodes,endNodes)
+                        if len(armNodeKeys)>0:
+                            arm_key = self._graph._visualizeArm(pg,arm,**config)
+                            for armNodeKey in armNodeKeys:
+                                if arm.armType()=="incoming":
+                                    pg.edge(arm_key,armNodeKey,style="dashed", 
+                                                               color="grey", rankdir="lr", constraint="true")
+                                elif arm.armType()=="outgoing":
+                                    pg.edge(armNodeKey,arm_key,style="dashed", 
+                                                               color="grey", rankdir="lr", constraint="true")
+                #show potential transposons
+                elif config["showPotentialTransposons"]:
+                    transposonCandidateArms = self._graph._detectTransposonArmCandidates()
+                    for i in range(len(transposonCandidateArms)):
+                        arm1 = self._graph.getArm(transposonCandidateArms[i][0])
+                        arm2 = self._graph.getArm(transposonCandidateArms[i][1])
+                        orientatedCkmer1 = arm1.connection()
+                        orientatedCkmer2 = arm2.connection()
+                        orientatedCkmersArm1 = arm1._orientatedCkmers
+                        orientatedCkmersArm2 = arm2._orientatedCkmers
+                        if ((orientatedCkmer1 in nodes or len(orientatedCkmersArm1.intersection(nodes))>0) and
+                            (orientatedCkmer2 in nodes or len(orientatedCkmersArm2.intersection(nodes))>0)):
+                            node_keys1 = getNodeKeys(arm1,nodes,startNodes,endNodes)
+                            node_keys2 = getNodeKeys(arm2,nodes,startNodes,endNodes)
+                            for armNodeKey1 in node_keys1:
+                                for armNodeKey2 in node_keys2:
+                                    self._graph._visualizeTransposonConnection(pg, armNodeKey1,armNodeKey2, **config)
+            if config["containerGraph"]:
+                return (list(edges), nodes)
+            else:
+                return g
             
+        
+        class SectionsPartPathIterator():
+            
+            def __init__(self, sectionsPart):
+                self._sectionsPart = sectionsPart
+                self._n = 0
+                self._path = [-1,[]]
+                self._starts = []
+                #recompute total
+                self._sectionsPart._computePaths()
+            
+            def __iter__(self):
+                self._n = 0
+                self._path = [-1,[]]
+                self._starts = []
+                previousEnds = set()
+                for j in range(len(self._sectionsPart._sectionItems)):
+                    currentEnds = set()
+                    for i in range(len(self._sectionsPart._sectionItems[j]._paths)):
+                        orientatedCkmers = self._sectionsPart._sectionItems[j]._paths[i].getOrientatedCkmers()
+                        if not orientatedCkmers[0] in previousEnds:
+                            self._starts.append((j,i))
+                        currentEnds.add(orientatedCkmers[-1])
+                    previousEnds = currentEnds
+                return self
+        
+            def __next__(self):
+                self._computeNextPath()
+                orientatedCkmerList = []
+                pathSequence = ""
+                distance = 0
+                for i in range(len(self._path[1])):
+                    if self._path[1][i]>=0:
+                        path = self._sectionsPart._sectionItems[i]._paths[self._path[1][i]]
+                        if len(orientatedCkmerList)>0:
+                            newOrientatedCkmerList = path.getOrientatedCkmers()
+                            newPathSequence = path.sequence()
+                            assert orientatedCkmerList[-1] == newOrientatedCkmerList[0]
+                            assert pathSequence[-self._sectionsPart._graph._k:] == newPathSequence[:self._sectionsPart._graph._k]
+                            orientatedCkmerList.extend(newOrientatedCkmerList[1:])
+                            pathSequence+=newPathSequence[self._sectionsPart._graph._k:]
+                        else:
+                            orientatedCkmerList.extend(path.getOrientatedCkmers())
+                            pathSequence+=path.sequence()
+                        distance+=path.distance()
+                return self._sectionsPart.SectionPartPath(orientatedCkmerList, pathSequence, distance, self._sectionsPart._graph)
+        
+            def _computeNextPath(self):
+                findNextPath = True
+                nItems = len(self._sectionsPart._sectionItems)
+                while findNextPath:
+                    findNextPath = False
+                    if (len(self._path[1])==0) or (self._path[0]==nItems-1):
+                        self._path[0]+=1
+                        if self._path[0]>=len(self._starts):
+                            raise StopIteration
+                        else:
+                            #initialise first path
+                            startItem = self._starts[self._path[0]]
+                            self._path[1]=[-1] * nItems
+                            self._path[1][startItem[0]] = startItem[1]
+                    else:
+                        startItem = self._starts[self._path[0]]
+                    #only if not already finished
+                    if not (startItem[0]==nItems-1):
+                        #find last
+                        lastItem = None
+                        for i in range(startItem[0],nItems):
+                            if self._path[1][i]>=0:
+                                lastItem = i
+                        #go to next path
+                        for i in range(lastItem,startItem[0],-1):
+                            self._path[1][i]+=1
+                            if self._path[1][i]>=len(self._sectionsPart._sectionItems[i]._paths):
+                                self._path[1][i]=-1
+                            else:
+                                break
+                        #all paths checked for startitem
+                        if (lastItem>startItem[0]) and (self._path[1][startItem[0]+1]<0):
+                            #no other paths for this startitem
+                            self._path[1] = []
+                            findNextPath = True
+                        else:
+                            #check
+                            previousEnd = self._sectionsPart._sectionItems[startItem[0]]._paths[startItem[1]].getOrientatedCkmers()[-1]
+                            for i in range(startItem[0]+1,nItems):
+                                if self._path[1][i]<0:
+                                    self._path[1][i]=0
+                                orientatedCkmers = self._sectionsPart._sectionItems[i]._paths[self._path[1][i]].getOrientatedCkmers()
+                                if not orientatedCkmers[0]==previousEnd:
+                                    for j in range(i+1,nItems):
+                                        self._path[1][j] = -1
+                                    findNextPath = True
+                                    #check if this is end of path, then ok
+                                    currentPathStarts = set([path.getOrientatedCkmers()[0] for 
+                                                                path in self._sectionsPart._sectionItems[i]._paths])
+                                    if not previousEnd in currentPathStarts:
+                                        self._path[1][i] = -1
+                                        findNextPath = False
+                                    break
+                                else:
+                                    previousEnd = orientatedCkmers[-1]
+                            #reset to next start
+                            if max(self._path[1][startItem[0]+1:])<0:
+                                self._path[1] = []
+                                findNextPath = True
+        
+                self._n += 1
+    
+        class SectionPartPath():
+                
+            def __init__(self, orientatedCkmerList, pathSequence, distance, graph):                
+                self._orientatedCkmerList = orientatedCkmerList
+                self._pathSequence = pathSequence
+                self._distance = distance
+                self._graph = graph
+                
+            def distance(self):
+                return self._distance
+            
+            def sequence(self):
+                return self._pathSequence
+            
+            def getOrientatedCkmers(self):
+                return self._orientatedCkmerList
+            
+            def getCandidates(self):
+                candidates = []
+                for orientatedCkmer in self.getOrientatedCkmers():
+                    if self._graph._orientatedCkmers[orientatedCkmer].candidate():
+                        candidates.append(orientatedCkmer)
+                return set(candidates)
+            
+            def n(self):
+                return len(self._orientatedCkmerList)
         
     class SectionItem():
     
@@ -525,7 +738,8 @@ class Sections():
             partialPaths = [{"distance": 0,
                              "sequence": (orientatedCkmer[0] if orientatedCkmer[1]=="forward" 
                                       else General.reverse_complement(orientatedCkmer[0])),
-                             "list": [orientatedCkmer]} for orientatedCkmer in 
+                             "list": [orientatedCkmer]} 
+                            for orientatedCkmer in 
                                         sectionStarters.union(realStarters)]
             while len(partialPaths)>0:
                 newPartialPaths = []
@@ -550,7 +764,7 @@ class Sections():
                                 newPartialPaths.append(newPartialPath)
                                 newPaths+=1
                         if newPaths==0:
-                            self._paths.append(self.SectionItemPath(partialPath["list"],
+                            self._paths.append(SectionItemPath(partialPath["list"],
                                                                partialPath["sequence"],partialPath["distance"],
                                                                self._graph))
                 partialPaths = newPartialPaths 
@@ -580,8 +794,8 @@ class Sections():
             return self._pathNumber
         
         def path(self, i: int):
-            if i>0 and i<=self._pathNumber:
-                return self._paths[i-1]
+            if i>=0 and i<self._pathNumber:
+                return self._paths[i]
             else:
                 return None
             
@@ -597,7 +811,7 @@ class Sections():
             
         def visualize(self, *args, **kwargs):  
             
-            config = {
+            initConfig = {
                 "baseStyleSection": "filled",
                 "baseFillColorSection": "grey98",
                 "basePenWidthSection": 1,
@@ -606,17 +820,19 @@ class Sections():
                 "prefix": "graph_section",
                 "label": None
             }
-            for key, value in kwargs.items():
-                if key in config.keys():
+            config = kwargs.copy()
+            for key, value in initConfig.items():
+                if not key in config.keys():
                     config[key] = value
-                    
-                    #create graph
+
+            #create graph
             if config["containerGraph"]:
                 g = config["containerGraph"]
             else:
                 g = Digraph()
                 
             sectionGraph=g.subgraph(name="cluster_{}".format(config["prefix"]))
+            sectionConfig = config.copy()
             with sectionGraph as sg:
                 if config["label"]:
                     section_label = config["label"]
@@ -642,25 +858,28 @@ class Sections():
                         color=section_color, penwidth=str(section_penwidth),
                         labelloc="t", nodesep="0", ranksep="0")    
 
-                kwargs["containerGraph"] = sg
-                kwargs["prefix"] = config["prefix"]
-                kwargs["restrictedListOfOrientatedCkmers"] = self._orientatedCkmers
-                self._graph.visualize(*args, **kwargs)
-            return g
-        
-        
-        class SectionItemPath:
+                sectionConfig["containerGraph"] = sg
+                sectionConfig["restrictedListOfOrientatedCkmers"] = self._orientatedCkmers
+                edges,nodes = self._graph.visualize(*args, **sectionConfig)
+            if config["containerGraph"]:
+                return (list(edges), nodes)
+            else:
+                return g
+
+        class SectionItemPath():
             
-            def __init__(self, orientatedCkmerList, pathSequence, distance, graph):                
+            def __init__(self, orientatedCkmerList, pathSequence, distance, graph):         
+                #initialise
                 self._orientatedCkmerList = orientatedCkmerList
                 self._pathSequence = pathSequence
                 self._distance = distance
+                self._graph = graph
+                #other variables
                 self._required = False
                 self._optional = False
-                self._graph = graph
                 self._datasets = set()
                 self._varieties = set()
-                
+
             def distance(self):
                 return self._distance
             
@@ -679,12 +898,11 @@ class Sections():
             
             def n(self):
                 return len(self._orientatedCkmerList)
-            
+                
             def _setRequired(self):
                 self._required = True
                 self._optional = False
-                
-                
+
             def required(self):
                 return self._required
             

@@ -31,6 +31,8 @@ class SequenceGraph(APIGraph):
         self._glueMissingConnections()
         #fix start and end based on connected candidates
         self._expandConnectedStartEndCandidates()
+        #detect arms
+        self._detectArms()
         
     def __repr__(self):
         text = super(haplotyping.graph.sequence.SequenceGraph, self).__repr__()
@@ -700,24 +702,57 @@ class SequenceGraph(APIGraph):
         #reset distances, they should probably be recomputed with new connections
         if numberOfGluedMissingConnections>0:            
             self._resetDistances()
+
+    def visualize(self, *args, **kwargs):
+        #initialise configuration by setting missing args
+        initConfig = {            
+        }
+        config = kwargs.copy()
+        for key, value in initConfig.items():
+            if not key in config.keys():
+                config[key] = value
+        return super(haplotyping.graph.sequence.SequenceGraph, self).visualize(**config)
+
+    def _visualizeBasic(self, g, *args, **kwargs):         
+        #initialise configuration
+        basicConfig = {
+        }
+        config = kwargs.copy()
+        for key, value in basicConfig.items():
+            if not key in config.keys():
+                config[key] = value
+        return super(haplotyping.graph.sequence.SequenceGraph, self)._visualizeBasic(g, **config)
+
+    def _visualizeAdvanced(self, g, *args, **kwargs):         
+        #initialise configuration
+        advancedConfig = {
+            "baseOrderFontSize": 6,
+            "nodeLevelFontSize": 8
+        }
+        config = kwargs.copy()
+        for key, value in advancedConfig.items():
+            if not key in config.keys():
+                config[key] = value
+        return super(haplotyping.graph.sequence.SequenceGraph, self)._visualizeAdvanced(g, **config)
                     
-    def _visualize_base_label(self, orientatedBase: str):
-        base_label = super(haplotyping.graph.sequence.SequenceGraph, self)._visualize_base_label(orientatedBase)
+    def _visualize_base_label(self, orientatedBase: tuple, fontSize:dict = {}, config:dict = {}):
+        base_label = super(haplotyping.graph.sequence.SequenceGraph, self)._visualize_base_label(
+            orientatedBase, fontSize, config)
         if not self._orientatedBases[orientatedBase]._order is None:
             base_label = base_label[:-1]
-            base_label +="<font point-size=\"6\">"
+            base_label +="<font point-size=\"{}\">".format(fontSize.get("order",config.get("baseOrderFontSize","0")))
             base_label +=" <font color=\"blue\">pos: "+str(self._orientatedBases[orientatedBase]._order)+"</font>"
             base_label +="</font>"
             base_label +=">"
         return base_label
     
-    def _visualize_node_label(self, orientatedBase: str, orientatedCkmer: str):
-        node_label = super(haplotyping.graph.sequence.SequenceGraph, self)._visualize_node_label(
-            orientatedBase,orientatedCkmer)
+    def _visualize_advanced_node_label(self, orientatedBase: tuple, orientatedCkmer: tuple, fontSize:dict = {}, config:dict = {}):
+        node_label = super(haplotyping.graph.sequence.SequenceGraph, self)._visualize_advanced_node_label(
+            orientatedBase, orientatedCkmer, fontSize, config)
         if not self._orientatedCkmers[orientatedCkmer]._level is None:
             node_label = node_label[:-1]
-            node_label +="<font point-size=\"8\">"
-            node_label +=" <font color=\"blue\"> "+str(self._orientatedCkmers[orientatedCkmer]._level)+"</font>"
+            node_label +="<font point-size=\"{}\">".format(fontSize.get("level",config.get("nodeLevelFontSize","0")))
+            node_label +=" <font color=\"blue\"> {}</font>".format(self._orientatedCkmers[orientatedCkmer]._level)
             node_label +="</font>" + ">"
         return node_label
 
