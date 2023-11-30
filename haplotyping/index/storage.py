@@ -1345,23 +1345,27 @@ class Storage:
                 # - type-filtered: don't store single
                 reducedNodes,reducedTypes = list(zip(*[entry for entry in zip(nodes,types) if entry[0]>0]))
                 if len(reducedNodes)>2:
-                    filtering = [0] * len(reducedNodes)
-                    filtering[0] = 1 if reducedTypes[0]&2==2 else 0
-                    filtering[-1] = 1 if reducedTypes[-1]&1==1 else 0
+                    reducedFiltering = [0] * len(reducedNodes)
+                    reducedFiltering[0] = 1 if reducedTypes[0]&2==2 else 0
+                    reducedFiltering[-1] = 1 if reducedTypes[-1]&1==1 else 0
                     for i in range(1,len(reducedNodes)):
                         if reducedTypes[i-1]&2==2 and reducedTypes[i]&1==1:
-                            filtering[i-1] = 1
-                            filtering[i] = 1
-                    s = sum(filtering)
-                    if s>2 or (s==2 and len(np.trim_zeros(filtering))>2):
-                        filteredNodes = [n for n,f in zip(reducedNodes,filtering) if f==1]
+                            reducedFiltering[i-1] = 1
+                            reducedFiltering[i] = 1
+                    s = sum(reducedFiltering)
+                    if s>2 or (s==2 and len(np.trim_zeros(reducedFiltering))>2):
+                        filteredNodes = [n for n,f in zip(reducedNodes,reducedFiltering) if f==1]
                         filtered.append(filteredNodes)
                 return filtered
 
             def filterReadData(rowData, repairs=0, breaks=0):
                 filtered = []
                 #types: 0 - single connected, 1 - splitting to the left, 2 - splitting to the right , 3 - both
-                #direction outgoing: 0 - unknown, 1 - left, 2 - right, 3 - both
+                #direction outgoing: 
+                #  0 - unknown, 
+                #  1 - left, 4 - new left
+                #  2 - right, 8 - new right
+                #  3 - both
                 if len(rowData)>1:
                     nodeId = rowData[0]
                     nodeDirection = 0
