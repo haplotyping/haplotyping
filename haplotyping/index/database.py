@@ -6,10 +6,6 @@ import haplotyping
 import haplotyping.index.splits
 import haplotyping.index.connections
 
-#use spawn, also on unix
-if __name__ == "__main__":
-    mp.set_start_method("spawn", force=True)
-
 class Database:
     
     """
@@ -87,15 +83,18 @@ class Database:
         """
         Internal use only: initialize
         """
-    
-        if mp.get_start_method()=="spawn":
-            frame = sys._getframe()
-            while frame:
-                if "__name__" in frame.f_locals.keys():
-                    if not frame.f_locals["__name__"]=="__main__":
-                        return
-                    break                    
-                frame = frame.f_back
+
+        if not mp.get_start_method()=="spawn":
+            self._logger.error("using method '{}' for multiprocessing not supported, use 'spawn' instead".format(mp.get_start_method()))
+            return
+            
+        frame = sys._getframe()
+        while frame:
+            if "__name__" in frame.f_locals.keys():
+                if not frame.f_locals["__name__"]=="__main__":
+                    return
+                break                    
+            frame = frame.f_back
         
         #logger
         self._logger = logging.getLogger(__name__)
