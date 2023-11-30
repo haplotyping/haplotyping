@@ -190,9 +190,9 @@ class Connections:
         
         qsize = 10000
         queue_start = mp.Queue(qsize)
-        queue_automaton = mp.Queue(qsize)
-        queue_index = mp.Queue(qsize)
-        queue_matches = mp.Queue(qsize)
+        queue_automaton = mp.JoinableQueue(qsize)
+        queue_index = mp.JoinableQueue(qsize)
+        queue_matches = mp.JoinableQueue(qsize)
         queue_finished = mp.Queue()
         queue_storageDirect = mp.Queue()
         queue_storageReads = mp.Queue()
@@ -357,8 +357,9 @@ class Connections:
                 self._logger.error("pairedReads already (partly) processed")                    
             
             #now wait until queues are empty
-            while not (queue_automaton.empty() and queue_index.empty() and queue_matches.empty()):
-                time.sleep(1)
+            queue_automaton.join()
+            queue_index.join()
+            queue_matches.join()
                 
             #then trigger stopping by sending enough Nones
             for i in range(pool_automaton._processes):
@@ -441,7 +442,7 @@ class Connections:
         nWorkersMerges = max(1,mp.cpu_count()-1) if self.maximumProcesses==0 else self.maximumProcesses - 1
         self._logger.debug("start {} processes to merge stored data".format(nWorkersMerges))
         
-        queue_ranges = mp.Queue(nWorkersMerges)
+        queue_ranges = mp.JoinableQueue(nWorkersMerges)
         queue_merges = mp.Queue(nWorkersMerges)
         original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
         pool_merges = mp.Pool(nWorkersMerges, haplotyping.index.storage.Storage.workerMergeDirect, 
@@ -463,9 +464,7 @@ class Connections:
                 queue_ranges.put(None)
                 
             #now wait    
-            while not (queue_ranges.empty()):
-                time.sleep(1)
-                
+            queue_ranges.join()
             #clean
             if not self.keepTemporaryFiles:
                 for item in storageDirectFiles:
@@ -668,15 +667,14 @@ class Connections:
             shm_kmer_partition = np.dtype(haplotyping.index.Database.getUint(self.numberOfPartitions)).type
             shm_kmer_number = np.dtype(haplotyping.index.Database.getUint(self.maximumFrequency)).type
             shm_kmer_reference = np.dtype(haplotyping.index.Database.getUint(numberOfDirect)).type
-            shm_kmer_numberLeft = np.dtype("uint8").type
-            shm_kmer_numberRight = np.dtype("uint8").type
+            shm_kmer_numberLeftRight = np.dtype("uint8").type
             shm_kmer_size = self.numberOfKmers*(shm_kmer_partition(0).nbytes+
                                                 shm_kmer_number(0).nbytes+
                                                 shm_kmer_reference(0).nbytes+
-                                                shm_kmer_numberLeft(0).nbytes+
-                                                shm_kmer_numberRight(0).nbytes)
+                                                shm_kmer_numberLeftRight(0).nbytes)
             shm_direct_kmer = np.dtype(haplotyping.index.Database.getUint(self.numberOfKmers)).type
-            shm_direct_size = numberOfDirect*shm_direct_kmer(0).nbytes
+            shm_direct_info = np.dtype("uint8").type
+            shm_direct_size = numberOfDirect*(shm_direct_kmer(0).nbytes + shm_direct_info(0).nbytes)
             self._logger.debug("size shared memory {} MB k-mer properties".format(math.ceil(shm_kmer_size/1048576)))
             self._logger.debug("size shared memory {} MB direct connections".format(math.ceil(shm_direct_size/1048576)))
 
@@ -686,17 +684,20 @@ class Connections:
                                          dtype=[("partition",shm_kmer_partition),
                                                 ("number",shm_kmer_number),
                                                 ("reference",shm_kmer_reference),
-                                                ("numberLeft",shm_kmer_numberLeft),
-                                                ("numberRight",shm_kmer_numberRight)], 
+                                                ("numberLeftRight",shm_kmer_numberLeftRight)], 
                                          buffer=shm_kmer.buf)
             direct_properties = np.ndarray((numberOfDirect,), 
-                                         dtype=shm_direct_kmer, 
+                                         dtype=[("ckmer",shm_direct_kmer),("info",shm_direct_info)],
                                          buffer=shm_direct.buf)
             ckmerLink = 0
+            #direct info bit-encoding
+            #- from-direction left/right : 0/1
+            #- to-direction left/right : 0/2
+            #- problematic no/yes : 0/4
             for i in range(0,self.numberOfKmers,Connections.stepSizeStorage):
                 #get k-mer data
                 ckmers = self.h5file["/split/ckmer"][i:min(self.numberOfKmers,i+Connections.stepSizeStorage)]
-                stepData = [(row[5],row[2],row[4][0],row[4][1][0],row[4][2][0]) for row in ckmers]
+                stepData = [(row[5],row[2],row[4][0],row[4][1][0]+row[4][2][0]) for row in ckmers]
                 kmer_properties[ckmerLink:ckmerLink+len(stepData)] = stepData
                 ckmerLink+=len(stepData)
                 del stepData
@@ -711,7 +712,7 @@ class Connections:
                         directEnd=max(directEnd,row[4][0]+row[4][1][1]+row[4][2][1])
                 if directStart<directEnd:
                     direct = self.h5file["/relations/direct"][directStart:directEnd]
-                    stepData = [row[1][0] for row in direct]
+                    stepData = [(row[1][0],(row[0][1]==b"r")+2*(row[1][1]==b"r")+4*(row[4]>0)) for row in direct]
                     direct_properties[directStart:directEnd] = stepData
                     del stepData
                                 
@@ -724,7 +725,7 @@ class Connections:
             self._logger.debug("start {} processes to process reads".format(nWorkersReads))
             
             #queues
-            queue_rawReads = mp.Queue(len(self.storageReadFiles))
+            queue_rawReads = mp.JoinableQueue(len(self.storageReadFiles))
             queue_filteredReads = mp.Queue()
             queue_finished = mp.Queue()            
             
@@ -738,7 +739,7 @@ class Connections:
                                   self.numberOfPartitions,numberOfDirect,self.maximumFrequency,maximumReadLength,
                                   shm_kmer.name,shm_direct.name))
             signal.signal(signal.SIGINT, original_sigint_handler)
-            
+
             try:
                 #fill queue
                 for item in self.storageReadFiles:
@@ -746,11 +747,8 @@ class Connections:
                 #trigger stopping by sending enough Nones
                 for i in range(pool_reads._processes):
                     queue_rawReads.put(None)
-
                 #now wait    
-                while not (queue_rawReads.empty()):
-                    time.sleep(1)
-
+                queue_rawReads.join()
                 #clean
                 if not self.keepTemporaryFiles:
                    for item in self.storageReadFiles:
@@ -785,7 +783,7 @@ class Connections:
                 except Exception as e:
                     self._logger.debug("problem unlinking shared memory ({})".format(e))
                 #get filtered readfiles
-                storageFilteredReadFiles = Connections._collect_and_close_queue(queue_filteredReads)   
+                storageFilteredReadFiles = Connections._collect_and_close_queue(queue_filteredReads)
                 
             #compute merged paired from storageFilteredReadFiles
             haplotyping.index.storage.Storage.combineFilteredPairs(
@@ -810,7 +808,7 @@ class Connections:
             nWorkersMerges = min(len(storageFilteredReadFiles),nWorkers)     
             self._logger.debug("start {} processes to merge reads".format(nWorkersMerges))
             
-            queue_ranges = mp.Queue(nWorkersMerges)
+            queue_ranges = mp.JoinableQueue(nWorkersMerges)
             queue_merges = mp.Queue(nWorkersMerges)
             original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
             pool_merges = mp.Pool(nWorkersMerges, haplotyping.index.storage.Storage.workerMergeReads, 
@@ -828,11 +826,8 @@ class Connections:
                 #then trigger stopping by sending enough Nones
                 for i in range(pool_merges._processes):
                     queue_ranges.put(None)
-
                 #now wait    
-                while not (queue_ranges.empty()):
-                    time.sleep(1)
-
+                queue_ranges.join()
                 #collect created merges
                 mergeFiles = []
                 while True:

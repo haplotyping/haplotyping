@@ -172,6 +172,7 @@ class Storage:
                     item = queue_automaton.get(block=True, timeout=1)
                     if item==None:
                         logger.debug("autmaton ({}): none item".format(os.getpid()))
+                        queue_automaton.task_done()
                         break
                     elif isinstance(item,tuple) and len(item)==2:
                         queue_index.put((
@@ -182,6 +183,7 @@ class Storage:
                         queue_index.put((
                             (item,compute_matches(item,automatonSplits),),
                         ))
+                    queue_automaton.task_done()
                 except Empty:
                     logger.debug("automaton ({}): empty".format(os.getpid()))
                     time.sleep(5)
@@ -393,6 +395,7 @@ class Storage:
                         item = queue_index.get(block=True, timeout=1)
                         if item==None:
                             logger.debug("index ({}): none item".format(os.getpid()))
+                            queue_index.task_done()
                             break
                         elif isinstance(item,tuple):
                             if len(item)==1:
@@ -436,10 +439,13 @@ class Storage:
                                                 store_matches(matches0,readData,readInfo)
                                             if tmpTotalMatches1>1:
                                                 store_matches(matches1,readData,readInfo)
+
+                        queue_index.task_done()
                     except Empty:
                         logger.debug("index ({}): empty".format(os.getpid()))
                         time.sleep(5)
                         continue
+                
             #now the file can be released for later processing
             if not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS):
                 queue_storage.put(pytablesFileWorker) 
@@ -681,6 +687,7 @@ class Storage:
                         item = queue_matches.get(block=True, timeout=1)
                         if item==None:
                             logger.debug("matches ({}): none item".format(os.getpid()))
+                            queue_matches.task_done()
                             break
                         elif isinstance(item,tuple):
                             if len(item)==1:
@@ -736,6 +743,7 @@ class Storage:
                                     if not pairTo is None:
                                         if not (indexType==haplotyping.index.database.Database.ONLYDIRECTCONNECTIONS):
                                             store_paired(pairFrom,pairTo)
+                        queue_matches.task_done()
                     except Empty:
                         logger.debug("matches ({}): empty".format(os.getpid()))
                         time.sleep(5)
@@ -1240,6 +1248,7 @@ class Storage:
                 try:
                     item = queue_ranges.get(block=True, timeout=1)
                     if item==None:
+                        queue_ranges.task_done()
                         break
                     elif isinstance(item,tuple):
                         mergeStart = item[0]
@@ -1260,6 +1269,7 @@ class Storage:
                                              mergeNumber, numberOfKmers, kmer_properties)
                         #now the file can be released for final merge
                         queue_merges.put(pytablesFileRange) 
+                    queue_ranges.task_done()
                 except Empty:
                     time.sleep(1)
                     continue
@@ -1273,26 +1283,26 @@ class Storage:
                      numberOfPartitions,numberOfDirect,maximumFrequency,maximumReadLength,shm_kmer_name,shm_direct_name):
 
         logger = logging.getLogger("{}.worker.index".format(__name__))
-        
+
+        curr_proc = current_process()
         try:
             shm_kmer = shared_memory.SharedMemory(shm_kmer_name)
             shm_kmer_partition = np.dtype(haplotyping.index.Database.getUint(numberOfPartitions)).type
             shm_kmer_number = np.dtype(haplotyping.index.Database.getUint(maximumFrequency)).type
             shm_kmer_reference = np.dtype(haplotyping.index.Database.getUint(numberOfDirect)).type
-            shm_kmer_numberLeft = np.dtype("uint8").type
-            shm_kmer_numberRight = np.dtype("uint8").type
+            shm_kmer_numberLeftRight = np.dtype("uint8").type
 
             shm_direct = shared_memory.SharedMemory(shm_direct_name)
             shm_direct_kmer = np.dtype(haplotyping.index.Database.getUint(numberOfKmers)).type
+            shm_direct_info = np.dtype("uint8").type
             kmer_properties = np.ndarray((numberOfKmers,), 
                                          dtype=[("partition",shm_kmer_partition),
                                                 ("number",shm_kmer_number),
                                                 ("reference",shm_kmer_reference),
-                                                ("numberLeft",shm_kmer_numberLeft),
-                                                ("numberRight",shm_kmer_numberRight)], 
+                                                ("numberLeftRight",shm_kmer_numberLeftRight)], 
                                          buffer=shm_kmer.buf)
             direct_properties = np.ndarray((numberOfDirect,), 
-                                         dtype=shm_direct_kmer, 
+                                         dtype=[("ckmer",shm_direct_kmer),("info",shm_direct_info)], 
                                          buffer=shm_direct.buf)
 
             def getRead(counters, structureIterator, stepData,pytablesStorageWorker):
@@ -1308,87 +1318,133 @@ class Storage:
                 return row, rowData, counters, structureIterator, stepData
 
             def _getNeighbours(nodeId):
-                left  = direct_properties[kmer_properties[nodeId][2]:
+                neighbours = direct_properties[kmer_properties[nodeId][2]:
                                           kmer_properties[nodeId][2]+kmer_properties[nodeId][3]]
-                right = direct_properties[kmer_properties[nodeId][2]+kmer_properties[nodeId][3]:
-                                          kmer_properties[nodeId][2]+kmer_properties[nodeId][3]+kmer_properties[nodeId][4]]
+                left=[(item[0],item[1]&2==2) for item in neighbours if item[1]&1==0]
+                right=[(item[0],item[1]&2==2) for item in neighbours if item[1]&1==1]
                 return left,right
 
-            def _getConnections(nodeId,left,right,other=False):
-                if other:
-                    return (len(left) if not nodeId in left else 0) + (len(right) if not nodeId in right else 0)
+            def _getConnections(nodeId,left,right):
+                if nodeId in left:
+                    if nodeId in right:
+                        return (len(left)+len(right),left+right,)
+                    else:
+                        return (len(left),right,)
+                elif nodeId in right:
+                    return (len(right),left,)
                 else:
-                    return (len(left) if nodeId in left else 0) + (len(right) if nodeId in right else 0)
+                    return (0,[],)
 
             def _filterByType(nodes,types,filtered):
-                # storage rules:
+                # storage rules: 
                 # - first only if right splitting (2)
                 # - last only if left splitting (1)
+                # - ignore direct connected (0)
                 # - pairs only both if first right (2) and second left (1)
                 # - type-filtered: don't store pair direct connected
                 # - type-filtered: don't store single
-                if len(nodes)>2:
-                    filtering = [0] * len(nodes)
-                    filtering[0] = 1 if types[0]&2==2 else 0
-                    filtering[-1] = 1 if types[-1]&1==1 else 0
-                    for i in range(1,len(nodes)):
-                        if types[i-1]&2==2 and types[i]&1==1:
+                reducedNodes,reducedTypes = list(zip(*[entry for entry in zip(nodes,types) if entry[0]>0]))
+                if len(reducedNodes)>2:
+                    filtering = [0] * len(reducedNodes)
+                    filtering[0] = 1 if reducedTypes[0]&2==2 else 0
+                    filtering[-1] = 1 if reducedTypes[-1]&1==1 else 0
+                    for i in range(1,len(reducedNodes)):
+                        if reducedTypes[i-1]&2==2 and reducedTypes[i]&1==1:
                             filtering[i-1] = 1
                             filtering[i] = 1
                     s = sum(filtering)
                     if s>2 or (s==2 and len(np.trim_zeros(filtering))>2):
-                        filteredNodes = [n for n,f in zip(nodes,filtering) if f==1]
+                        filteredNodes = [n for n,f in zip(reducedNodes,filtering) if f==1]
                         filtered.append(filteredNodes)
                 return filtered
 
-            def filterReadData(rowData):
+            def filterReadData(rowData, repairs=0, breaks=0):
                 filtered = []
-                filteredTypes = []
                 #types: 0 - single connected, 1 - splitting to the left, 2 - splitting to the right , 3 - both
+                #direction outgoing: 0 - unknown, 1 - left, 2 - right, 3 - both
                 if len(rowData)>1:
                     nodeId = rowData[0]
+                    nodeDirection = 0
                     left,right = _getNeighbours(nodeId)
                     newRow = [nodeId]
                     newTypes = [0]
                     for i in range(1,len(rowData)):
-                        nNodeId = rowData[i]
-                        nLeft,nRight = _getNeighbours(nNodeId)
-                        forwardNumber = _getConnections(nNodeId,left,right)
-                        backwardNumber = _getConnections(nodeId,nLeft,nRight)
+                        newNodeId = rowData[i]
+                        newNodeDirection = 0
+                        newLeft,newRight = _getNeighbours(newNodeId)
+                        if nodeDirection&3==0 or nodeDirection&1==1:
+                            for entry in left:
+                                if entry[0]==newNodeId:
+                                    nodeDirection|=4
+                                    if entry[1]:
+                                        newNodeDirection|=1
+                                    else:
+                                        newNodeDirection|=2                            
+                        if nodeDirection&3==0 or nodeDirection&2==2:
+                            for entry in right:
+                                if entry[0]==newNodeId:
+                                    nodeDirection|=8
+                                    if entry[1]:
+                                        newNodeDirection|=1
+                                    else:
+                                        newNodeDirection|=2
+                        for entry in newLeft:
+                            if entry[0]==nodeId:
+                                newNodeDirection|=8
+                        for entry in newRight:
+                            if entry[0]==nodeId:
+                                newNodeDirection|=4                           
                         #no direct connections (probably read error)
-                        if forwardNumber==0 or backwardNumber==0:
+                        if not (nodeDirection>0 and newNodeDirection>0):
+                            if nodeDirection>0:
+                                candidates = [entry for entry in 
+                                                  (left if nodeDirection&1==1 else []) + (right if nodeDirection&2==2 else []) 
+                                              if entry[0] in rowData[i:]]
+                                #skip unexpected k-mers and move forward
+                                if len(candidates)==1:
+                                    for i in range(i+1,len(rowData)):
+                                        if rowData[i]==candidates[0][0]:
+                                            i-=1
+                                            repairs+=1
+                                            break
+                                    continue
+                            breaks+=1
                             filtered = _filterByType(newRow,newTypes,filtered)
-                            newRow = [nNodeId]
+                            newRow = [newNodeId]
+                            newNodeDirection = 0
                             newTypes = [0]
                         else:
+                            forwardNumber = (len(newLeft) if newNodeDirection&1==1 else 0) + (len(newRight) if newNodeDirection&2==2 else 0)
+                            backwardNewNumber = (len(left) if nodeDirection&4==4 else 0) + (len(right) if nodeDirection&8==8 else 0)
                             #direct connected
-                            newRow.append(nNodeId)
+                            newRow.append(newNodeId)
                             #not trivial (backward)
-                            if backwardNumber>1:
+                            if backwardNewNumber>1:
                                 newTypes.append(1)
                             else:
                                 newTypes.append(0)
                             #not trivial (forward)
                             if forwardNumber>1:
                                 newTypes[-2]|=2
-                        left = nLeft
-                        right = nRight
-                        nodeId = nNodeId
+                        left = newLeft
+                        right = newRight
+                        nodeId = newNodeId
+                        nodeDirection = newNodeDirection >> 2
                     filtered = _filterByType(newRow,newTypes,filtered)
-                return filtered
-
+                return (filtered,repairs,breaks)
 
             while not shutdown_event.is_set():
                 try:
                     item = queue_rawReads.get(block=True, timeout=1)
                     if item==None:
                         logger.debug("reads ({}): none item".format(os.getpid()))
+                        queue_rawReads.task_done()
                         break
-                    else: 
+                    else:
                         curr_proc = current_process()
                         pytablesFileWorker = filenameBase+"_tmp_processed_reads_{}.process.h5".format(curr_proc.name)
                         if os.path.exists(pytablesFileWorker):
-                            os.remove(pytablesFileWorker)                    
+                            os.remove(pytablesFileWorker) 
                         with (tables.open_file(item, mode="r") as pytablesStorageWorkerRaw, 
                               tables.open_file(pytablesFileWorker, mode="w") as pytablesStorageWorkerFiltered):
                             #create partition table
@@ -1399,8 +1455,7 @@ class Storage:
                                                       pytablesStorageWorkerRaw.root.readRawInfo.shape[0])
                             readPartitionData = pytablesStorageWorkerFiltered.root.readPartitionData
                             readPartitionInfo = pytablesStorageWorkerFiltered.root.readPartitionInfo
-                            readPaired = pytablesStorageWorkerFiltered.root.readPaired                        
-
+                            readPaired = pytablesStorageWorkerFiltered.root.readPaired
                             #compute and store read partition
                             counters = [0,0,0,Storage.stepSizeStorage,Storage.stepSizeStorage] #n0,n1,m0,m1,stepSize
                             #buffer
@@ -1409,6 +1464,8 @@ class Storage:
                             computedPaired = []
                             #initialize
                             previousPaired = None
+                            totalRepairs = 0
+                            totalBreaks = 0
                             try:
                                 structureIterator = pytablesStorageWorkerRaw.root.readRawInfo.iterrows()
                                 stepData = pytablesStorageWorkerRaw.root.readRawData[counters[2]:counters[3]]
@@ -1417,7 +1474,7 @@ class Storage:
                                         counters, structureIterator, stepData, pytablesStorageWorkerRaw)
                                     assert row[0]==len(rowData)
                                     #filter
-                                    filteredRowData = filterReadData(rowData)
+                                    filteredRowData,totalRepairs,totalBreaks = filterReadData(rowData,totalRepairs,totalBreaks)
                                     #only if filtered set non-empty
                                     if len(filteredRowData)>0:   
                                         rowNodes = []
@@ -1464,7 +1521,7 @@ class Storage:
                                             computedPaired = []
                             except StopIteration:
                                 pass
-                            finally:
+                            finally:                                
                                 #update last entries to storage
                                 if len(computedPartitionData)>0:
                                     readPartitionData.append(tuple(computedPartitionData))
@@ -1477,18 +1534,19 @@ class Storage:
                                         computedPaired = [] 
                                 #flush and finish        
                                 pytablesStorageWorkerFiltered.flush()
-                                logger.debug("reads ({}): filtered {}/{} reads to {}/{}".format(
-                                  os.getpid(),
-                                  pytablesStorageWorkerRaw.root.readRawInfo.shape[0],
-                                  pytablesStorageWorkerRaw.root.readRawData.shape[0],
-                                  pytablesStorageWorkerFiltered.root.readPartitionInfo.shape[0],
-                                  pytablesStorageWorkerFiltered.root.readPartitionData.shape[0]))
+                                unfilteredReads = pytablesStorageWorkerRaw.root.readRawInfo.shape[0]
+                                unfilteredNodes = pytablesStorageWorkerRaw.root.readRawData.shape[0]
+                                pytablesStorageWorkerFiltered.root.readPartitionInfo.attrs["unfilteredReads"] = unfilteredReads
+                                pytablesStorageWorkerFiltered.root.readPartitionInfo.attrs["unfilteredNodes"] = unfilteredNodes
+                                pytablesStorageWorkerFiltered.root.readPartitionInfo.attrs["breaks"] = totalBreaks
+                                pytablesStorageWorkerFiltered.root.readPartitionInfo.attrs["repairs"] = totalRepairs
                                 #store filtered read files
                                 queue_filteredReads.put(pytablesFileWorker)
+                    queue_rawReads.task_done()
                 except Empty:
                     logger.debug("reads ({}): empty".format(os.getpid()))
                     time.sleep(5)
-                    continue      
+                    continue 
         finally:
             shm_kmer.close()
             shm_direct.close()
@@ -1525,8 +1583,16 @@ class Storage:
                     startPosition = partitionPosition[i-mergeStart][0]
                     pytablesStorageWorker.root.readPartitionInfo[startPosition:startPosition+len(values)] = values
                 #set data and length
+                totalUnfilteredReads = 0
+                totalUnfilteredNodes = 0
+                totalRepairs = 0
+                totalBreaks = 0
                 for item in storageReadFiles:
                     with tables.open_file(item, mode="r") as pytablesMergeSource:
+                        totalUnfilteredReads += pytablesMergeSource.root.readPartitionInfo.attrs["unfilteredReads"]
+                        totalUnfilteredNodes += pytablesMergeSource.root.readPartitionInfo.attrs["unfilteredNodes"]
+                        totalBreaks += pytablesMergeSource.root.readPartitionInfo.attrs["breaks"]
+                        totalRepairs += pytablesMergeSource.root.readPartitionInfo.attrs["repairs"]
                         #compute and store read partition
                         stepSize = 10
                         counters = [0,0,0,stepSize,stepSize] #n0,n1,m0,m1,stepSize
@@ -1573,6 +1639,10 @@ class Storage:
                                     partitionPosition[partitionId][0] += len(buffer[partitionId][0])
                                     partitionPosition[partitionId][2] += len(buffer[partitionId][1])
                                     buffer[partitionId] = [[],[]]
+                pytablesStorageWorker.root.readPartitionInfo.attrs["unfilteredReads"] = totalUnfilteredReads
+                pytablesStorageWorker.root.readPartitionInfo.attrs["unfilteredNodes"] = totalUnfilteredNodes
+                pytablesStorageWorker.root.readPartitionInfo.attrs["breaks"] = totalBreaks
+                pytablesStorageWorker.root.readPartitionInfo.attrs["repairs"] = totalRepairs
    
         try:
             #handle queue
@@ -1580,6 +1650,7 @@ class Storage:
                 try:
                     item = queue_ranges.get(block=True, timeout=1)
                     if item==None:
+                        queue_ranges.task_done()
                         break
                     elif isinstance(item,tuple):
                         mergeStart = item[0]
@@ -1612,6 +1683,7 @@ class Storage:
                                                 mergeStart, mergeEnd, partitionPosition)
                         #now the file can be released for final merge
                         queue_merges.put(pytablesFileRange) 
+                    queue_ranges.task_done()
                 except Empty:
                     time.sleep(1)
                     continue
@@ -1719,6 +1791,7 @@ class Storage:
                 itemData = pytablesSource.root.readPaired[0:size]
                 dataList.append(np.unique(itemData))
                 del itemData
+        #returns sorted unique data
         data = np.unique(np.concatenate(dataList))
         del dataList
         #store data
@@ -1764,13 +1837,26 @@ class Storage:
             maximumReadNumber = 0
             maximumTotalReadNumber = 0
             #processed partition
-            partition = 0            
+            partition = 0   
+            totalUnfilteredReads = 0
+            totalUnfilteredNodes = 0
+            totalFilteredReads = 0
+            totalFilteredNodes = 0
+            totalBreaks = 0
+            totalRepairs = 0
             for item in mergeFiles:
                 with tables.open_file(item, mode="r") as pytablesSource:
                     #get sizes source files
                     sInfo=pytablesSource.root.readPartitionInfo.shape[0]
                     sLength=pytablesSource.root.readPartitionLength.shape[0]
                     sData=pytablesSource.root.readPartitionData.shape[0]
+                    #stats
+                    totalUnfilteredReads=pytablesSource.root.readPartitionInfo.attrs["unfilteredReads"]
+                    totalUnfilteredNodes=pytablesSource.root.readPartitionInfo.attrs["unfilteredNodes"]
+                    totalFilteredReads+=pytablesSource.root.readPartitionInfo.shape[0]
+                    totalFilteredNodes+=pytablesSource.root.readPartitionData.shape[0]
+                    totalBreaks=pytablesSource.root.readPartitionInfo.attrs["breaks"]
+                    totalRepairs=pytablesSource.root.readPartitionInfo.attrs["repairs"]
                     #variables for source position reads and data
                     pReads=0
                     pData=0
@@ -1819,6 +1905,12 @@ class Storage:
             readPartitionInfo.attrs["maximumTotalReadLength"] = maximumTotalReadLength
             readPartitionInfo.attrs["maximumReadNumber"] = maximumReadNumber
             readPartitionInfo.attrs["maximumTotalReadNumber"] = maximumTotalReadNumber
+            readPartitionInfo.attrs["totalUnfilteredReads"] = totalUnfilteredReads
+            readPartitionInfo.attrs["totalUnfilteredNodes"] = totalUnfilteredNodes
+            readPartitionInfo.attrs["totalFilteredReads"] = totalFilteredReads
+            readPartitionInfo.attrs["totalFilteredNodes"] = totalFilteredNodes
+            readPartitionInfo.attrs["totalReadRepairs"] = totalRepairs
+            readPartitionInfo.attrs["totalReadBreaks"] = totalBreaks
 
     """
     Store direct data in the final database, handled by single process
@@ -2046,6 +2138,22 @@ class Storage:
         maxTotalReadLength = pytablesStorage.root.readPartitionInfo.attrs["maximumTotalReadLength"]
         maxReadNumber = pytablesStorage.root.readPartitionInfo.attrs["maximumReadNumber"]
         maxTotalReadNumber = pytablesStorage.root.readPartitionInfo.attrs["maximumTotalReadNumber"]
+
+        totalUnfilteredReads = pytablesStorage.root.readPartitionInfo.attrs["totalUnfilteredReads"]
+        totalUnfilteredNodes = pytablesStorage.root.readPartitionInfo.attrs["totalUnfilteredNodes"]
+        totalFilteredReads = pytablesStorage.root.readPartitionInfo.attrs["totalFilteredReads"]
+        totalFilteredNodes = pytablesStorage.root.readPartitionInfo.attrs["totalFilteredNodes"]
+        totalReadBreaks = pytablesStorage.root.readPartitionInfo.attrs["totalReadBreaks"]
+        totalReadRepairs = pytablesStorage.root.readPartitionInfo.attrs["totalReadRepairs"]
+        h5file["/config/"].attrs["totalUnfilteredReads"]=totalUnfilteredReads
+        h5file["/config/"].attrs["totalUnfilteredNodes"]=totalUnfilteredNodes
+        h5file["/config/"].attrs["totalFilteredReads"]=totalFilteredReads
+        h5file["/config/"].attrs["totalFilteredNodes"]=totalFilteredNodes
+        h5file["/config/"].attrs["totalReadBreaks"]=totalReadBreaks
+        h5file["/config/"].attrs["totalReadRepairs"]=totalReadRepairs
+        logger.debug("{}/{} unfiltered to {}/{} filtered but unmerged".format(
+            totalUnfilteredReads,totalUnfilteredNodes,totalFilteredReads,totalFilteredNodes))
+        logger.debug("{} repairs and {} breaks in these processed reads".format(totalReadRepairs,totalReadBreaks))
         
         dsReadData=h5file["/relations/"].create_dataset("readData",(numberOfReadPartitionData,), 
                                                       dtype=haplotyping.index.Database.getUint(numberOfKmers), 

@@ -42,7 +42,7 @@ class Graph:
             "type": "basic",
             "showDeadEnds": True,
             "showArms": False,
-            "showPotentialTransposons": True,
+            "showPotentialTransposons": False,
             "hideDeadEndBefore": [],
             "hideDeadEndAfter": [],
             "nodeFillColorDefault": "white",
@@ -415,11 +415,11 @@ class Graph:
         if config["showAllNodes"]:
             #warn if relevant
             if config["showArms"] and len(arms)>0:
-                self._logger.warning("can't show {} detected arms if alls nodes are shown".format(len(arms)))
+                self._logger.warning("can't show {} detected arms if all nodes are shown".format(len(arms)))
             if config["showPotentialTransposons"]:
                 transposonCandidateArms = self._detectTransposonArmCandidates()
                 if len(transposonCandidateArms)>0:
-                    self._logger.warning("can't show {} detected transposon candidates if alls nodes are shown".format(
+                    self._logger.warning("can't show {} detected transposon candidates if all nodes are shown".format(
                         len(transposonCandidateArms)))
         else:
             processedArms = set()
@@ -757,11 +757,11 @@ class Graph:
         if config["showAllBases"]:
             #warn if relevant
             if config["showArms"] and len(arms)>0:
-                self._logger.warning("can't show {} detected arms if alls bases are shown".format(len(arms)))
+                self._logger.warning("can't show {} detected arms if all bases are shown".format(len(arms)))
             if config["showPotentialTransposons"]:
                 transposonCandidateArms = self._detectTransposonArmCandidates()
                 if len(transposonCandidateArms)>0:
-                    self._logger.warning("can't show {} detected transposon candidates if alls bases are shown".format(
+                    self._logger.warning("can't show {} detected transposon candidates if all bases are shown".format(
                         len(transposonCandidateArms)))
         else:
             processedArms = set()
