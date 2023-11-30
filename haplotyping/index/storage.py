@@ -1343,19 +1343,20 @@ class Storage:
                 # - pairs only both if first right (2) and second left (1)
                 # - type-filtered: don't store pair direct connected
                 # - type-filtered: don't store single
-                reducedNodes,reducedTypes = list(zip(*[entry for entry in zip(nodes,types) if entry[0]>0]))
-                if len(reducedNodes)>2:
-                    reducedFiltering = [0] * len(reducedNodes)
-                    reducedFiltering[0] = 1 if reducedTypes[0]&2==2 else 0
-                    reducedFiltering[-1] = 1 if reducedTypes[-1]&1==1 else 0
-                    for i in range(1,len(reducedNodes)):
-                        if reducedTypes[i-1]&2==2 and reducedTypes[i]&1==1:
-                            reducedFiltering[i-1] = 1
-                            reducedFiltering[i] = 1
-                    s = sum(reducedFiltering)
-                    if s>2 or (s==2 and len(np.trim_zeros(reducedFiltering))>2):
-                        filteredNodes = [n for n,f in zip(reducedNodes,reducedFiltering) if f==1]
-                        filtered.append(filteredNodes)
+                if len(nodes)>2:
+                    reducedNodes,reducedTypes = list(zip(*[entry for entry in zip(nodes,types) if entry[0]>0]))
+                    if len(reducedNodes)>2:
+                        reducedFiltering = [0] * len(reducedNodes)
+                        reducedFiltering[0] = 1 if reducedTypes[0]&2==2 else 0
+                        reducedFiltering[-1] = 1 if reducedTypes[-1]&1==1 else 0
+                        for i in range(1,len(reducedNodes)):
+                            if reducedTypes[i-1]&2==2 and reducedTypes[i]&1==1:
+                                reducedFiltering[i-1] = 1
+                                reducedFiltering[i] = 1
+                        s = sum(reducedFiltering)
+                        if s>2 or (s==2 and len(np.trim_zeros(reducedFiltering))>2):
+                            filteredNodes = [n for n,f in zip(reducedNodes,reducedFiltering) if f==1]
+                            filtered.append(filteredNodes)
                 return filtered
 
             def filterReadData(rowData, repairs=0, breaks=0):
