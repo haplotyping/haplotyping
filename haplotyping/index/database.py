@@ -84,9 +84,9 @@ class Database:
         Internal use only: initialize
         """
 
-        if not mp.get_start_method()=="spawn":
-            self._logger.error("using method '{}' for multiprocessing not supported, use 'spawn' instead".format(mp.get_start_method()))
-            return
+        # if not mp.get_start_method()=="spawn":
+        #     self._logger.error("using method '{}' for multiprocessing not supported, use 'spawn' instead".format(mp.get_start_method()))
+        #     return
             
         frame = sys._getframe()
         while frame:
@@ -95,6 +95,7 @@ class Database:
                     return
                 break                    
             frame = frame.f_back
+        mp.set_start_method("spawn")
         
         #logger
         self._logger = logging.getLogger(__name__)
