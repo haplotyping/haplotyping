@@ -6,6 +6,10 @@ import haplotyping
 import haplotyping.index.splits
 import haplotyping.index.connections
 
+#use spawn, also on unix
+if __name__ == "__main__":
+    mp.set_start_method("spawn")
+
 class Database:
     
     """
@@ -83,10 +87,6 @@ class Database:
         """
         Internal use only: initialize
         """
-        
-        #use spawn, also on unix
-        if __name__ == "__main__":
-            mp.set_start_method("spawn")
     
         if mp.get_start_method()=="spawn":
             frame = sys._getframe()

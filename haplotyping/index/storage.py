@@ -1376,22 +1376,29 @@ class Storage:
                         newNodeId = rowData[i]
                         newNodeDirection = 0
                         newLeft,newRight = _getNeighbours(newNodeId)
+                        #node is left outgoing or unknown
                         if nodeDirection&3==0 or nodeDirection&1==1:
                             for entry in left:
                                 if entry[0]==newNodeId:
+                                    #node is left outgoing
                                     nodeDirection|=4
+                                    #new entry connected from right
                                     if entry[1]:
                                         newNodeDirection|=1
                                     else:
-                                        newNodeDirection|=2                            
+                                        newNodeDirection|=2    
+                        #node is right outgoing or unknown
                         if nodeDirection&3==0 or nodeDirection&2==2:
                             for entry in right:
                                 if entry[0]==newNodeId:
+                                    #node is right outgoing
                                     nodeDirection|=8
+                                    #new entry connected from right
                                     if entry[1]:
                                         newNodeDirection|=1
                                     else:
                                         newNodeDirection|=2
+                        #looking backward
                         for entry in newLeft:
                             if entry[0]==nodeId:
                                 newNodeDirection|=8
