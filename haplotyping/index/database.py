@@ -84,6 +84,9 @@ class Database:
         Internal use only: initialize
         """
 
+        #logger
+        self._logger = logging.getLogger(__name__)
+        
         #force using spawn
         frame = sys._getframe()
         while frame:
@@ -92,19 +95,17 @@ class Database:
                     return
                 break                    
             frame = frame.f_back
-        if not mp.get_start_method()=="spawn":
-            try:
-                mp.set_start_method("spawn")
-            except:
+        try:
+            mp.set_start_method("spawn", force=True)
+        except:
+            if not mp.get_start_method()=="spawn":
                 self._logger.error("multiprocessing method 'spawn' required, however '{}' is set".format(mp.get_start_method()))
                 return
         
-        #logger
-        self._logger = logging.getLogger(__name__)
+        #update info
         self._logger.info("create data storage for {} in {}".format(name,filenameBase))
         self._logger.debug("haplotyping package version {}".format(haplotyping._version.__version__))
-                          
-        
+
         #store variables
         self.k=k
         self.name=name
