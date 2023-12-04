@@ -1678,7 +1678,7 @@ class Storage:
                         mergeEnd = min(numberOfPartitions,mergeStart+mergeNumber)-1
                         pytablesFileRange = (filenameBase+"_tmp_read_merge_"+
                                              str(mergeStart).zfill(numberLength)+"_"+
-                                        str(mergeEnd).zfill(numberLength)+".process.h5")
+                                             str(mergeEnd).zfill(numberLength)+".process.h5")
                         if os.path.exists(pytablesFileRange):
                             os.remove(pytablesFileRange)
                             

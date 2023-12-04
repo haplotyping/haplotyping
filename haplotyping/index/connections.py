@@ -829,6 +829,7 @@ class Connections:
                 #now wait    
                 queue_ranges.join()
                 #collect created merges
+                self._logger.debug("collect merged files")
                 mergeFiles = []
                 while True:
                     try:
