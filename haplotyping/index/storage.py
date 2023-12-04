@@ -1699,8 +1699,8 @@ class Storage:
                             #merge
                             merge_reads_storage(pytablesFileRange, storageReadFiles, 
                                                 mergeStart, mergeEnd, partitionPosition)
-                            #now the file can be released for final merge
-                            queue_merges.put(pytablesFileRange) 
+                        #now the file can be released for final merge
+                        queue_merges.put(pytablesFileRange) 
                     queue_ranges.task_done()
                 except Empty:
                     time.sleep(1)

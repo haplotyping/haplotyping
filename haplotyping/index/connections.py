@@ -831,15 +831,18 @@ class Connections:
                 #collect created merges
                 self._logger.debug("collect merged files")
                 mergeFiles = []
+                nFinished = 0
                 while True:
                     try:
                         item = queue_merges.get(block=True, timeout=1)
                         if item==None:
                             break
                         elif isinstance(item,str):
-                            mergeFiles.append(item)
+                            nFinished+=1
+                            if os.path.exists(item):
+                                mergeFiles.append(item)
                     except Empty:
-                        if len(mergeFiles)==nWorkersMerges:
+                        if nFinished==nWorkersMerges:
                             break
                         else:
                             time.sleep(1)
