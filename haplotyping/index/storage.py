@@ -1555,7 +1555,8 @@ class Storage:
                                 pytablesStorageWorkerFiltered.root.readPartitionInfo.attrs["breaks"] = totalBreaks
                                 pytablesStorageWorkerFiltered.root.readPartitionInfo.attrs["repairs"] = totalRepairs
                                 #store filtered read files
-                                queue_filteredReads.put(pytablesFileWorker)
+                                if os.path.exists(pytablesFileWorker):
+                                    queue_filteredReads.put(pytablesFileWorker)
                     queue_rawReads.task_done()
                 except Empty:
                     logger.debug("reads ({}): empty".format(os.getpid()))
