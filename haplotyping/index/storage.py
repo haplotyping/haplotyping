@@ -7,8 +7,6 @@ import os, re, pickle, tables, statistics, logging, time, psutil
 import numpy as np, math
 from contextlib import ExitStack
 
-import traceback
-
 class Storage:
     
     """
@@ -1459,8 +1457,12 @@ class Storage:
                     else:
                         curr_proc = current_process()
                         pytablesFileWorker = filenameBase+"_tmp_processed_reads_{}.process.h5".format(curr_proc.name)
+                        #create new file
                         if os.path.exists(pytablesFileWorker):
-                            os.remove(pytablesFileWorker) 
+                            i = 1
+                            while os.path.exists(pytablesFileWorker):
+                                pytablesFileWorker = filenameBase+"_tmp_processed_reads_{}_({}).process.h5".format(curr_proc.name,i)
+                                i+=1
                         with (tables.open_file(item, mode="r") as pytablesStorageWorkerRaw, 
                               tables.open_file(pytablesFileWorker, mode="w") as pytablesStorageWorkerFiltered):
                             #create partition table
@@ -1563,8 +1565,6 @@ class Storage:
                     logger.debug("reads ({}): empty".format(os.getpid()))
                     time.sleep(5)
                     continue
-                except Exception as ex:
-                    logger.debug("reads ({}): error {}".format(os.getpid(), "".join(traceback.format_exception(None, ex, ex.__traceback__))))
         finally:
             shm_kmer.close()
             shm_direct.close()
