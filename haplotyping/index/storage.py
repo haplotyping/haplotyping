@@ -7,6 +7,8 @@ import os, re, pickle, tables, statistics, logging, time, psutil
 import numpy as np, math
 from contextlib import ExitStack
 
+import traceback
+
 class Storage:
     
     """
@@ -1560,7 +1562,9 @@ class Storage:
                 except Empty:
                     logger.debug("reads ({}): empty".format(os.getpid()))
                     time.sleep(5)
-                    continue 
+                    continue
+                except Exception as ex:
+                    logger.debug("reads ({}): error {}".format(os.getpid(), "".join(traceback.format_exception(None, ex, ex.__traceback__))))
         finally:
             shm_kmer.close()
             shm_direct.close()
