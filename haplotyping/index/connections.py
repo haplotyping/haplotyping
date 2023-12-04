@@ -792,6 +792,7 @@ class Connections:
             #get sizes for partitions
             partitionSizes = [[0,0] for i in range(self.numberOfPartitions)]
             for item in storageFilteredReadFiles:
+                self._logger.debug("check {}".format(item))
                 with tables.open_file(item, mode="r") as pytablesStorageFiltered:
                     nReads = pytablesStorageFiltered.root.readPartitionInfo.shape[0]
                     for i in range(0,nReads,Connections.stepSizeStorage):
