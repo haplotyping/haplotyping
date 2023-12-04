@@ -1555,8 +1555,7 @@ class Storage:
                                 pytablesStorageWorkerFiltered.root.readPartitionInfo.attrs["breaks"] = totalBreaks
                                 pytablesStorageWorkerFiltered.root.readPartitionInfo.attrs["repairs"] = totalRepairs
                                 #store filtered read files
-                                if os.path.exists(pytablesFileWorker):
-                                    queue_filteredReads.put(pytablesFileWorker)
+                                queue_filteredReads.put(pytablesFileWorker)
                     queue_rawReads.task_done()
                 except Empty:
                     logger.debug("reads ({}): empty".format(os.getpid()))
@@ -1702,8 +1701,8 @@ class Storage:
                 except Empty:
                     time.sleep(1)
                     continue
-        except Exception as ex:
-            logger.error("merges ({}): problem with worker: {}".format(os.getpid(),ex))
+        #except Exception as ex:
+        #    logger.error("merges ({}): problem with worker: {}".format(os.getpid(),ex))
         finally:
             pass
     
@@ -1914,6 +1913,7 @@ class Storage:
                         tData+=mData
                         partition+=1
             while partition<numberOfPartitions:
+                print((tData,0,tReads,0))
                 readPartition.append((tData,0,tReads,0))
                 partition+=1
             readPartitionInfo.attrs["maximumReadLength"] = maximumReadLength
