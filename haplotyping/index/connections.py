@@ -416,8 +416,6 @@ class Connections:
             Connections._close_queue(queue_automaton)
             Connections._close_queue(queue_index)
             Connections._close_queue(queue_matches)
-            #shutdown
-            shutdown_event.set()
             #join pools
             pool_automaton.join()
             pool_index.join()
@@ -428,6 +426,8 @@ class Connections:
                 shm_index.unlink()
             except Exception as e:
                 self._logger.debug("problem unlinking shared memory ({})".format(e))
+            #shutdown
+            shutdown_event.set()
             #collect created files 
             storageDirectFiles = Connections._collect_and_close_queue(queue_storageDirect)
             self.storageReadFiles = Connections._collect_and_close_queue(queue_storageReads)            
@@ -508,8 +508,6 @@ class Connections:
             #close queus workers
             Connections._close_queue(queue_ranges)
             Connections._close_queue(queue_merges)
-            #shutdown
-            shutdown_event.set()
             #join pool
             pool_merges.join()
             #release memory
@@ -518,6 +516,8 @@ class Connections:
                 shm_kmer.unlink()
             except Exception as e:
                 self._logger.debug("problem unlinking shared memory ({})".format(e))
+            #shutdown
+            shutdown_event.set()
         self._logger.debug("created merged file")
         
         self._logger.debug("process {} files with read information".format(len(self.storageReadFiles)))        
@@ -770,8 +770,6 @@ class Connections:
                 #close queus workers
                 Connections._close_queue(queue_rawReads)
                 Connections._close_queue(queue_finished)
-                #shutdown
-                shutdown_event.set()
                 #join pool
                 pool_reads.join()
                 #release memory
@@ -782,6 +780,8 @@ class Connections:
                     shm_direct.unlink()
                 except Exception as e:
                     self._logger.debug("problem unlinking shared memory ({})".format(e))
+                #shutdown
+                shutdown_event.set()
                 #get filtered readfiles
                 storageFilteredReadFiles = Connections._collect_and_close_queue(queue_filteredReads)
                 
@@ -870,10 +870,10 @@ class Connections:
                 pool_merges.terminate()
                 #close queus workers
                 Connections._close_queue(queue_ranges)
-                #shutdown
-                shutdown_event.set()
                 #join pool
                 pool_merges.join()
+                #shutdown
+                shutdown_event.set()                
                 
             #clean storageFilteredReadFiles
             if not self.keepTemporaryFiles:

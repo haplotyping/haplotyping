@@ -1917,7 +1917,6 @@ class Storage:
                         tData+=mData
                         partition+=1
             while partition<numberOfPartitions:
-                print((tData,0,tReads,0))
                 readPartition.append((tData,0,tReads,0))
                 partition+=1
             readPartitionInfo.attrs["maximumReadLength"] = maximumReadLength
