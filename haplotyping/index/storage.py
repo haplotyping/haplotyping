@@ -200,7 +200,19 @@ class Storage:
     def workerIndex(shutdown_event,queue_index,queue_matches,queue_storage,queue_finished,
                      filenameBase,numberOfKmers,k,indexType,shm_name):
 
-        logger = logging.getLogger("{}.worker.index".format(__name__))
+        #logger = logging.getLogger("{}.worker.index".format(__name__))
+        logger = logging.getLogger("haplotyping.index.worker.index")
+        logger.debug("start workerIndex")
+
+        shm = shared_memory.SharedMemory(shm_name)
+        logger.debug("index ({}): shared memory of {} MB used".format(
+            os.getpid(),math.ceil(shm.size/1048576)))
+        
+        process = psutil.Process(os.getpid())
+        logger.debug("index ({}): used memory {} MB".format(
+            os.getpid(),math.ceil(process.memory_info().rss/1048576)))
+
+        
         problemPattern = re.compile(r"["+"".join(haplotyping.index.Database.letters)+
                                          "][^"+"".join(haplotyping.index.Database.letters)+"]+")   
         
@@ -362,14 +374,6 @@ class Storage:
         totalChecks = 0
         totalMatches = 0
         
-        shm = shared_memory.SharedMemory(shm_name)
-        logger.debug("index ({}): shared memory of {} MB used".format(
-            os.getpid(),math.ceil(shm.size/1048576)))
-        
-        process = psutil.Process(os.getpid())
-        logger.debug("index ({}): used memory {} MB".format(
-            os.getpid(),math.ceil(process.memory_info().rss/1048576)))
-        
         try:
             curr_proc = current_process()
             pytablesFileWorker = filenameBase+"_tmp_reads_{}.process.h5".format(curr_proc.name)
@@ -451,8 +455,11 @@ class Storage:
                 queue_storage.put(pytablesFileWorker) 
         except Exception as ex:
            logger.error("index  ({}): problem with worker: {}".format(os.getpid(),ex))
-        finally:
-            shm.close()
+        
+        #close shared memory
+        shm.close()
+
+        #finish
         logger.debug("index ({}): found {} matches in {} checks".format(os.getpid(),totalMatches,totalChecks))
         queue_finished.put("index:ended:{}:{}".format(totalChecks,totalMatches))
             

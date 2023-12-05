@@ -391,6 +391,7 @@ class Connections:
                     pass
                 time.sleep(1)
             #store total found canonical k-mers (doesn't fully match results from kmc because of overlapping sequences)
+            self._logger.debug("total canonical split frequencies: {}".format(totalCanonicalSplitFrequencies))
             self.h5file["/config/"].attrs["totalCanonicalSplitFrequencies"] = totalCanonicalSplitFrequencies
                 
         except KeyboardInterrupt:
@@ -408,6 +409,8 @@ class Connections:
             shm_kmer.unlink()
             sys.exit()
         finally:
+            #shutdown
+            shutdown_event.set()
             #terminate pools
             pool_automaton.terminate()
             pool_index.terminate()
@@ -426,8 +429,6 @@ class Connections:
                 shm_index.unlink()
             except Exception as e:
                 self._logger.debug("problem unlinking shared memory ({})".format(e))
-            #shutdown
-            shutdown_event.set()
             #collect created files 
             storageDirectFiles = Connections._collect_and_close_queue(queue_storageDirect)
             self.storageReadFiles = Connections._collect_and_close_queue(queue_storageReads)            
@@ -503,6 +504,8 @@ class Connections:
             shm_kmer.unlink()
             sys.exit()
         finally:
+            #shutdown
+            shutdown_event.set()
             #terminate pool
             pool_merges.terminate()
             #close queus workers
@@ -516,8 +519,6 @@ class Connections:
                 shm_kmer.unlink()
             except Exception as e:
                 self._logger.debug("problem unlinking shared memory ({})".format(e))
-            #shutdown
-            shutdown_event.set()
         self._logger.debug("created merged file")
         
         self._logger.debug("process {} files with read information".format(len(self.storageReadFiles)))        
@@ -765,6 +766,8 @@ class Connections:
                 shm_direct.unlink()
                 sys.exit()
             finally:
+                #shutdown
+                shutdown_event.set()
                 #terminate pool
                 pool_reads.terminate()
                 #close queus workers
@@ -780,8 +783,6 @@ class Connections:
                     shm_direct.unlink()
                 except Exception as e:
                     self._logger.debug("problem unlinking shared memory ({})".format(e))
-                #shutdown
-                shutdown_event.set()
                 #get filtered readfiles
                 storageFilteredReadFiles = Connections._collect_and_close_queue(queue_filteredReads)
                 
@@ -866,14 +867,14 @@ class Connections:
                 shutdown_event.set()
                 sys.exit()
             finally:
+                #shutdown
+                shutdown_event.set() 
                 #terminate pool
                 pool_merges.terminate()
                 #close queus workers
                 Connections._close_queue(queue_ranges)
                 #join pool
-                pool_merges.join()
-                #shutdown
-                shutdown_event.set()                
+                pool_merges.join()               
                 
             #clean storageFilteredReadFiles
             if not self.keepTemporaryFiles:
