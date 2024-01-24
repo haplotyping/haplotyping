@@ -609,6 +609,7 @@ class Split:
         (ckmerRow,id,cache) = Split._findItem(ckmer,ckmerTable)
         if ckmerRow:
             kmerDict = {}
+            directDict = {}
             partitionRow = readPartitionTable[ckmerRow[5]]
             readDataList = readDataTable[partitionRow[0][0]:partitionRow[0][0]+partitionRow[0][1]]
             readInfoList = readInfoTable[partitionRow[1][0]:partitionRow[1][0]+partitionRow[1][1]]
@@ -633,6 +634,7 @@ class Split:
         partitions = set()
         kmerIds = []
         kmerDict = {}
+        directDict = {}
         #get partition data from k-mers
         for i in range(len(ckmerList)):
             ckmer = ckmerList[i]
