@@ -411,13 +411,13 @@ class Split:
                                                    ("reverse" if readConnection[i+1]=="l" else "unknown"))
                                 kmerInfo = {"ckmer": entry[0], 
                                             "split": entry[1], 
-                                            "number": entry[2],
-                                            "position": position,
+                                            "number": int(entry[2]),
+                                            "position": int(position),
                                             "orientation": orientation
                                            }                        
                                 kmerList.append(kmerInfo)
                             length = sum([readConnection[i+2] for i in range(0,len(readConnection)-1,4)])+k
-                            response.append({"kmers": kmerList, "length": length})
+                            response.append({"kmers": kmerList, "length": int(length)})
         return response,problems,kmerDict,directDict
     
     def _kmer_paired_result(kmerId,pairedList,h5file,kmerDict={}):
@@ -520,50 +520,6 @@ class Split:
                 start = id+1
             else:
                 start = id 
-        return response
-    
-    def _kmers_connected(h5file: h5py.File, kmers: list):
-        ckmerList = set()
-        for kmer in kmers:
-            ckmerList.add(haplotyping.General.canonical(kmer))
-        ckmerList = list(ckmerList)
-        ckmerList.sort()
-        response = []
-        partitions = set()
-        kmerIds = set()
-        ckmerTable = h5file.get("/split/ckmer")
-        readPartitionTable = h5file.get("/relations/readPartition")
-        readDataTable = h5file.get("/relations/readData")
-        readInfoTable = h5file.get("/relations/readInfo")
-        #get partitions
-        number = ckmerTable.shape[0]
-        start = 0
-        cache = {}
-        for i in range(len(ckmerList)):
-            ckmer = ckmerList[i]
-            (ckmerRow,id,cache) = Split._findItem(ckmer,ckmerTable,start,number,cache)
-            if ckmerRow:
-                partitions.add(int(ckmerRow[5]))
-                kmerIds.add(id)
-                start = id+1
-            else:
-                start = id 
-        #check reads from partitions
-        partitions = list(partitions)
-        partitions.sort()
-        for i in range(len(partitions)):
-            partition = readPartitionTable[partitions[i]]
-            readData = readDataTable[partition[0][0]:partition[0][0]+partition[0][1]]
-            readInfo = readInfoTable[partition[1][0]:partition[1][0]+partition[1][1]]
-            
-            print(len(readData),"readData")
-            for item in readData:
-                print(item)
-            print(len(readInfo),"readInfo")
-            for item in readInfo:
-                print(item)
-            print(partition)
-            print(readPartitionTable[partitions[i]+1])
         return response
     
     def _kmer_direct(h5file: h5py.File, kmer: str):
