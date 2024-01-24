@@ -798,8 +798,8 @@ class Connections:
                     for i in range(0,nReads,Connections.stepSizeStorage):
                         stepData = pytablesStorageFiltered.root.readPartitionInfo[i:i+Connections.stepSizeStorage]
                         for row in stepData:
-                            partitionSizes[row[1]][0]+=1
-                            partitionSizes[row[1]][1]+=row[0]   
+                            partitionSizes[row[1]][0]+=1 #number of reads
+                            partitionSizes[row[1]][1]+=row[0]  #number of data
             
             #shutdown
             shutdown_event = mp.Event()

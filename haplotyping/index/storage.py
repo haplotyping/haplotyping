@@ -1591,11 +1591,15 @@ class Storage:
             buffer = []
             for i in range(mergeStart,mergeEnd+1):
                 buffer.append([[],[]])
-                
+
+            #get read data without accessing file too much
+            #counters: 0,1 - position read data
+            #          2,3 - position stepData
+            #          4.  - size of step
             def getRead(counters, infoIterator, stepData, pytablesMergeSource):
                 row = next(infoIterator)
                 counters[0]=counters[1]
-                counters[1]+=row[0]
+                counters[1]+=row[0] #size of read
                 rowData = stepData[counters[0]-counters[2]:counters[1]-counters[2]]
                 while counters[1]>counters[3]:                    
                     counters[2] = counters[3]
