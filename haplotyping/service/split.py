@@ -227,7 +227,7 @@ class Split:
     
     def _data_kmer_direct(kmerId,h5file,kmerDict={},directDict={}):
         if not kmerId in directDict:
-            entry = _data_kmer(kmerId,h5file,kmerDict)
+            entry = Split._data_kmer(kmerId,h5file,kmerDict)
             directTable = h5file.get("/relations/direct")
             directList = directTable[entry[3]:entry[3]+entry[4]]
             kmerDirectDict = {}
@@ -261,22 +261,22 @@ class Split:
         while not (startFinished and endFinished):
             if not startFinished:
                 optionsStart = []
-                kmerDict[nstart[-2]] = _data_kmer(nstart[-2],h5file,kmerDict)
-                directDict[nstart[-2]] = _data_kmer_direct(nstart[-2],h5file,kmerDict,directDict)   
+                kmerDict[nstart[-2]] = Split._data_kmer(nstart[-2],h5file,kmerDict)
+                directDict[nstart[-2]] = Split._data_kmer_direct(nstart[-2],h5file,kmerDict,directDict)   
                 if nstart[-1] in directDict[nstart[-2]]:
                     for key,value in directDict[nstart[-2]][nstart[-1]].items():
-                        optionsStart.append([value[1],value[0],key,_kmer_direction_reverse(value[0])])
+                        optionsStart.append([value[1],value[0],key,Split._kmer_direction_reverse(value[0])])
                     if not len(optionsStart)==1:
                         startFinished = True
                 else:
                     startFinished = True
             if not endFinished:
                 optionsEnd = []
-                kmerDict[nend[-2]] = _data_kmer(nend[-2],h5file,kmerDict)
-                directDict[nend[-2]] = _data_kmer_direct(nend[-2],h5file,kmerDict,directDict) 
+                kmerDict[nend[-2]] = Split._data_kmer(nend[-2],h5file,kmerDict)
+                directDict[nend[-2]] = Split._data_kmer_direct(nend[-2],h5file,kmerDict,directDict) 
                 if nend[-1] in directDict[nend[-2]]:
                     for key,value in directDict[nend[-2]][nend[-1]].items():
-                        optionsEnd.append([value[1],value[0],key,_kmer_direction_reverse(value[0])])
+                        optionsEnd.append([value[1],value[0],key,Split._kmer_direction_reverse(value[0])])
                     if not len(optionsEnd)==1:
                         endFinished = True
                 else:
@@ -333,7 +333,7 @@ class Split:
                 connectionDict[tuple(start)] = {}
         else:
             connectionDict[tuple(start)] = {}
-        (connection, optionsStart, optionsEnd, kmerDict, directDict) = _data_kmer_connect(start,end,h5file,kmerDict,directDict)
+        (connection, optionsStart, optionsEnd, kmerDict, directDict) = Split._data_kmer_connect(start,end,h5file,kmerDict,directDict)
         if connection:
             connectionDict[tuple(start)][tuple(end)] = connection
             return connection, kmerDict, directDict, connectionDict
@@ -342,7 +342,7 @@ class Split:
                 for j in range(len(optionsEnd)):
                     newStart = optionsStart[i][-2:]
                     newEnd = optionsEnd[j][-2:]
-                    (newConnection, newOptionsStart, newOptionsEnd, kmerDict, directDict) = _data_kmer_connect(
+                    (newConnection, newOptionsStart, newOptionsEnd, kmerDict, directDict) = Split._data_kmer_connect(
                         newStart,newEnd,h5file,kmerDict,directDict)  
                     if newConnection:
                         connection = start + optionsStart[i][:-2] + newConnection + optionsEnd[j][::-1][2:] + end[::-1]
@@ -371,7 +371,7 @@ class Split:
                         for ed in ["l","r"]:
                             start = [read[0],sd]
                             end = [read[1],ed]
-                            (connection,kmerDict,directDict,connectionDict) = _data_kmer_connection(
+                            (connection,kmerDict,directDict,connectionDict) = Split._data_kmer_connection(
                                 start,end,h5file,kmerDict,directDict,connectionDict)
                             if connection and not connection in initialConnections:
                                     initialConnections.append(connection)
@@ -379,9 +379,9 @@ class Split:
                         for i in range(2,len(read)):
                             assert readConnection[-1]==read[i-1]
                             for ed in ["l","r"]:
-                                start = [read[i-1],_kmer_direction_reverse(readConnection[-2])]
+                                start = [read[i-1],Split._kmer_direction_reverse(readConnection[-2])]
                                 end = [read[i],ed]
-                                (connection,kmerDict,directDict,connectionDict) = _data_kmer_connection(
+                                (connection,kmerDict,directDict,connectionDict) = Split._data_kmer_connection(
                                     start,end,h5file,kmerDict,directDict,connectionDict)
                                 if connection:
                                     assert readConnection[-1]==connection[0]
@@ -401,7 +401,7 @@ class Split:
                             kmerList = []
                             position = 0
                             for i in range(0,len(readConnection),4):
-                                entry = _data_kmer(readConnection[i],h5file,kmerDict)
+                                entry = Split._data_kmer(readConnection[i],h5file,kmerDict)
                                 if i>0:
                                     orientation = ("forward" if readConnection[i-1]=="l" else 
                                                    ("reverse" if readConnection[i-1]=="r" else "unknown"))
