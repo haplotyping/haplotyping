@@ -362,6 +362,7 @@ class Split:
             checkIds = set(kmerIds)
             for item in readInfoList:
                 read = readData[n:n+item[0]]
+                number = item[1]
                 n+=item[0]
                 if len(read)>1:
                     initialConnections = []
@@ -417,7 +418,7 @@ class Split:
                                            }                        
                                 kmerList.append(kmerInfo)
                             length = sum([readConnection[i+2] for i in range(0,len(readConnection)-1,4)])+k
-                            response.append({"kmers": kmerList, "length": int(length)})
+                            response.append({"kmers": kmerList, "length": int(length), "number": int(number)})
         return response,problems,kmerDict,directDict
     
     def _kmer_paired_result(kmerId,pairedList,h5file,kmerDict={}):
