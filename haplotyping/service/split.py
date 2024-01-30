@@ -405,11 +405,11 @@ class Split:
                                 entry = Split._data_kmer(readConnection[i],h5file,kmerDict)
                                 if i>0:
                                     orientation = ("forward" if readConnection[i-1]=="l" else 
-                                                   ("reverse" if readConnection[i-1]=="r" else "unknown"))
+                                                   ("backward" if readConnection[i-1]=="r" else "unknown"))
                                     position+=readConnection[i-2]
                                 else:
                                     orientation = ("forward" if readConnection[i+1]=="r" else 
-                                                   ("reverse" if readConnection[i+1]=="l" else "unknown"))
+                                                   ("backward" if readConnection[i+1]=="l" else "unknown"))
                                 kmerInfo = {"ckmer": entry[0], 
                                             "split": entry[1], 
                                             "number": int(entry[2]),
