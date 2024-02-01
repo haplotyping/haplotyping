@@ -362,8 +362,8 @@ class Split:
         def _expand(id,direction):
             expandedKmerIds.add(id)
             while True:
-                kmerDict[id] = _data_kmer(id,h5file,kmerDict)
-                directDict[id] = _data_kmer_direct(id,h5file,kmerDict,directDict)
+                kmerDict[id] = Split._data_kmer(id,h5file,kmerDict)
+                directDict[id] = Split._data_kmer_direct(id,h5file,kmerDict,directDict)
                 if direction in directDict[id]:
                     expandedKmerIds.update(directDict[id][direction].keys())
                     if len(directDict[id][direction])==1:
@@ -378,8 +378,6 @@ class Split:
                     return []
                     
         for kmerId in kmerIds:
-            kmerDict[kmerId] = _data_kmer(kmerId,h5file,kmerDict)
-            directDict[kmerId] = _data_kmer_direct(kmerId,h5file,kmerDict,directDict)
             for direction in ["r","l"]:
                 id = kmerId
                 options = _expand(id,direction)
