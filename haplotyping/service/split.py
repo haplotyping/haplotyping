@@ -382,7 +382,7 @@ class Split:
                 id = kmerId
                 options = _expand(id,direction)
                 for option in options:
-                    expand(option[0],option[1])
+                    _expand(option[0],option[1])
         #get reads
         if len(kmerIds)>0:
             n = 0
