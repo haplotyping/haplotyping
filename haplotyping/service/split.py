@@ -286,7 +286,7 @@ class Split:
                 for entry in optionsStart:
                     if entry[2]==nend[-2] and entry[1]==nend[-1]:
                         solution = nstart + entry[0:-1] + nend[::-1][2:]
-                        return solution, False, False, kmerDict, directDict
+                        return solution, False, False
             #glue start
             if len(optionsStart)==1:
                 nstart.extend(optionsStart[0])
@@ -297,13 +297,13 @@ class Split:
                 for entry in optionsEnd:
                     if entry[2]==nstart[-2] and entry[1]==nstart[-1]:
                         solution = nstart + [entry[0]] + nend[::-1]
-                        return solution,False, False, kmerDict, directDict
+                        return solution,False, False
                 if len(optionsStart)>0:
                     for entryStart in optionsStart:
                         for entryEnd in optionsEnd:
                             if entryStart[2]==entryEnd[2] and entryStart[3]==entryEnd[1]:                            
                                 solution = nstart + entryStart + [entryEnd[0]] + nend[::-1]
-                                return solution,False, False, kmerDict, directDict
+                                return solution,False, False
             #glue end
             if len(optionsEnd)==1:
                 nend.extend(optionsEnd[0])
@@ -316,40 +316,40 @@ class Split:
         if len(end)<len(nend):
             for i in range(len(optionsEnd)):
                 optionsEnd[i] = nend[len(end):]+optionsEnd[i]
-        return False, optionsStart, optionsEnd, kmerDict, directDict
+        return False, optionsStart, optionsEnd
     
     def _data_kmer_connection(start,end,h5file,kmerDict,directDict,connectionDict):
         if tuple(start) in connectionDict:
             if tuple(end) in connectionDict[tuple(start)]:
-                return connectionDict[tuple(start)][tuple(end)], kmerDict, directDict, connectionDict
+                return connectionDict[tuple(start)][tuple(end)]
         elif tuple(end) in connectionDict:
             if tuple(start) in connectionDict[tuple(end)]:
                 connection = connectionDict[tuple(end)][tuple(start)]
                 if connection:
-                    return connection[::-1], kmerDict, directDict, connectionDict
+                    return connection[::-1]
                 else:
-                    return False, kmerDict, directDict, connectionDict
+                    return False
             else:
                 connectionDict[tuple(start)] = {}
         else:
             connectionDict[tuple(start)] = {}
-        (connection, optionsStart, optionsEnd, kmerDict, directDict) = Split._data_kmer_connect(start,end,h5file,kmerDict,directDict)
+        (connection, optionsStart, optionsEnd) = Split._data_kmer_connect(start,end,h5file,kmerDict,directDict)
         if connection:
             connectionDict[tuple(start)][tuple(end)] = connection
-            return connection, kmerDict, directDict, connectionDict
+            return connection
         elif len(optionsStart)>0 and len(optionsEnd)>0:
             for i in range(len(optionsStart)):
                 for j in range(len(optionsEnd)):
                     newStart = optionsStart[i][-2:]
                     newEnd = optionsEnd[j][-2:]
-                    (newConnection, newOptionsStart, newOptionsEnd, kmerDict, directDict) = Split._data_kmer_connect(
+                    (newConnection, newOptionsStart, newOptionsEnd) = Split._data_kmer_connect(
                         newStart,newEnd,h5file,kmerDict,directDict)  
                     if newConnection:
                         connection = start + optionsStart[i][:-2] + newConnection + optionsEnd[j][::-1][2:] + end[::-1]
                         connectionDict[tuple(start)][tuple(end)] = connection
-                        return connection, kmerDict, directDict, connectionDict
+                        return connection
         connectionDict[tuple(start)][tuple(end)] = False
-        return False, kmerDict, directDict, connectionDict
+        return False
     
     
     def _kmer_read_result(kmerIds,readInfoList,readData,h5file,kmerDict={},directDict={}):
@@ -357,6 +357,35 @@ class Split:
         response = []
         connectionDict = {}
         k = int(h5file.get("/config").attrs["k"])
+        #get expanded checkset
+        expandedKmerIds = set()
+        def _expand(id,direction):
+            expandedKmerIds.add(id)
+            while True:
+                kmerDict[id] = _data_kmer(id,h5file,kmerDict)
+                directDict[id] = _data_kmer_direct(id,h5file,kmerDict,directDict)
+                if direction in directDict[id]:
+                    expandedKmerIds.update(directDict[id][direction].keys())
+                    if len(directDict[id][direction])==1:
+                        for id,value in directDict[id][direction].items():
+                            direction="l" if value[0]=="r" else "r"
+                    else:
+                        options = []
+                        for id,value in directDict[id][direction].items():
+                            options.append((id,"l" if value[0]=="r" else "r"))
+                        return options
+                else:
+                    return []
+                    
+        for kmerId in kmerIds:
+            kmerDict[kmerId] = _data_kmer(kmerId,h5file,kmerDict)
+            directDict[kmerId] = _data_kmer_direct(kmerId,h5file,kmerDict,directDict)
+            for direction in ["r","l"]:
+                id = kmerId
+                options = _expand(id,direction)
+                for option in options:
+                    expand(option[0],option[1])
+        #get reads
         if len(kmerIds)>0:
             n = 0
             checkIds = set(kmerIds)
@@ -364,7 +393,9 @@ class Split:
                 read = readData[n:n+item[0]]
                 number = item[1]
                 n+=item[0]
-                if len(read)>1:
+                if not any(x in expandedKmerIds for x in read):
+                    continue
+                elif len(read)>1:
                     initialConnections = []
                     readConnection = None
                     #more options for initial connection
@@ -372,18 +403,16 @@ class Split:
                         for ed in ["l","r"]:
                             start = [read[0],sd]
                             end = [read[1],ed]
-                            (connection,kmerDict,directDict,connectionDict) = Split._data_kmer_connection(
-                                start,end,h5file,kmerDict,directDict,connectionDict)
+                            connection = Split._data_kmer_connection(start,end,h5file,kmerDict,directDict,connectionDict)
                             if connection and not connection in initialConnections:
-                                    initialConnections.append(connection)
+                                initialConnections.append(connection)
                     for readConnection in initialConnections:
                         for i in range(2,len(read)):
                             assert readConnection[-1]==read[i-1]
                             for ed in ["l","r"]:
                                 start = [read[i-1],Split._kmer_direction_reverse(readConnection[-2])]
                                 end = [read[i],ed]
-                                (connection,kmerDict,directDict,connectionDict) = Split._data_kmer_connection(
-                                    start,end,h5file,kmerDict,directDict,connectionDict)
+                                connection = Split._data_kmer_connection(start,end,h5file,kmerDict,directDict,connectionDict)
                                 if connection:
                                     assert readConnection[-1]==connection[0]
                                     readConnection = readConnection + connection[1:]
@@ -419,7 +448,7 @@ class Split:
                                 kmerList.append(kmerInfo)
                             length = sum([readConnection[i+2] for i in range(0,len(readConnection)-1,4)])+k
                             response.append({"kmers": kmerList, "length": int(length), "number": int(number)})
-        return response,problems,kmerDict,directDict
+        return response,problems
     
     def _kmer_paired_result(kmerId,pairedList,h5file,kmerDict={}):
         if len(pairedList)>0:
@@ -570,7 +599,7 @@ class Split:
             partitionRow = readPartitionTable[ckmerRow[5]]
             readDataList = readDataTable[partitionRow[0][0]:partitionRow[0][0]+partitionRow[0][1]]
             readInfoList = readInfoTable[partitionRow[1][0]:partitionRow[1][0]+partitionRow[1][1]]
-            reads,problems,kmerDict,directDict = Split._kmer_read_result([id],readInfoList,readDataList,h5file,kmerDict,directDict)
+            reads,problems = Split._kmer_read_result([id],readInfoList,readDataList,h5file)
         else:
             reads = []
         return reads
@@ -609,7 +638,7 @@ class Split:
             partitionRow = readPartitionTable[p]
             readDataList = readDataTable[partitionRow[0][0]:partitionRow[0][0]+partitionRow[0][1]]
             readInfoList = readInfoTable[partitionRow[1][0]:partitionRow[1][0]+partitionRow[1][1]]
-            newReads,newProblems,kmerDict,directDict = Split._kmer_read_result(kmerIds,readInfoList,readDataList,h5file,kmerDict,directDict)
+            newReads,newProblems = Split._kmer_read_result(kmerIds,readInfoList,readDataList,h5file)
             problems+=newProblems
             reads.extend(newReads)
         return reads

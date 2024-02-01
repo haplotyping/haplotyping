@@ -304,7 +304,7 @@ class Sections():
             
             initConfig = {
                 "showArms": False,
-                "showPotentialTransposons": False,
+                "showPotentialConnectedArms": False,
                 "baseStylePart": "filled",
                 "baseFillColorPart": "beige",
                 "basePenWidthPart": 1,
@@ -358,7 +358,7 @@ class Sections():
                 newNodes = {}
                 sectionConfig = config.copy()
                 sectionConfig["containerGraph"] = pg
-                sectionConfig["showPotentialTransposons"] = False
+                sectionConfig["showPotentialConnectedArms"] = False
                 sectionConfig["showArms"] = False
                 sectionConfig["showAllBases"] = False
                 sectionConfig["showAllNodes"] = False
@@ -409,12 +409,12 @@ class Sections():
                     arms = self._graph.getArms()
                     processedArms = set()
                     orientatedCkmersSections = self.getOrientatedCkmers()
-                    #show potential transposons
-                    if config["showPotentialTransposons"]:
-                        transposonCandidateArms = self._graph._detectTransposonArmCandidates()
-                        for i in range(len(transposonCandidateArms)):
-                            arm1 = self._graph.getArm(transposonCandidateArms[i][0])
-                            arm2 = self._graph.getArm(transposonCandidateArms[i][1])
+                    #show potential connected arms
+                    if config["showPotentialConnectedArms"]:
+                        connectedCandidateArms = self._graph._detectConnectedArmsCandidates()
+                        for i in range(len(connectedCandidateArms)):
+                            arm1 = self._graph.getArm(connectedCandidateArms[i][0])
+                            arm2 = self._graph.getArm(connectedCandidateArms[i][1])
                             #only if visible
                             orientatedCkmer1 = arm1.connection()
                             orientatedCkmer2 = arm2.connection()
@@ -424,12 +424,12 @@ class Sections():
                                 (orientatedCkmer2 in nodes or len(orientatedCkmersArm2.intersection(nodes))>0)):
                                 processedArms.add(arm1.id())
                                 processedArms.add(arm2.id())
-                                arm_key1, arm_key2 = self._graph._visualizeTransposon(pg,i,arm1,arm2,**config)
+                                arm_key1, arm_key2 = self._graph._visualizeConnectedArms(pg,i,arm1,arm2,**config)
                                 connectArm(arm_key1,arm1,**config)
                                 connectArm(arm_key2,arm2,**config)
                     for j in range(len(arms)):
                         arm = arms[j]
-                        #only if no potential transposon
+                        #only if no potential connected arms
                         if arm.id() in processedArms:
                             continue
                         else:
@@ -445,12 +445,12 @@ class Sections():
                                 elif arm.armType()=="outgoing":
                                     pg.edge(armNodeKey,arm_key,style="dashed", 
                                                                color="grey", rankdir="lr", constraint="true")
-                #show potential transposons
-                elif config["showPotentialTransposons"]:
-                    transposonCandidateArms = self._graph._detectTransposonArmCandidates()
-                    for i in range(len(transposonCandidateArms)):
-                        arm1 = self._graph.getArm(transposonCandidateArms[i][0])
-                        arm2 = self._graph.getArm(transposonCandidateArms[i][1])
+                #show potential connected arms
+                elif config["showPotentialConnectedArms"]:
+                    connectedCandidateArms = self._graph._detectConnectedArmsCandidates()
+                    for i in range(len(connectedCandidateArms)):
+                        arm1 = self._graph.getArm(connectedCandidateArms[i][0])
+                        arm2 = self._graph.getArm(connectedCandidateArms[i][1])
                         orientatedCkmer1 = arm1.connection()
                         orientatedCkmer2 = arm2.connection()
                         orientatedCkmersArm1 = arm1._orientatedCkmers
@@ -461,7 +461,7 @@ class Sections():
                             node_keys2 = getNodeKeys(arm2,nodes,startNodes,endNodes)
                             for armNodeKey1 in node_keys1:
                                 for armNodeKey2 in node_keys2:
-                                    self._graph._visualizeTransposonConnection(pg, armNodeKey1,armNodeKey2, **config)
+                                    self._graph._visualizeConnectedArmsConnection(pg, armNodeKey1,armNodeKey2, **config)
             if config["containerGraph"]:
                 return (list(edges), nodes)
             else:

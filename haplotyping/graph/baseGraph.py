@@ -42,7 +42,7 @@ class Graph:
             "type": "basic",
             "showDeadEnds": True,
             "showArms": False,
-            "showPotentialTransposons": False,
+            "showPotentialConnectedArms": False,
             "hideDeadEndBefore": [],
             "hideDeadEndAfter": [],
             "nodeFillColorDefault": "white",
@@ -416,31 +416,31 @@ class Graph:
             #warn if relevant
             if config["showArms"] and len(arms)>0:
                 self._logger.warning("can't show {} detected arms if all nodes are shown".format(len(arms)))
-            if config["showPotentialTransposons"]:
-                transposonCandidateArms = self._detectTransposonArmCandidates()
-                if len(transposonCandidateArms)>0:
-                    self._logger.warning("can't show {} detected transposon candidates if all nodes are shown".format(
-                        len(transposonCandidateArms)))
+            if config["showPotentialConnectedArms"]:
+                connectedCandidateArms = self._detectConnectedArmsCandidates()
+                if len(connectedCandidateArms)>0:
+                    self._logger.warning("can't show {} detected connected arms candidates if all nodes are shown".format(
+                        len(connectedCandidateArms)))
         else:
             processedArms = set()
             #show arms
             if config["showArms"]:
-                #show potential transposons
-                if config["showPotentialTransposons"]:
-                    transposonCandidateArms = self._detectTransposonArmCandidates()
-                    for i in range(len(transposonCandidateArms)):
-                        arm1 = self.getArm(transposonCandidateArms[i][0])
-                        arm2 = self.getArm(transposonCandidateArms[i][1])
+                #show potential connected arms
+                if config["showPotentialConnectedArms"]:
+                    connectedCandidateArms = self._detectConnectedArmsCandidates()
+                    for i in range(len(connectedCandidateArms)):
+                        arm1 = self.getArm(connectedCandidateArms[i][0])
+                        arm2 = self.getArm(connectedCandidateArms[i][1])
                         if arm1.connection() in nodes and arm2.connection() in nodes:
                             processedArms.add(arm1.id())
                             processedArms.add(arm2.id())
-                            arm_key1, arm_key2 = self._visualizeTransposon(g,i,arm1,arm2,**config)
+                            arm_key1, arm_key2 = self._visualizeConnectedArms(g,i,arm1,arm2,**config)
                             connectArm(arm_key1,arm1,**config)
                             connectArm(arm_key2,arm2,**config)
                 #loop over arms
                 for i in range(len(arms)):
                     arm = arms[i]
-                    #only if no potential transposon
+                    #only if no potential connected arms
                     if arm.id() in processedArms:
                         continue
                     else:
@@ -450,16 +450,16 @@ class Graph:
                         #create arm
                         arm_key = self._visualizeArm(g,arm,**config)
                         connectArm(arm_key,arm,**config)
-            #show potential transposons
-            elif config["showPotentialTransposons"]:
-                transposonCandidateArms = self._detectTransposonArmCandidates()
-                for i in range(len(transposonCandidateArms)):
-                    arm1 = self.getArm(transposonCandidateArms[i][0])
-                    arm2 = self.getArm(transposonCandidateArms[i][1])
+            #show potential connected arms
+            elif config["showPotentialConnectedArms"]:
+                connectedCandidateArms = self._detectConnectedArmsCandidates()
+                for i in range(len(connectedCandidateArms)):
+                    arm1 = self.getArm(connectedCandidateArms[i][0])
+                    arm2 = self.getArm(connectedCandidateArms[i][1])
                     if arm1.connection() in nodes and arm2.connection() in nodes:
                         node_key1 = self._visualize_node_key(config["prefix"],arm1.connection())
                         node_key2 = self._visualize_node_key(config["prefix"],arm2.connection())
-                        self._visualizeTransposonConnection(g, node_key1,node_key2, **config)
+                        self._visualizeConnectedArmsConnection(g, node_key1,node_key2, **config)
         if config["containerGraph"]:
             return (list(edges), nodes)
         else:
@@ -758,31 +758,31 @@ class Graph:
             #warn if relevant
             if config["showArms"] and len(arms)>0:
                 self._logger.warning("can't show {} detected arms if all bases are shown".format(len(arms)))
-            if config["showPotentialTransposons"]:
-                transposonCandidateArms = self._detectTransposonArmCandidates()
-                if len(transposonCandidateArms)>0:
-                    self._logger.warning("can't show {} detected transposon candidates if all bases are shown".format(
-                        len(transposonCandidateArms)))
+            if config["showPotentialConnectedArms"]:
+                connectedCandidateArms = self._detectConnectedArmsCandidates()
+                if len(connectedCandidateArms)>0:
+                    self._logger.warning("can't show {} detected connected arms candidates if all bases are shown".format(
+                        len(connectedCandidateArms)))
         else:
             processedArms = set()
             #show arms
             if config["showArms"]:
-                #show potential transposons
-                if config["showPotentialTransposons"]:
-                    transposonCandidateArms = self._detectTransposonArmCandidates()
-                    for i in range(len(transposonCandidateArms)):
-                        arm1 = self.getArm(transposonCandidateArms[i][0])
-                        arm2 = self.getArm(transposonCandidateArms[i][1])
+                #show potential connected arms
+                if config["showPotentialConnectedArms"]:
+                    connectedCandidateArms = self._detectConnectedArmsCandidates()
+                    for i in range(len(connectedCandidateArms)):
+                        arm1 = self.getArm(connectedCandidateArms[i][0])
+                        arm2 = self.getArm(connectedCandidateArms[i][1])
                         if arm1.connection() in orientatedCkmerNodes and arm2.connection() in orientatedCkmerNodes:
                             processedArms.add(arm1.id())
                             processedArms.add(arm2.id())
-                            arm_key1, arm_key2 = self._visualizeTransposon(g,i,arm1,arm2,**config)
+                            arm_key1, arm_key2 = self._visualizeConnectedArms(g,i,arm1,arm2,**config)
                             connectArm(arm_key1,arm1,**config)
                             connectArm(arm_key2,arm2,**config)
                 #loop over arms
                 for i in range(len(arms)):
                     arm = arms[i]
-                    #only if no potential transposon
+                    #only if no potential connected arms
                     if arm.id() in processedArms:
                         continue
                     else:
@@ -792,12 +792,12 @@ class Graph:
                         #create arm
                         arm_key = self._visualizeArm(g,arm,**config)
                         connectArm(arm_key,arm,**config)
-            #show potential transposons
-            elif config["showPotentialTransposons"]:
-                transposonCandidateArms = self._detectTransposonArmCandidates()
-                for i in range(len(transposonCandidateArms)):
-                    arm1 = self.getArm(transposonCandidateArms[i][0])
-                    arm2 = self.getArm(transposonCandidateArms[i][1])
+            #show potential connected arms
+            elif config["showPotentialConnectedArms"]:
+                connectedCandidateArms = self._detectConnectedArmsCandidates()
+                for i in range(len(connectedCandidateArms)):
+                    arm1 = self.getArm(connectedCandidateArms[i][0])
+                    arm2 = self.getArm(connectedCandidateArms[i][1])
                     if arm1.connection() in orientatedCkmerNodes and arm2.connection() in orientatedCkmerNodes:
                         orientatedCkmersArm1 = arm1._orientatedCkmers.intersection(orientatedCkmerNodes.keys())
                         orientatedCkmersArm2 = arm2._orientatedCkmers.intersection(orientatedCkmerNodes.keys())
@@ -809,7 +809,7 @@ class Graph:
                             for node_key1 in orientatedCkmerNodes[orientatedCkmer1].values():
                                 for orientatedCkmer2 in orientatedCkmersArm2:
                                     for node_key2 in orientatedCkmerNodes[orientatedCkmer2].values():
-                                        self._visualizeTransposonConnection(g,node_key1,node_key2, **config)
+                                        self._visualizeConnectedArmsConnection(g,node_key1,node_key2, **config)
         if config["containerGraph"]:
             return (list(edges), orientatedCkmerNodes)
         else:
@@ -875,27 +875,27 @@ class Graph:
             ag.node(arm_key, shape="point")
         return arm_key
 
-    def _visualizeTransposon(self, g, id, arm1, arm2, **kwargs):
+    def _visualizeConnectedArms(self, g, id, arm1, arm2, **kwargs):
         initConfig = {
             "prefix": "graph",
-            "transposonStyle": "dashed,filled",
-            "transposonFillColor": "orange",
-            "transposonPenWidth": 1,
-            "transposonColor": "black"
+            "connectedArmsStyle": "dashed,filled",
+            "connectedArmsFillColor": "orange",
+            "connectedArmsPenWidth": 1,
+            "connectedArmsColor": "black"
         }
         config = kwargs.copy()
         for key,value in initConfig.items():
             if not key in config.keys():
                 config[key] = value
-        transposonGraph=g.subgraph(name="cluster_{}_transposon_{}_{}_{}".format(config["prefix"],id,arm1.id(),arm2.id()))
-        with transposonGraph as tg:
-            transposon_label = "Potential Transposon"
-            transposon_style = config["transposonStyle"]
-            transposon_fillcolor = config["transposonFillColor"]
-            transposon_penwidth = config["transposonPenWidth"]
-            transposon_color = config["transposonColor"]
-            tg.attr(label=transposon_label, style=transposon_style, fillcolor=transposon_fillcolor, 
-                    color=transposon_color, penwidth=str(transposon_penwidth), 
+        connectedArmsGraph=g.subgraph(name="cluster_{}_connectedarms_{}_{}_{}".format(config["prefix"],id,arm1.id(),arm2.id()))
+        with connectedArmsGraph as tg:
+            connectedarms_label = "Potentially Connected"
+            connectedarms_style = config["connectedArmsStyle"]
+            connectedarms_fillcolor = config["connectedArmsFillColor"]
+            connectedarms_penwidth = config["connectedArmsPenWidth"]
+            connectedarms_color = config["connectedArmsColor"]
+            tg.attr(label=connectedarms_label, style=connectedarms_style, fillcolor=connectedarms_fillcolor, 
+                    color=connectedarms_color, penwidth=str(connectedarms_penwidth), 
                     constraint="false", rankdir="TB", labelloc="t", nodesep="0", ranksep="0")
             #arms
             arm_key1 = self._visualizeArm(tg,arm1,**config)
@@ -903,26 +903,26 @@ class Graph:
             tg.edge(arm_key1,arm_key2,weight="1",style="invis")
         return arm_key1,arm_key2
 
-    def _visualizeTransposonConnection(self, g, arm_key1, arm_key2, **kwargs):
+    def _visualizeConnectedArmsConnection(self, g, arm_key1, arm_key2, **kwargs):
         initConfig = {
-            "transposonEdgeFontColor": "blue",
-            "transposonEdgeStyle": "dotted",
-            "transposonEdgePenwidth": 2,
-            "transposonEdgeFontSize": 12,
-            "transposonEdgeColor": "blue"
+            "connectedArmsEdgeFontColor": "blue",
+            "connectedArmsEdgeStyle": "dotted",
+            "connectedArmsEdgePenwidth": 2,
+            "connectedArmsEdgeFontSize": 12,
+            "connectedArmsEdgeColor": "blue"
         }
         config = kwargs.copy()
         for key,value in initConfig.items():
             if not key in config.keys():
                 config[key] = value
         edge_label = ("<" + 
-                     "<font point-size=\"{}\" color=\"{}\">possible<br/> transposon</font>".format(
-                         config["transposonEdgeFontSize"], config["transposonEdgeColor"]
+                     "<font point-size=\"{}\" color=\"{}\">possible<br/> connected arms</font>".format(
+                         config["connectedArmsEdgeFontSize"], config["connectedArmsEdgeColor"]
                      ) + 
                      ">")
-        edge_style = config["transposonEdgeStyle"]
-        edge_color = config["transposonEdgeColor"]
-        edge_penwidth = config["transposonEdgePenwidth"]
+        edge_style = config["connectedArmsEdgeStyle"]
+        edge_color = config["connectedArmsEdgeColor"]
+        edge_penwidth = config["connectedArmsEdgePenwidth"]
         g.edge(arm_key1, arm_key2,style=edge_style, 
                    label=edge_label, color=edge_color, rankdir="lr", 
                    constraint="true", penwidth=str(edge_penwidth))
@@ -1311,14 +1311,14 @@ class Graph:
         else:
             return None
 
-    def _detectTransposonArmCandidates(self, boundaryDistance: int = None):
+    def _detectConnectedArmsCandidates(self, boundaryDistance: int = None):
         if boundaryDistance is None:
             boundaryDistance = 3*self._k
         arms = self.getArms()
         connected = self.getConnected()
         incomingArms = set([arm.id() for arm in arms if arm.armType()=="incoming"])
         outgoingArms = set([arm.id() for arm in arms if arm.armType()=="outgoing"])
-        transposonCandidates = []
+        connectedArmsCandidates = []
         for id1 in outgoingArms:
             arm1 = self.getArm(id1)
             connection1 = self._orientatedCkmers[self.getArm(id1)._connection]
@@ -1337,9 +1337,9 @@ class Graph:
                     positions2 = [connection2._position]
                 distance = min(positions2) - max(positions1)
                 if (distance>0) and (distance<boundaryDistance):
-                    transposonCandidates.append([id1,id2])
+                    connectedArmsCandidates.append([id1,id2])
         #return
-        return transposonCandidates
+        return connectedArmsCandidates
     
     def _resetDistances(self):
         if not self._connected is None:
