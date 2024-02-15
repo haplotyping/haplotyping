@@ -602,9 +602,13 @@ class Split:
             reads = []
         return reads
         
-    def _kmers_read(h5file: h5py.File, kmers: list):
+    def _kmers_read(h5file: h5py.File, kmers: list, additional: list):
         ckmerList = set()
+        ckmerSet = set()
         for kmer in kmers:
+            ckmerSet.add(haplotyping.General.canonical(kmer))
+        ckmerList.update(ckmerSet)
+        for kmer in additional:
             ckmerList.add(haplotyping.General.canonical(kmer))
         ckmerList = list(ckmerList)
         ckmerList.sort()
@@ -624,7 +628,8 @@ class Split:
             ckmer = ckmerList[i]
             (ckmerRow,id,cache) = Split._findItem(ckmerList[i],ckmerTable,start,number,cache)
             if ckmerRow:
-                kmerIds.append(id)
+                if ckmerList[i] in ckmerSet:
+                    kmerIds.append(id)
                 partitions.add(ckmerRow[5])
                 start = id+1
             else:
@@ -734,9 +739,9 @@ class Split:
         with h5py.File(location_split, mode="r") as h5file:            
             return Split._kmer_read(h5file,kmer)
     
-    def kmer_list_read(location_split: str, kmers: list):
+    def kmer_list_read(location_split: str, kmers: list, additional: list):
         with h5py.File(location_split, mode="r") as h5file:            
-            return Split._kmers_read(h5file,kmers)
+            return Split._kmers_read(h5file,kmers,additional)
         
     def kmer_paired(location_split: str, kmer: str):
         with h5py.File(location_split, mode="r") as h5file:            

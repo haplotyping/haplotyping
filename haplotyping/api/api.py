@@ -578,22 +578,28 @@ class API():
             self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
             return None    
             
-    def getSplitReads(self, datasetUid, kmer):
+    def getSplitReads(self, datasetUid, kmer, additional=[]):
         """
             get read information
         
             :param str datasetUid: dataset uid
             :param Union[str,list] kmer: splitting k-mer(s)
+            :param Union[list] additional: additional splitting k-mer(s)
             :return: read information
             :rtype: list
         """        
         if not isinstance(kmer,str):
             fullRequest = "{}split/{}/kmer/read".format(self._baseUrl, datasetUid)        
-            response = requests.post(fullRequest, json={"kmers": sorted(kmer)},
+            response = requests.post(fullRequest, json={"kmers": sorted(kmer), "additional": sorted(additional)},
                                      auth=self._apiAuth, headers=self._apiHeaders)
         else:
-            fullRequest = "{}split/{}/kmer/read/{}".format(self._baseUrl, datasetUid, kmer)        
-            response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
+            if len(additional)>0:
+                fullRequest = "{}split/{}/kmer/read".format(self._baseUrl, datasetUid)        
+                response = requests.post(fullRequest, json={"kmers": [kmer], "additional": sorted(additional)},
+                                     auth=self._apiAuth, headers=self._apiHeaders)
+            else:
+                fullRequest = "{}split/{}/kmer/read/{}".format(self._baseUrl, datasetUid, kmer)        
+                response = requests.get(fullRequest, auth=self._apiAuth, headers=self._apiHeaders)
         if response.ok:
             data = response.json()
             return data

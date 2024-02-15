@@ -249,7 +249,8 @@ class SplitKmerReadSingle(Resource):
 class SplitKmerReadMultiple(Resource):
     
     dataset_kmers = namespace.model("k-mer list to get read connections splitting k-mer", {
-        "kmers": fields.List(fields.String, attribute="items", required=True, description="list of k-mers")
+        "kmers": fields.List(fields.String, attribute="items", required=True, description="list of k-mers"),
+        "additional": fields.List(fields.String, attribute="items", required=False, description="list of additional k-mers")
     })
     
     @namespace.doc(description="Get read connections splitting k-mer for a list of k-mers from dataset defined by uid")
@@ -258,6 +259,7 @@ class SplitKmerReadMultiple(Resource):
     @cache.cached(make_cache_key=_make_cache_key)
     def post(self,uid):
         kmers = namespace.payload.get("kmers",[])
+        additional = namespace.payload.get("additional",[])
         try:
             data = _getDataset(uid)
             if data:
@@ -269,7 +271,7 @@ class SplitKmerReadMultiple(Resource):
                                                 data["dataset_location"],"kmer.data.h5")
                 if not os.path.isfile("{}".format(location_split)):
                     abort(500,"split database not found")
-                response = Split.kmer_list_read(location_split, kmers)
+                response = Split.kmer_list_read(location_split, kmers, additional)
                 return Response(json.dumps(response), mimetype="application/json")                
             else:
                 abort(404, "no dataset with splitting k-mers for uid "+str(uid))
