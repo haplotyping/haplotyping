@@ -31,8 +31,8 @@ class SequenceGraph(APIGraph):
         self._glueMissingConnections()
         #fix start and end based on connected candidates
         self._expandConnectedStartEndCandidates()
-        #detect arms
-        self._detectArms()
+        #detect and connect arms with default parameters
+        self.connectArms()
         
     def __repr__(self):
         text = super(haplotyping.graph.sequence.SequenceGraph, self).__repr__()
@@ -461,10 +461,6 @@ class SequenceGraph(APIGraph):
         #return
         return connectedArmsCandidates
 
-    def connectArms(self):
-        pass
-                          
-                            
     def _findPath(self, orientedCkmerFrom, orientedCkmerTo, distance:int):
         minimumFrequency = 2
         kmerFrom = (orientedCkmerFrom[0] if orientedCkmerFrom[1]=="forward" 
@@ -543,7 +539,6 @@ class SequenceGraph(APIGraph):
             #check for missing incoming
             if incomingRelevantSplitSide in c_data._orientatedBases:
                 b = c_data._orientatedBases[incomingRelevantSplitSide]
-                assert (b in oRightSplitBases_candidate) or not c_data.candidate()
                 if b in oRightSplitBases_candidate:
                     b_data = self._orientatedBases[b]
                     assert c in b_data._orientatedCkmers
@@ -593,7 +588,6 @@ class SequenceGraph(APIGraph):
             #check for missing outgoing
             if outgoingRelevantSplitSide in c_data._orientatedBases:
                 b = c_data._orientatedBases[outgoingRelevantSplitSide]
-                assert (b in oRightSplitBases_candidate) or not c_data.candidate()
                 if b in oRightSplitBases_candidate:
                     b_data = self._orientatedBases[b]
                     assert c in b_data._orientatedCkmers

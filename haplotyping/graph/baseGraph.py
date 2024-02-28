@@ -1302,8 +1302,624 @@ class Graph():
     def getArms(self):
         return self._arms
 
-    def connectArms(self):
-        pass
+    def connectArms(self, **args):
+
+        numberOfCandidates = args.get("numberOfCandidates",3)
+        numberOfKmers = args.get("numberOfKmers",10)
+        maximumLength = args.get("maximumLength",1000)
+        maximumSteps = args.get("maximumSteps",100)
+        maximumPaths = args.get("maximumPaths",0)
+        minimumReadDepth = args.get("minimumReadDepth",2)
+        minimumGlueSize = args.get("minimumGlueSize",10)
+        
+        def processArmReads(reads,arm,newArmKmers={}):
+            #first raw filtering
+            filteredReads = []
+            candidateKmers = set([entry[0] for entry in self.getCandidates()])
+            armKmers = set([item[0] for item in arm._orientatedCkmers])
+            for read in reads:
+                #compute type
+                kmerTypes = []        
+                for kmer in read["kmers"]:
+                    if (kmer["ckmer"] in armKmers) or (kmer["ckmer"] in newArmKmers):
+                        kmerTypes.append("a")
+                    elif kmer["ckmer"] in candidateKmers:
+                        kmerTypes.append("c")
+                    else:
+                        kmerTypes.append("u")
+                #filter
+                if not "u" in kmerTypes : 
+                    #only if no new arm k-mers (initial)
+                    if (len(newArmKmers)==0) and not ("a" in kmerTypes and "c" in kmerTypes):
+                        continue #nothing new or relevant
+                elif not ("a" in kmerTypes or "c" in kmerTypes):
+                    continue #no arm or candidate
+                elif kmerTypes[0]=="u" and kmerTypes[-1]=="u":
+                    continue #doesn't belong to the graph
+                elif not (kmerTypes[-1]=="u" or kmerTypes[0]=="u"):
+                    continue #problematic
+                filteredReads.append(([item.copy() for item in read["kmers"]],kmerTypes,len(read["kmers"]) * [read["number"]],))
+            
+            #orientate or filter
+            orientatedReads = []
+            for entry in filteredReads:
+                orientation = None
+                for i in range(len(entry[0])):
+                    if entry[1][i]=="u":
+                        continue
+                    else:
+                        if entry[0][i]["orientation"]=="forward":
+                            ockmer = (entry[0][i]["ckmer"],"forward")
+                            rckmer = (entry[0][i]["ckmer"],"backward")
+                        elif entry[0][i]["orientation"]=="backward":
+                            ockmer = (entry[0][i]["ckmer"],"backward")
+                            rckmer = (entry[0][i]["ckmer"],"forward")
+                        else:
+                            orientation = "conflict"
+                            continue
+                        if ockmer in self.getCandidates() or ockmer in arm._orientatedCkmers:
+                            if orientation is None:
+                                orientation="forward"
+                            elif not orientation=="forward":
+                                orientation = "conflict"
+                                continue
+                        elif rckmer in self.getCandidates() or rckmer in arm._orientatedCkmers:
+                            if orientation is None:
+                                orientation="backward"
+                            elif not orientation=="backward":
+                                orientation = "conflict"
+                                continue
+                        elif ockmer[0] in newArmKmers:
+                            if newArmKmers[ockmer[0]]==ockmer[1]:
+                                if orientation is None:
+                                    orientation="forward"
+                                elif not orientation=="forward":
+                                    orientation = "conflict"
+                                    continue
+                            elif newArmKmers[rckmer[0]]==rckmer[1]:
+                                if orientation is None:
+                                    orientation="backward"
+                                elif not orientation=="backward":
+                                    orientation = "conflict"
+                                    continue
+                            else:
+                                orientation = "conflict"
+                                continue
+                        else:
+                            orientation = "conflict"
+                            continue
+                if orientation=="forward":
+                    if arm.armType()=="incoming":
+                        if entry[1][0]=="u" and not entry[1][-1]=="u":
+                            if "a" in entry[1] and "u" in entry[1][entry[1].index("a"):]:
+                                pass #unknown after first arm k-mer
+                            elif "c" in entry[1] and "a" in entry[1][entry[1].index("c"):]:
+                                pass #arm k-mer after first candidate k-mer
+                            elif "c" in entry[1] and "u" in entry[1][entry[1].index("c"):]:
+                                pass #unknown after first candidate k-mer
+                            elif "a" in entry[1]: #should at least contain arm-kmer
+                                orientatedReads.append([[item.copy() for item in entry[0]],entry[1].copy(),entry[2]])
+                        elif "a" in entry[1] and "c" in entry[1] and not "u" in entry[1]: 
+                            if "a" in entry[1][entry[1].index("c"):]:
+                                pass #arm k-mer after candidate k-mer
+                            else:
+                                orientatedReads.append([[item.copy() for item in entry[0]],entry[1].copy(),entry[2]])
+                    elif arm.armType()=="outgoing":
+                        if entry[1][-1]=="u" and not entry[1][0]=="u":
+                            if "a" in entry[1] and "u" in entry[1][:entry[1].index("a")]:
+                                pass #unknown before first arm k-mer
+                            elif "c" in entry[1] and "a" in entry[1][:entry[1].index("c")]:
+                                pass #arm k-mer before first candidate k-mer
+                            elif "c" in entry[1] and "u" in entry[1][:entry[1].index("c")]:
+                                pass #unknown before first candidate k-mer
+                            elif "a" in entry[1]: #should at least contain arm-kmer
+                                orientatedReads.append([[item.copy() for item in entry[0]],entry[1].copy(),entry[2]])
+                        elif "a" in entry[1] and "c" in entry[1] and not "u" in entry[1]:
+                            if "a" in entry[1][:entry[1].index("c")]:
+                                pass #arm k-mer before candidate k-mer
+                            else:
+                                orientatedReads.append([[item.copy() for item in entry[0]],entry[1].copy(),entry[2]])
+                elif orientation=="backward":
+                    reverseReads = [item.copy() for item in entry[0][::-1]]
+                    reverseTypes = [item for item in entry[1][::-1]]
+                    maxPosition = entry[0][-1]["position"]
+                    for i in range(len(reverseReads)):
+                        reverseReads[i]["position"] = maxPosition - reverseReads[i]["position"]
+                        reverseReads[i]["orientation"] = ("forward" if reverseReads[i]["orientation"]=="backward" else (
+                                                          "backward" if reverseReads[i]["orientation"]=="forward" else "unknown"))
+                    if arm.armType()=="incoming":
+                        if reverseTypes[0]=="u" and not reverseTypes[-1]=="u":
+                            if "a" in reverseTypes and "u" in reverseTypes[reverseTypes.index("a"):]:
+                                pass #unknown after first arm k-mer
+                            elif "c" in reverseTypes and "a" in reverseTypes[reverseTypes.index("c"):]:
+                                pass #arm k-mer after first candidate k-mer
+                            elif "c" in reverseTypes and "u" in reverseTypes[reverseTypes.index("c"):]:
+                                pass #unknown after first candidate k-mer
+                            elif "a" in reverseTypes: #should at least contain arm-kmer
+                                orientatedReads.append([reverseReads,reverseTypes,entry[2]])
+                        elif "a" in reverseTypes and "c" in reverseTypes and not "u" in reverseTypes:
+                            if "a" in reverseTypes[:reverseTypes.index("c")]:
+                                pass #arm k-mer before candidate k-mer
+                            else:
+                                orientatedReads.append([reverseReads,reverseTypes,entry[2]])
+                    elif arm.armType()=="outgoing":
+                        if reverseTypes[-1]=="u" and not reverseTypes[0]=="u":
+                            if "a" in reverseTypes and "u" in reverseTypes[:reverseTypes.index("a")]:
+                                pass #unknown before first arm k-mer
+                            elif "c" in reverseTypes and "a" in reverseTypes[:reverseTypes.index("c")]:
+                                pass #arm k-mer before first candidate k-mer
+                            elif "c" in reverseTypes and "u" in reverseTypes[:reverseTypes.index("c")]:
+                                pass #unknown before first candidate k-mer
+                            elif "a" in reverseTypes: #should at least contain arm-kmer
+                                orientatedReads.append([reverseReads,reverseTypes,entry[2]])
+                        elif "a" in reverseTypes and "c" in reverseTypes and not "u" in reverseTypes:
+                            if "a" in reverseTypes[:reverseTypes.index("c")]:
+                                pass #arm k-mer before candidate k-mer
+                            else:
+                                orientatedReads.append([reverseReads,reverseTypes,entry[2]])
+            
+            #build response
+            response = []
+            for entry in orientatedReads:
+                kmerList = []
+                typeList = []
+                positionList = []
+                readNumberList = []
+                for kmerInfo,kmerType,frequency in zip(entry[0],entry[1],entry[2]):
+                    kmerList.append((kmerInfo["ckmer"],kmerInfo["orientation"],kmerInfo["split"],kmerInfo["number"]))
+                    typeList.append(kmerType)
+                    positionList.append(kmerInfo["position"])
+                    readNumberList.append(frequency)
+                response.append([kmerList,typeList,positionList,readNumberList])
+                    
+            return response
+    
+        def expandGlueResponses(arm,glueResponse):
+            for item in glueResponse:
+                if not "u" in item[1]:
+                    if arm.armType()=="outgoing":
+                        expanded = True
+                        while expanded:
+                            expanded = False
+                            kmer = item[0][-1]
+                            direct = self._api.getSplitDirect(self._uid,kmer[0])
+                            if direct:
+                                if kmer[1]=="forward":
+                                    options = direct.get("direct",{}).get("right",{})
+                                else:
+                                    options = direct.get("direct",{}).get("left",{})
+                                if len(options)==1:
+                                    expanded = True
+                                    if options[0]["connection"]["direction"]=="left":
+                                        item[0].append((options[0]["ckmer"],"forward",options[0]["split"],options[0]["number"]))
+                                    else:
+                                        item[0].append((options[0]["ckmer"],"backward",options[0]["split"],options[0]["number"]))
+                                    item[1].append("u")
+                                    item[2].append(item[2][-1]+options[0]["connection"]["distance"])
+                                    item[3].append(options[0]["connection"]["number"])
+                    elif arm.armType()=="incoming":
+                        expanded = True
+                        while expanded:
+                            expanded = False
+                            kmer = item[0][0]
+                            direct = self._api.getSplitDirect(self._uid,kmer[0])
+                            if direct:
+                                if kmer[1]=="forward":
+                                    options = direct.get("direct",{}).get("left",{})
+                                else:
+                                    options = direct.get("direct",{}).get("right",{})
+                                if len(options)==1:
+                                    expanded = True
+                                    if options[0]["connection"]["direction"]=="right":
+                                        item[0] = [(options[0]["ckmer"],"forward",options[0]["split"],options[0]["number"])] + item[0]
+                                    else:
+                                        item[0] = [(options[0]["ckmer"],"backward",options[0]["split"],options[0]["number"])] + item[0]
+                                    item[1] = ["u"] + item[1]
+                                    item[2] = [0] + [x+options[0]["connection"]["distance"] for x in item[2]]
+                                    item[3] = [options[0]["connection"]["number"]] + item[3]
+    
+        def glue(reads,arm,initialList=None):
+            #initiate
+            starters = []
+            others = [item for item in reads]
+            #helper function
+            def _getNewStarters(entries):
+                hasNeighbour = set()
+                for entry in entries:
+                    for i in range(1,len(entry[0])):
+                        if arm.armType()=="incoming":
+                            hasNeighbour.add(entry[0][i-1])
+                        elif arm.armType()=="outgoing":
+                            hasNeighbour.add(entry[0][i])
+                if arm.armType()=="incoming":
+                    newStarters = [entry for entry in entries if not entry[0][-1] in hasNeighbour]
+                    newOthers = [entry for entry in entries if entry[0][-1] in hasNeighbour]
+                elif arm.armType()=="outgoing":
+                    newStarters = [entry for entry in entries if not entry[0][0] in hasNeighbour]
+                    newOthers = [entry for entry in entries if entry[0][0] in hasNeighbour]
+                return newStarters,newOthers    
+            #glue reads
+            glueList = []
+            if not initialList is None:
+                for entry in initialList:
+                    glueList.append(entry)
+            #process all reads
+            while True:
+                if len(others)==0:
+                    break
+                else:
+                    starters,others = _getNewStarters(others)
+                    if len(starters)==0:
+                        break
+                    else:
+                        #first check if read contained, update counters
+                        uncontainedStarters = []
+                        for entry in starters:
+                            contained = False
+                            if arm.armType()=="incoming":
+                                for glueEntry in glueList:
+                                    if entry[0][-1] in glueEntry[0]:
+                                        id = glueEntry[0].index(entry[0][-1])
+                                        glueCandidate = glueEntry[0][:id+1]
+                                        if entry[0] == glueCandidate[-len(entry[0]):]:
+                                            contained = True
+                                            for i in range(len(entry[0])):
+                                                glueEntry[3][i+1+id-len(entry[0])] += entry[3][i]
+                            elif arm.armType()=="outgoing":
+                                for glueEntry in glueList:
+                                    if entry[0][0] in glueEntry[0]:
+                                        id = glueEntry[0].index(entry[0][0])
+                                        glueCandidate = glueEntry[0][id:]
+                                        if entry[0] == glueCandidate[0:len(entry[0])]:
+                                            contained = True
+                                            for i in range(len(entry[0])):
+                                                glueEntry[3][i+id] += entry[3][i]
+                            if not contained:
+                                uncontainedStarters.append(entry)
+                        #then, try to glue
+                        newGlueEntries = []
+                        for entry in starters:
+                            glued = False
+                            if arm.armType()=="incoming":
+                                for glueEntry in glueList:
+                                    if not "u" in glueEntry[1] and not initialList is None:
+                                        pass
+                                    elif entry[0][-1] in glueEntry[0]:
+                                        id = glueEntry[0].index(entry[0][-1])
+                                        glueCandidate = glueEntry[0][:id+1]
+                                        if glueCandidate == entry[0][-len(glueCandidate):]:
+                                            glued = True
+                                            newGlueEntry = [[],[],[],[]]
+                                            for i in range(len(entry[0])):
+                                                newGlueEntry[0].append(tuple(entry[0][i]))
+                                                newGlueEntry[1].append(entry[1][i])
+                                                newGlueEntry[2].append(entry[2][i])
+                                                newGlueEntry[3].append(entry[3][i])
+                                            for i in range(id+1):
+                                                newGlueEntry[3][len(entry[0])+i-id-1] += glueEntry[3][i]
+                                            positionStart = entry[2][-1] - glueEntry[2][id]
+                                            for i in range(id+1,len(glueEntry[0])):
+                                                newGlueEntry[0].append(tuple(glueEntry[0][i]))
+                                                newGlueEntry[1].append(glueEntry[1][i])
+                                                newGlueEntry[2].append(glueEntry[2][i]+positionStart)
+                                                newGlueEntry[3].append(glueEntry[3][i])
+                                            if len([True for item in newGlueEntries if item[0]==newGlueEntry[0]])==0:
+                                                newGlueEntries.append(newGlueEntry)
+                            elif arm.armType()=="outgoing":
+                                for glueEntry in glueList:
+                                    if not "u" in glueEntry[1] and not initialList is None:
+                                        pass
+                                    elif entry[0][0] in glueEntry[0]:
+                                        id = glueEntry[0].index(entry[0][0])
+                                        glueCandidate = glueEntry[0][id:]
+                                        if glueCandidate == entry[0][0:len(glueCandidate)]:
+                                            glued = True
+                                            newGlueEntry = [
+                                                [tuple(item) for item in glueEntry[0][0:id]],
+                                                glueEntry[1][0:id].copy(),
+                                                glueEntry[2][0:id].copy(),
+                                                glueEntry[3][0:id].copy()]
+                                            positionStart = glueEntry[2][id] - entry[2][0]
+                                            for i in range(len(entry[0])):
+                                                newGlueEntry[0].append(tuple(entry[0][i]))
+                                                newGlueEntry[1].append(entry[1][i])
+                                                newGlueEntry[2].append(entry[2][i]+positionStart)
+                                                newGlueEntry[3].append(entry[3][i])
+                                            for i in range(id,len(glueEntry[0])):
+                                                newGlueEntry[3][i]+=glueEntry[3][i]
+                                            if len([True for item in newGlueEntries if item[0]==newGlueEntry[0]])==0:
+                                                newGlueEntries.append(newGlueEntry)
+                            if initialList is None and not glued:
+                                newGlueEntries.append(entry)
+                        #now combine with glueEntries
+                        glueList.extend(newGlueEntries)
+                        #and filter this by removin unnecessary subsets
+                        filteredGlueList = []
+                        glueListReport = []
+                        for i in range(len(glueList)):
+                            reportEntry = {"isRealSubset": set(), "unconfirmed": False, 
+                                           "ignore": False, "duplicate": set(), "subsets": set()}
+                            for k in range(len(glueList[i][0])):
+                                if glueList[i][3][k]<minimumReadDepth:
+                                    if glueList[i][1][k]=="u":
+                                        reportEntry["unconfirmed"] = True
+                                    elif glueList[i][1][k]=="a":
+                                        if arm.armType()=="incoming":
+                                            if (not "u" in glueList[i][1]) or (k>glueList[i][1].index("a")+numberOfKmers-1):
+                                                reportEntry["ignore"] = True
+                                        elif arm.armType()=="outgoing":
+                                            if (not "u" in glueList[i][1]) or (k<glueList[i][1].index("u")-numberOfKmers):
+                                                reportEntry["ignore"] = True
+                            for j in range(len(glueList)):
+                                if not i==j:
+                                    if glueList[i][0]==glueList[j][0]:
+                                        if i>j:
+                                            reportEntry["duplicate"].add(j)
+                                    else:
+                                        if glueList[i][0][0] in glueList[j][0]:
+                                            #todo: loop over all matches
+                                            p = glueList[j][0].index(glueList[i][0][0])
+                                            if glueList[i][0]==glueList[j][0][p:p+len(glueList[i][0])]:
+                                                reportEntry["isRealSubset"].add(j)
+                            glueListReport.append(reportEntry)
+                        #get confirmed subsets
+                        for i in range(len(glueList)):
+                            if not (glueListReport[i]["unconfirmed"] or glueListReport[i]["ignore"]):
+                                for j in glueListReport[i]["isRealSubset"]:
+                                    glueListReport[j]["subsets"].add(i)
+        
+                        includedSubsets = set()
+                        for i in range(len(glueList)):
+                            if len(glueListReport[i]["duplicate"])>0:
+                                pass
+                            elif glueListReport[i]["ignore"]:
+                                pass
+                            elif len(glueListReport[i]["isRealSubset"])==0 and len(glueListReport[i]["duplicate"])==0:
+                                filteredGlueList.append(glueList[i])
+                                if glueListReport[i]["unconfirmed"] and len(glueListReport[i]["subsets"])>0:
+                                    #compute largest confirmed subset(s)
+                                    subsets = glueListReport[i]["subsets"]
+                                    for j in glueListReport[i]["subsets"]:
+                                        subsets = subsets.difference(glueListReport[j]["subsets"])
+                                    #todo: select
+                                    for j in subsets:
+                                        if len(glueListReport[j]["duplicate"])==0:
+                                            includedSubsets.add(j)
+                        for i in range(len(includedSubsets)):
+                            filteredGlueList.append(glueList[i])
+                        glueList = filteredGlueList
+        
+            expandGlueResponses(arm,glueList)                
+            
+            return glueList
+    
+        def expandArm(arm,glueResponse,allNewKmersArm,n,processedReads):
+            newKmersArm = {}
+            #get new k-mers for arm
+            while len(newKmersArm)<n:
+                newKmers = 0
+                for item in glueResponse:
+                    if "u" in item[1]:
+                        id = (item[1].index("u") if arm.armType()=="outgoing" 
+                              else (len(item[1]) - item[1][::-1].index("u") - 1))
+                        newKmersArm[item[0][id][0]] = item[0][id][1]
+                        item[1][id] = "a"
+                        newKmers+=1
+                if newKmers==0:
+                    break
+            #check glue responses for missing k-mers in selection
+            while True:
+                newKmers = 0
+                for item in glueResponse:
+                    for i in range(len(item[0])):
+                        if item[0][i][0] in newKmersArm:
+                            item[1][i] = "a"
+                    if arm.armType()=="outgoing":
+                        while "u" in item[1] and "a" in item[1] and item[1].index("u")<(len(item[1])-item[1][::-1].index("a")-1):
+                            id = item[1].index("u")
+                            if not item[0][id][0] in newKmersArm:
+                                newKmersArm[item[0][id][0]] = item[0][id][1]
+                                newKmers+=1
+                            item[1][id] = "a"
+                    elif arm.armType()=="incoming":
+                        while "u" in item[1] and "a" in item[1] and (len(item[1])-item[1][::-1].index("u")-1)>item[1].index("a"):
+                            id = (len(item[1])-item[1][::-1].index("u")-1)
+                            if not item[0][id][0] in newKmersArm:
+                                newKmersArm[item[0][id][0]] = item[0][id][1]
+                                newKmers+=1
+                            item[1][id] = "a"
+                if newKmers==0:
+                    break
+            #get all reads
+            newReadsArm = self._api.getSplitReads(self._uid,newKmersArm.keys())
+            allNewKmersArm.update(newKmersArm)
+            responsenew = processArmReads(newReadsArm,arm,allNewKmersArm)
+            responsefiltered = []
+            for processedRead in responsenew:
+                entry = tuple([item[0] for item in processedRead[0]])
+                if not entry in processedReads:
+                    processedReads.add(entry)
+                    responsefiltered.append(processedRead)
+            glueResponse = glue(responsefiltered,arm,glueResponse)
+            return glueResponse,allNewKmersArm,len(newKmersArm),len(responsefiltered)
+    
+        def getPathLengths(glueResponse):
+            if len(glueResponse)>0:
+                minLength = min([item[2][-1] for item in glueResponse])
+                maxLength = max([item[2][-1] for item in glueResponse])
+            else:
+                minLength = 0
+                maxLength = 0
+            length = "{}".format(maxLength) if minLength==maxLength else "{}-{}".format(minLength,maxLength)
+            return minLength,maxLength,length
+    
+        def getSolutions(glueResponse1,glueResponse2):
+            solutions = []
+            for path1 in glueResponse1:
+                kmerset1 = set([item[0] for item in path1[0]])
+                for path2 in glueResponse2:
+                    kmerset2 = set([item[0] for item in path2[0]])
+                    if len(kmerset1.intersection(kmerset2))>0:
+                        for i in range(len(path1[0])):
+                            if path1[0][i] in path2[0]:
+                                j = path2[0].index(path1[0][i])
+                                p1 = path1[0][i:]
+                                p2 = path2[0][j:j+len(p1)]
+                                if p1==p2 and (minimumGlueSize==0 or len(p1)>=minimumGlueSize):
+                                    solution = path1[0] + path2[0][j+len(p1):]
+                                    numbers = path1[3][0:i]
+                                    for k in range(i,i+len(p1)):
+                                        numbers.append(max(path1[3][k],path2[3][j-i+k]))
+                                    numbers = numbers + path2[3][j+len(p1):]
+                                    if min(numbers)>=minimumReadDepth:
+                                        solutions.append(solution)
+                                break
+            return solutions
+    
+        def processSolution(solution):
+            #get direct connections
+            kmers = set()
+            for i in range(len(solution)):
+                kmers.add(solution[i][0])
+            directConnections = {item["ckmer"]: item for item in self._api.getSplitDirect(self._uid,kmers)}
+            #process
+            previousCkmer = None
+            for i in range(len(solution)):
+                item = solution[i]
+                ckmer = self._createOrientatedCkmer(item[0], item[1], item[3], item[2])
+                if previousCkmer:
+                    if previousCkmer._key in ckmer._incoming and ckmer._key in previousCkmer._outgoing:
+                        pass
+                    else:
+                        direct = directConnections.get(item[0],{})
+                        if item[1]=="forward":
+                            entries = direct.get("direct",{}).get("left",[])
+                        else:
+                            entries = direct.get("direct",{}).get("right",[])
+                        connection = None
+                        for entry in entries:
+                            if entry["ckmer"]==previousCkmer._ckmer:
+                                if (previousCkmer._orientation=="forward") and (entry.get("connection",{}).get("direction","")=="right"):
+                                    connection = entry.get("connection",{})
+                                    break
+                                elif (previousCkmer._orientation=="backward") and (entry.get("connection",{}).get("direction","")=="left"):
+                                    connection = entry.get("connection",{})
+                                    break
+                        if connection:
+                            if not previousCkmer._key in ckmer._incoming:
+                                ckmer._setIncoming(previousCkmer._key,connection["distance"], connection["number"], connection["problem"]>0)
+                            if not ckmer._key in previousCkmer._outgoing:
+                                previousCkmer._setOutgoing(ckmer._key,connection["distance"], connection["number"], connection["problem"]>0)
+                        else:
+                            #should not happen
+                            pass
+                previousCkmer = ckmer
+    
+        #main function
+        self._detectArms()
+        armPairs = self._detectConnectedArmsCandidates()
+        for pairCounter in range(len(armPairs)):
+            solutions = []
+            self._logger.debug("trying to connect {} of {} pair(s) of arms".format(pairCounter+1,len(armPairs)))
+            arm1 = self.getArm(armPairs[pairCounter][0])
+            arm2 = self.getArm(armPairs[pairCounter][1])
+            arm1Kmers = set([item[0] for item in arm1._orientatedCkmers])
+            arm2Kmers = set([item[0] for item in arm2._orientatedCkmers])
+            assert arm1.armType()=="outgoing"
+            assert arm2.armType()=="incoming"
+            #get orientated k-mers
+            candidatesArm1 = set([entry for entry in [arm1.connection()] 
+                                      if entry in self.getCandidates()])
+            candidatesArm2 = set([entry for entry in [arm2.connection()] 
+                                      if entry in self.getCandidates()])
+            for i in range(numberOfCandidates):
+                newCandidatesArm1 = set()
+                for entry in candidatesArm1:
+                    newCandidatesArm1.update([newEntry for newEntry in self._orientatedCkmers[entry]._incoming
+                                              if newEntry in self.getCandidates()])
+                candidatesArm1.update(newCandidatesArm1)
+                newCandidatesArm2 = set()
+                for entry in candidatesArm2:
+                    newCandidatesArm2.update([newEntry for newEntry in self._orientatedCkmers[entry]._outgoing
+                                              if newEntry in self.getCandidates()])
+                candidatesArm2.update(newCandidatesArm2)
+            #get plain k-mers
+            candidateKmersArm1 = set([entry[0] for entry in candidatesArm1])
+            candidateKmersArm2 = set([entry[0] for entry in candidatesArm2])
+    
+            readsArm1 = self._api.getSplitReads(self._uid,arm1Kmers.union(candidateKmersArm1))
+            response1 = processArmReads(readsArm1,arm1)
+            processedReads1 = set([tuple([item[0] for item in processedRead[0]]) for processedRead in response1])
+            glueResponse1 = glue(response1,arm1)
+            glueResponse1 = [entry for entry in glueResponse1 if "c" in entry[1]]
+            for entry in glueResponse1:
+                for i in range(len(entry[0])):
+                    if entry[0][i][0] in arm1Kmers or entry[0][i][0] in candidateKmersArm1:
+                        entry[3][i]=max(entry[3][i],minimumReadDepth)
+            minLength1,maxLength1,length1 = getPathLengths(glueResponse1)
+            self._logger.debug("starting with {} outgoing path(s) of length {}".format(len(glueResponse1),len(response1),length1))
+            
+            readsArm2 = self._api.getSplitReads(self._uid,arm2Kmers.union(candidateKmersArm2))
+            response2 = processArmReads(readsArm2,arm2)
+            processedReads2 = set([tuple([item[0] for item in processedRead[0]]) for processedRead in response2])
+            glueResponse2 = glue(response2,arm2)
+            glueResponse2 = [entry for entry in glueResponse2 if "c" in entry[1]]
+            for entry in glueResponse2:
+                for i in range(len(entry[0])):
+                    if entry[0][i][0] in arm2Kmers or entry[0][i][0] in candidateKmersArm2:
+                        entry[3][i]=max(entry[3][i],minimumReadDepth)
+            minLength2,maxLength2,length2 = getPathLengths(glueResponse2)
+            self._logger.debug("starting with {} incoming path(s) of length {}".format(len(glueResponse2),len(response2),length2))
+            
+            allNewKmersArm1 = {}
+            allNewKmersArm2 = {}
+            counter = 0
+            solutions = []
+            while True:
+                counter+=1
+                glueResponse1,allNewKmersArm1,newKmersArm1,newReads1 = expandArm(
+                    arm1,glueResponse1,allNewKmersArm1,numberOfKmers,processedReads1)
+                minLength1,maxLength1,length1 = getPathLengths(glueResponse1)
+                self._logger.debug("step {}: expand {} k-mers with {} reads to {} outgoing path(s) of length {}".format(
+                    counter,newKmersArm1,newReads1,len(glueResponse1),length1))
+                glueResponse2,allNewKmersArm2,newKmersArm2,newReads2 = expandArm(
+                    arm2,glueResponse2,allNewKmersArm2,numberOfKmers,processedReads2)
+                minLength2,maxLength2,length2 = getPathLengths(glueResponse2)
+                self._logger.debug("step {}: expand {} k-mers with {} reads to {} incoming path(s) of length {}".format(
+                    counter,newKmersArm2,newReads2,len(glueResponse2),length2))
+                #no solution possible (for now)
+                if newKmersArm1==0 and newKmersArm2==0:
+                    break
+                #check
+                kmerset1 = set()
+                kmerset2 = set()
+                for entry in glueResponse1:
+                    kmerset1.update([item[0] for item in entry[0]])
+                for entry in glueResponse2:
+                    kmerset2.update([item[0] for item in entry[0]])
+                solutions = getSolutions(glueResponse1,glueResponse2)
+                #check for solutions
+                if len(solutions)>0:
+                    break
+                #check limits
+                if maximumSteps>0 and counter>=maximumSteps:
+                    break
+                elif maximumLength>0 and maxLength1+maxLength2>maximumLength:
+                    break
+                elif maximumPaths>0 and len(glueResponse1)+len(glueResponse2)>maximumPaths:
+                    break
+            if len(solutions)>0:
+                self._logger.debug("{} solution(s) for {} of {} pair(s) of arms".format(len(solutions),pairCounter+1,len(armPairs)))
+                for solution in solutions:
+                    self._logger.debug("add solution with {} nodes".format(len(solution)))
+                    processSolution(solution)
+            else:
+                self._logger.debug("no solution for {} of {} pair(s) of arms".format(pairCounter+1,len(armPairs)))
+    
+        #reset arms
+        self._resetArms()
+        self._detectArms()
+
 
     def getArm(self, armId):
         if armId>=0 and armId<=len(self._arms):
@@ -2015,17 +2631,15 @@ class Graph():
                 orientatedCkmerList = set(self._orientatedCkmers)
                 orientatedCkmerList.add(self._connection)
                 orientatedCkmerList = list(orientatedCkmerList)
-                nkg = nk.graph.Graph(n=len(orientatedCkmerList), weighted=True, directed=True)
+                m = np.zeros((len(orientatedCkmerList),len(orientatedCkmerList)), dtype = "uint8") 
                 for i in range(len(orientatedCkmerList)):
                     orientatedCkmer = self._graph._orientatedCkmers[orientatedCkmerList[i]]
                     for outgoing,properties in orientatedCkmer._outgoing.items():
                         if outgoing in orientatedCkmerList:
                             j = orientatedCkmerList.index(outgoing)
-                            if self._type=="incoming":
-                                nkg.addEdge(j,i,properties["distance"])
-                            else:
-                                nkg.addEdge(i,j,properties["distance"])
-                self._size = nk.distance.Eccentricity.getValue(nkg,orientatedCkmerList.index(self._connection))[1]
+                            m[i,j] = properties["distance"]
+                G = nx.from_numpy_array(m)
+                self._size = nx.eccentricity(G,orientatedCkmerList.index(self._connection))
             return self._size
         
         def connection(self):
