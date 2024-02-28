@@ -3,10 +3,11 @@ from graphviz import Digraph
 import html
 import pandas as pd
 import networkit as nk
+import networkx as nx
 import numpy as np
 from typing import Literal
 
-class Graph:
+class Graph():
     """basic or minimal version of the De Bruijn graph"""
     def __init__(self):
         self._name : str = None
@@ -1166,14 +1167,10 @@ class Graph:
             if len(cKmer._outgoing)>0:
                 outgoing[i,[orientatedCkmerList.index(c) 
                             for c in cKmer._outgoing 
-                            if c in orientatedCkmerList]] = True            
-        result = np.identity(len(orientatedCkmerList), dtype="bool")
-        while True:
-            result |= np.matmul(connected,outgoing)
-            if np.array_equal(result,connected):
-                break
-            else:
-                connected |= result  
+                            if c in orientatedCkmerList]] = 1            
+        G = nx.from_numpy_array(outgoing, create_using=nx.DiGraph)
+        for i in range(len(outgoing)):
+            connected[i,list(nx.dfs_tree(G, source=i))] = True
         self._connected = pd.DataFrame(connected, index=orientatedCkmerList, columns=orientatedCkmerList)
         
     
@@ -1305,42 +1302,18 @@ class Graph:
     def getArms(self):
         return self._arms
 
+    def connectArms(self):
+        pass
+
     def getArm(self, armId):
         if armId>=0 and armId<=len(self._arms):
             return self._arms[armId]
         else:
             return None
 
-    def _detectConnectedArmsCandidates(self, boundaryDistance: int = None):
-        if boundaryDistance is None:
-            boundaryDistance = 3*self._k
-        arms = self.getArms()
-        connected = self.getConnected()
-        incomingArms = set([arm.id() for arm in arms if arm.armType()=="incoming"])
-        outgoingArms = set([arm.id() for arm in arms if arm.armType()=="outgoing"])
-        connectedArmsCandidates = []
-        for id1 in outgoingArms:
-            arm1 = self.getArm(id1)
-            connection1 = self._orientatedCkmers[self.getArm(id1)._connection]
-            if connection1._position==None:
-                positions1 = list(connection1._estimatedPositions)
-            else:
-                positions1 = [connection1._position]
-            for id2 in incomingArms:                
-                arm2 = self.getArm(id2)
-                connection2 = self._orientatedCkmers[self.getArm(id2)._connection]
-                if connected.loc[list(arm2._orientatedCkmers)][list(arm1._orientatedCkmers)].values.sum()>0:
-                    continue
-                if connection2._position==None:
-                    positions2 = list(connection2._estimatedPositions)
-                else:
-                    positions2 = [connection2._position]
-                distance = min(positions2) - max(positions1)
-                if (distance>0) and (distance<boundaryDistance):
-                    connectedArmsCandidates.append([id1,id2])
-        #return
-        return connectedArmsCandidates
-    
+    def _detectConnectedArmsCandidates(self):
+        return []
+        
     def _resetDistances(self):
         if not self._connected is None:
             self._logger.debug("reset computed connections for the De Bruijn Graph")  

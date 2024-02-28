@@ -430,6 +430,39 @@ class SequenceGraph(APIGraph):
         if correctedStartCandidates>0 or correctedEndCandidates>0:
             self._logger.debug("corrected {} incorrect start and {} incorrect end k-mers".format(
                expandedStartCandidates,expandedEndCandidates,len(connectedSets)-removedConnectedSets)) 
+
+    def _detectConnectedArmsCandidates(self, boundaryDistance: int = None):
+        if boundaryDistance is None:
+            boundaryDistance = 3*self._k
+        arms = self.getArms()
+        connected = self.getConnected()
+        incomingArms = set([arm.id() for arm in arms if arm.armType()=="incoming"])
+        outgoingArms = set([arm.id() for arm in arms if arm.armType()=="outgoing"])
+        connectedArmsCandidates = []
+        for id1 in outgoingArms:
+            arm1 = self.getArm(id1)
+            connection1 = self._orientatedCkmers[self.getArm(id1)._connection]
+            if connection1._position==None:
+                positions1 = list(connection1._estimatedPositions)
+            else:
+                positions1 = [connection1._position]
+            for id2 in incomingArms:                
+                arm2 = self.getArm(id2)
+                connection2 = self._orientatedCkmers[self.getArm(id2)._connection]
+                if connected.loc[list(arm2._orientatedCkmers)][list(arm1._orientatedCkmers)].values.sum()>0:
+                    continue
+                if connection2._position==None:
+                    positions2 = list(connection2._estimatedPositions)
+                else:
+                    positions2 = [connection2._position]
+                distance = min(positions2) - max(positions1)
+                if (distance>0) and (distance<boundaryDistance):
+                    connectedArmsCandidates.append([id1,id2])
+        #return
+        return connectedArmsCandidates
+
+    def connectArms(self):
+        pass
                           
                             
     def _findPath(self, orientedCkmerFrom, orientedCkmerTo, distance:int):

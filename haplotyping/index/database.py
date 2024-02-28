@@ -265,6 +265,17 @@ class Database:
                     else:
                         processed.add(filename)
                         unpairedReadFiles.append(filename)
+                elif re.search(r'_1\.', basename):
+                    filename0 = dirname + basename
+                    filename1 = dirname + re.sub(r'_1\.', 
+                                                 '_2.', basename)
+                    if filename0==filename and filename1 in allReadFiles and not filename in processed:
+                        processed.add(filename0)
+                        processed.add(filename1)
+                        pairedReadFiles.append((filename0,filename1,))
+                    else:
+                        processed.add(filename)
+                        unpairedReadFiles.append(filename)
                 else:
                     processed.add(filename)
                     unpairedReadFiles.append(filename)
