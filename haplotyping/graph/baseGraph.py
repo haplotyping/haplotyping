@@ -1171,6 +1171,7 @@ class Graph():
         G = nx.from_numpy_array(outgoing, create_using=nx.DiGraph)
         for i in range(len(outgoing)):
             connected[i,list(nx.dfs_tree(G, source=i))] = True
+            connected[i,i] = False
         self._connected = pd.DataFrame(connected, index=orientatedCkmerList, columns=orientatedCkmerList)
         
     
