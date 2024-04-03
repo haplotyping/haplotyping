@@ -31,8 +31,8 @@ class SequenceGraph(APIGraph):
         self._glueMissingConnections()
         #fix start and end based on connected candidates
         self._expandConnectedStartEndCandidates()
-        #detect and connect arms with default parameters
-        self.connectArms()
+        #detect arms
+        self._detectArms()
         
     def __repr__(self):
         text = super(haplotyping.graph.sequence.SequenceGraph, self).__repr__()
@@ -509,7 +509,8 @@ class SequenceGraph(APIGraph):
     
     def _fixMissingConnections(self):
         #compute k-mers with only single orientation (not necessary to extend this to double orientation?)
-        relevantKmers = set([c for c in self._ckmers if len(self._ckmers[c]._orientated)==1])
+        relevantKmers = set([c[0] for c in self._orientatedCkmers if not ((c[0],"forward") in self._orientatedCkmers and 
+                                                                          (c[0],"backward") in self._orientatedCkmers)])
         #connected
         connected = self.getConnected()
         connected |= connected.transpose()
