@@ -267,7 +267,7 @@ class Connections:
         self._logger.debug("estimated total memory usage: {} MB".format(math.ceil(estimatedMemory/1048576)))
                 
         original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
-        pool_automaton = mp.Pool(nWorkersAutomaton, haplotyping.index.storage.Storage.workerAutomaton, 
+        pool_automaton = mp.get_context("spawn").Pool(nWorkersAutomaton, haplotyping.index.storage.Storage.workerAutomaton, 
                              (shutdown_event,queue_start,queue_automaton,queue_index,queue_finished,
                               self.k,self.automatonKmerSize,automatonFile,))
         #first start automatons, one at a time, because of memory peak
@@ -307,11 +307,11 @@ class Connections:
         self._logger.debug("created shared memory {} MB k-mer properties".format(math.ceil(shm_kmer_size/1048576)))
 
         #now start other workers
-        pool_index = mp.Pool(nWorkersIndex, haplotyping.index.storage.Storage.workerIndex, 
+        pool_index = mp.get_context("spawn").Pool(nWorkersIndex, haplotyping.index.storage.Storage.workerIndex, 
                              (shutdown_event,queue_index,queue_matches,queue_storageReads,queue_finished,
                               self.filenameBase,self.numberOfKmers,self.k,
                               self.indexType,shm_index.name))
-        pool_matches = mp.Pool(nWorkersMatches, haplotyping.index.storage.Storage.workerMatches, 
+        pool_matches = mp.get_context("spawn").Pool(nWorkersMatches, haplotyping.index.storage.Storage.workerMatches, 
                                (shutdown_event,queue_matches,queue_storageDirect,queue_finished,
                                 self.filenameBase,self.numberOfKmers,self.maximumFrequency,
                                 self.estimatedMaximumReadLength,self.numberDirectArray,
@@ -446,7 +446,7 @@ class Connections:
         queue_ranges = mp.JoinableQueue(nWorkersMerges)
         queue_merges = mp.Queue(nWorkersMerges)
         original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
-        pool_merges = mp.Pool(nWorkersMerges, haplotyping.index.storage.Storage.workerMergeDirect, 
+        pool_merges = mp.get_context("spawn").Pool(nWorkersMerges, haplotyping.index.storage.Storage.workerMergeDirect, 
                                (shutdown_event,queue_ranges,queue_merges,
                                 storageDirectFiles,
                                 self.filenameBase,self.numberOfKmers,
@@ -734,7 +734,7 @@ class Connections:
             maximumReadLength = self.h5file["/config/"].attrs["maximumReadLength"] - self.k + 1
             
             original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
-            pool_reads = mp.Pool(nWorkersReads, haplotyping.index.storage.Storage.workerProcessReads, 
+            pool_reads = mp.get_context("spawn").Pool(nWorkersReads, haplotyping.index.storage.Storage.workerProcessReads, 
                                  (shutdown_event,queue_rawReads,queue_filteredReads,queue_finished,
                                   self.filenameBase,self.numberOfKmers,
                                   self.numberOfPartitions,numberOfDirect,self.maximumFrequency,maximumReadLength,
@@ -812,7 +812,7 @@ class Connections:
             queue_ranges = mp.JoinableQueue(nWorkersMerges)
             queue_merges = mp.Queue(nWorkersMerges)
             original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
-            pool_merges = mp.Pool(nWorkersMerges, haplotyping.index.storage.Storage.workerMergeReads, 
+            pool_merges = mp.get_context("spawn").Pool(nWorkersMerges, haplotyping.index.storage.Storage.workerMergeReads, 
                                    (shutdown_event,queue_ranges,queue_merges,
                                     storageFilteredReadFiles,partitionSizes,self.filenameBase,
                                     self.numberOfKmers,self.numberOfPartitions,maximumReadLength))
