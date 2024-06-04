@@ -1,5 +1,6 @@
 import logging
 from haplotyping.graph.api import APIGraph
+from haplotyping.graph.connector import ArmConnector
 from haplotyping.general import General
 import haplotyping
 
@@ -33,6 +34,8 @@ class SequenceGraph(APIGraph):
         self._expandConnectedStartEndCandidates()
         #detect arms
         self._detectArms()
+        #find connections
+        ArmConnector(self)
         
     def __repr__(self):
         text = super(haplotyping.graph.sequence.SequenceGraph, self).__repr__()

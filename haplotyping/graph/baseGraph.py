@@ -43,7 +43,6 @@ class Graph():
             "type": "basic",
             "showDeadEnds": True,
             "showArms": False,
-            "showPotentialConnectedArms": False,
             "hideDeadEndBefore": [],
             "hideDeadEndAfter": [],
             "nodeFillColorDefault": "white",
@@ -149,7 +148,11 @@ class Graph():
             "nodePenWidthSelected": 2,
             "edgeDistanceFontSize": 10,
             "edgeNumberFontSize": 8,
-            "edgeArrowSize": 0.5
+            "edgeArrowSize": 0.5,
+            "edgeFontSizeConnection": 10,
+            "edgeStyleConnection":  "dashed",
+            "edgeColorConnection": "orange",
+            "edgePenWidthConnection": 5
         }
         #construct config
         config = kwargs.copy()
@@ -209,6 +212,34 @@ class Graph():
                     continue
                 else:
                     node_key1 = self._visualize_node_key(config["prefix"],orientatedCkmer1)
+                    #indirect connections
+                    for connection in self._orientatedCkmers[orientatedCkmer1]._outgoingConnections:
+                        orientatedCkmer2 = connection._orientatedCkmerTo
+                        if not orientatedCkmer2 in config["restrictedListOfOrientatedCkmers"]:
+                            continue
+                        elif not (config["showAllNodes"] or self._orientatedCkmers[orientatedCkmer2].candidate()):
+                            continue
+                        else:
+                            node_key2 = self._visualize_node_key(config["prefix"],orientatedCkmer2)
+                            #only pass once
+                            edgeKey = (node_key1, node_key2)
+                            if edgeKey in edges:
+                                continue
+                            else:
+                                edges.add(edgeKey)
+
+                            edge_label = self._visualize_connection_label(connection, {"size": config["edgeFontSizeConnection"]}, config)
+                            edge_direction = "forward"
+                            edge_constraint="true"
+                            edge_color = config["edgeColorConnection"]
+                            edge_style = config["edgeStyleConnection"]
+                            edge_arrowsize = config["edgeArrowSize"]
+                            edge_penwidth = config["edgePenWidthConnection"]
+                            #create the edge
+                            g.edge(node_key1, node_key2, label=edge_label,
+                                   constraint=edge_constraint, style=edge_style, arrowsize=str(edge_arrowsize),
+                                   dir=edge_direction, color=edge_color, penwidth=str(edge_penwidth)) 
+                    #direct connections            
                     for orientatedCkmer2 in self._orientatedCkmers[orientatedCkmer1]._outgoing:
                         if not orientatedCkmer2 in config["restrictedListOfOrientatedCkmers"]:
                             continue
@@ -225,7 +256,6 @@ class Graph():
                             props = self._orientatedCkmers[orientatedCkmer1]._outgoing[orientatedCkmer2]
                             edge_label = self._visualize_edge_label(props, {"distance": config["edgeDistanceFontSize"],
                                                                             "number": config["edgeNumberFontSize"]}, config)
-                            # edge_label = "{}".format(props["distance"])
                             edge_direction = "forward"
                             edge_constraint="true"
                             edge_color = config["edgeColorDefault"]
@@ -287,6 +317,30 @@ class Graph():
                                weight="1", style="invis")
                 for orientatedCkmer1 in connectedCandidates[i]["connected"]:
                     node_key1 = self._visualize_node_key(config["prefix"],orientatedCkmer1)
+                    #indirect connections
+                    for connection in self._orientatedCkmers[orientatedCkmer1]._outgoingConnections:
+                        orientatedCkmer2 = connection._orientatedCkmerTo
+                        if orientatedCkmer2 in connectedCandidates[i]["connected"]:
+                            node_key2 = self._visualize_node_key(config["prefix"],orientatedCkmer2)
+                            #only pass once
+                            edgeKey = (node_key1, node_key2)
+                            if edgeKey in edges:
+                                continue
+                            else:
+                                edges.add(edgeKey)
+
+                            edge_label = self._visualize_connection_label(connection, {"size": config["edgeFontSizeConnection"]}, config)
+                            edge_direction = "forward"
+                            edge_constraint="true"
+                            edge_color = config["edgeColorConnection"]
+                            edge_style = config["edgeStyleConnection"]
+                            edge_arrowsize = config["edgeArrowSize"]
+                            edge_penwidth = config["edgePenWidthConnection"]
+                            #create the edge
+                            g.edge(node_key1, node_key2, label=edge_label,
+                                   constraint=edge_constraint, style=edge_style, arrowsize=str(edge_arrowsize),
+                                   dir=edge_direction, color=edge_color, penwidth=str(edge_penwidth)) 
+                    #direct connections 
                     for orientatedCkmer2 in self._orientatedCkmers[orientatedCkmer1]._outgoing:
                         if orientatedCkmer2 in connectedCandidates[i]["connected"]:
                             node_key2 = self._visualize_node_key(config["prefix"],orientatedCkmer2)
@@ -300,7 +354,6 @@ class Graph():
                             props = self._orientatedCkmers[orientatedCkmer1]._outgoing[orientatedCkmer2]
                             edge_label = self._visualize_edge_label(props, {"distance": config["edgeDistanceFontSize"],
                                                                             "number": config["edgeNumberFontSize"]}, config)
-                            # edge_label = "{}".format(props["distance"])
                             edge_direction = "forward"
                             edge_constraint="true"
                             edge_color = config["edgeColorDefault"]
@@ -425,27 +478,10 @@ class Graph():
             #warn if relevant
             if config["showArms"] and len(arms)>0:
                 self._logger.warning("can't show {} detected arms if all nodes are shown".format(len(arms)))
-            if config["showPotentialConnectedArms"]:
-                connectedCandidateArms = self._detectConnectedArmsCandidates()
-                if len(connectedCandidateArms)>0:
-                    self._logger.warning("can't show {} detected connected arms candidates if all nodes are shown".format(
-                        len(connectedCandidateArms)))
         else:
             processedArms = set()
             #show arms
             if config["showArms"]:
-                #show potential connected arms
-                if config["showPotentialConnectedArms"]:
-                    connectedCandidateArms = self._detectConnectedArmsCandidates()
-                    for i in range(len(connectedCandidateArms)):
-                        arm1 = self.getArm(connectedCandidateArms[i][0])
-                        arm2 = self.getArm(connectedCandidateArms[i][1])
-                        if arm1.connection() in nodes and arm2.connection() in nodes:
-                            processedArms.add(arm1.id())
-                            processedArms.add(arm2.id())
-                            arm_key1, arm_key2 = self._visualizeConnectedArms(g,i,arm1,arm2,**config)
-                            connectArm(arm_key1,arm1,**config)
-                            connectArm(arm_key2,arm2,**config)
                 #loop over arms
                 for i in range(len(arms)):
                     arm = arms[i]
@@ -459,16 +495,6 @@ class Graph():
                         #create arm
                         arm_key = self._visualizeArm(g,arm,**config)
                         connectArm(arm_key,arm,**config)
-            #show potential connected arms
-            elif config["showPotentialConnectedArms"]:
-                connectedCandidateArms = self._detectConnectedArmsCandidates()
-                for i in range(len(connectedCandidateArms)):
-                    arm1 = self.getArm(connectedCandidateArms[i][0])
-                    arm2 = self.getArm(connectedCandidateArms[i][1])
-                    if arm1.connection() in nodes and arm2.connection() in nodes:
-                        node_key1 = self._visualize_node_key(config["prefix"],arm1.connection())
-                        node_key2 = self._visualize_node_key(config["prefix"],arm2.connection())
-                        self._visualizeConnectedArmsConnection(g, node_key1,node_key2, **config)
         if config["containerGraph"]:
             return (list(edges), nodes)
         else:
@@ -528,7 +554,11 @@ class Graph():
             "nodeNumberFontSize": 8,
             "nodeLetterFontSize": 14,
             "edgeDistanceFontSize": "14",
-            "edgeNumberFontSize": "8"
+            "edgeNumberFontSize": "8",
+            "edgeFontSizeConnection": 10,
+            "edgeStyleConnection":  "dashed",
+            "edgeColorConnection": "orange",
+            "edgePenWidthConnection": 5
         }
         #construct config
         config = kwargs.copy()
@@ -724,9 +754,35 @@ class Graph():
         forward_key = "{}_{}".format(config["prefix"],"forward")
         backward_key = "{}_{}".format(config["prefix"],"backward")
         for orientatedCkmer in sortedOrientatedCkmerList:
-            if orientatedCkmer in orientatedCkmerNodes.keys():                
-                kmerSet = self._orientatedCkmers[orientatedCkmer]._incoming.keys()
-                for connectedCkmer in kmerSet:
+            if orientatedCkmer in orientatedCkmerNodes.keys():
+                #indirect connections
+                for connection in self._orientatedCkmers[orientatedCkmer]._incomingConnections:
+                    connectedCkmer = connection._orientatedCkmerFrom
+                    if connectedCkmer in orientatedCkmerNodes.keys():     
+                        edge_label = self._visualize_connection_label(connection, {"size": config["edgeFontSizeConnection"]}, config)
+                        edge_direction = "forward"
+                        edge_constraint="true"
+                        edge_color = config["edgeColorConnection"]
+                        edge_style = config["edgeStyleConnection"]
+                        edge_penwidth = config["edgePenWidthConnection"]
+                        #choose preferred nodes for the edges
+                        if backward_key in orientatedCkmerNodes[orientatedCkmer]:
+                            node = orientatedCkmerNodes[orientatedCkmer][backward_key]
+                        else:
+                            node = orientatedCkmerNodes[orientatedCkmer][forward_key]
+                        if forward_key in orientatedCkmerNodes[connectedCkmer]:
+                            connectedNode = orientatedCkmerNodes[connectedCkmer][forward_key]
+                        else:
+                            connectedNode = orientatedCkmerNodes[connectedCkmer][backward_key]
+                        #create the edge only once
+                        edgeKey = (connectedNode, node)
+                        if not edgeKey in edges:
+                            edges.add(edgeKey)
+                            g.edge(connectedNode, node, label=edge_label,
+                                   constraint=edge_constraint, style=edge_style,
+                                   dir=edge_direction, color=edge_color, penwidth=str(edge_penwidth)) 
+                #direct connections  
+                for connectedCkmer in self._orientatedCkmers[orientatedCkmer]._incoming.keys():
                     if connectedCkmer in orientatedCkmerNodes.keys():                        
                         edge_label = self._visualize_edge_label(
                             self._orientatedCkmers[orientatedCkmer]._incoming[connectedCkmer], 
@@ -767,27 +823,10 @@ class Graph():
             #warn if relevant
             if config["showArms"] and len(arms)>0:
                 self._logger.warning("can't show {} detected arms if all bases are shown".format(len(arms)))
-            if config["showPotentialConnectedArms"]:
-                connectedCandidateArms = self._detectConnectedArmsCandidates()
-                if len(connectedCandidateArms)>0:
-                    self._logger.warning("can't show {} detected connected arms candidates if all bases are shown".format(
-                        len(connectedCandidateArms)))
         else:
             processedArms = set()
             #show arms
             if config["showArms"]:
-                #show potential connected arms
-                if config["showPotentialConnectedArms"]:
-                    connectedCandidateArms = self._detectConnectedArmsCandidates()
-                    for i in range(len(connectedCandidateArms)):
-                        arm1 = self.getArm(connectedCandidateArms[i][0])
-                        arm2 = self.getArm(connectedCandidateArms[i][1])
-                        if arm1.connection() in orientatedCkmerNodes and arm2.connection() in orientatedCkmerNodes:
-                            processedArms.add(arm1.id())
-                            processedArms.add(arm2.id())
-                            arm_key1, arm_key2 = self._visualizeConnectedArms(g,i,arm1,arm2,**config)
-                            connectArm(arm_key1,arm1,**config)
-                            connectArm(arm_key2,arm2,**config)
                 #loop over arms
                 for i in range(len(arms)):
                     arm = arms[i]
@@ -801,24 +840,6 @@ class Graph():
                         #create arm
                         arm_key = self._visualizeArm(g,arm,**config)
                         connectArm(arm_key,arm,**config)
-            #show potential connected arms
-            elif config["showPotentialConnectedArms"]:
-                connectedCandidateArms = self._detectConnectedArmsCandidates()
-                for i in range(len(connectedCandidateArms)):
-                    arm1 = self.getArm(connectedCandidateArms[i][0])
-                    arm2 = self.getArm(connectedCandidateArms[i][1])
-                    if arm1.connection() in orientatedCkmerNodes and arm2.connection() in orientatedCkmerNodes:
-                        orientatedCkmersArm1 = arm1._orientatedCkmers.intersection(orientatedCkmerNodes.keys())
-                        orientatedCkmersArm2 = arm2._orientatedCkmers.intersection(orientatedCkmerNodes.keys())
-                        if len(orientatedCkmersArm1)==0:
-                            orientatedCkmersArm1.add(arm1.connection())
-                        if len(orientatedCkmersArm2)==0:
-                            orientatedCkmersArm1.add(arm2.connection())
-                        for orientatedCkmer1 in orientatedCkmersArm1:
-                            for node_key1 in orientatedCkmerNodes[orientatedCkmer1].values():
-                                for orientatedCkmer2 in orientatedCkmersArm2:
-                                    for node_key2 in orientatedCkmerNodes[orientatedCkmer2].values():
-                                        self._visualizeConnectedArmsConnection(g,node_key1,node_key2, **config)
         if config["containerGraph"]:
             return (list(edges), orientatedCkmerNodes)
         else:
@@ -883,58 +904,6 @@ class Graph():
             arm_key = "arm_{}_{}".format(armPrefix,arm.armType())
             ag.node(arm_key, shape="point")
         return arm_key
-
-    def _visualizeConnectedArms(self, g, id, arm1, arm2, **kwargs):
-        initConfig = {
-            "prefix": "graph",
-            "connectedArmsStyle": "dashed,filled",
-            "connectedArmsFillColor": "orange",
-            "connectedArmsPenWidth": 1,
-            "connectedArmsColor": "black"
-        }
-        config = kwargs.copy()
-        for key,value in initConfig.items():
-            if not key in config.keys():
-                config[key] = value
-        connectedArmsGraph=g.subgraph(name="cluster_{}_connectedarms_{}_{}_{}".format(config["prefix"],id,arm1.id(),arm2.id()))
-        with connectedArmsGraph as tg:
-            connectedarms_label = "Potentially Connected"
-            connectedarms_style = config["connectedArmsStyle"]
-            connectedarms_fillcolor = config["connectedArmsFillColor"]
-            connectedarms_penwidth = config["connectedArmsPenWidth"]
-            connectedarms_color = config["connectedArmsColor"]
-            tg.attr(label=connectedarms_label, style=connectedarms_style, fillcolor=connectedarms_fillcolor, 
-                    color=connectedarms_color, penwidth=str(connectedarms_penwidth), 
-                    constraint="false", rankdir="TB", labelloc="t", nodesep="0", ranksep="0")
-            #arms
-            arm_key1 = self._visualizeArm(tg,arm1,**config)
-            arm_key2 = self._visualizeArm(tg,arm2,**config)
-            tg.edge(arm_key1,arm_key2,weight="1",style="invis")
-        return arm_key1,arm_key2
-
-    def _visualizeConnectedArmsConnection(self, g, arm_key1, arm_key2, **kwargs):
-        initConfig = {
-            "connectedArmsEdgeFontColor": "blue",
-            "connectedArmsEdgeStyle": "dotted",
-            "connectedArmsEdgePenwidth": 2,
-            "connectedArmsEdgeFontSize": 12,
-            "connectedArmsEdgeColor": "blue"
-        }
-        config = kwargs.copy()
-        for key,value in initConfig.items():
-            if not key in config.keys():
-                config[key] = value
-        edge_label = ("<" + 
-                     "<font point-size=\"{}\" color=\"{}\">possible<br/> connected arms</font>".format(
-                         config["connectedArmsEdgeFontSize"], config["connectedArmsEdgeColor"]
-                     ) + 
-                     ">")
-        edge_style = config["connectedArmsEdgeStyle"]
-        edge_color = config["connectedArmsEdgeColor"]
-        edge_penwidth = config["connectedArmsEdgePenwidth"]
-        g.edge(arm_key1, arm_key2,style=edge_style, 
-                   label=edge_label, color=edge_color, rankdir="lr", 
-                   constraint="true", penwidth=str(edge_penwidth))
         
     #base label definition
     def _visualize_base_label(self, orientatedBase: tuple, fontSize:dict = {}, config:dict = {}):
@@ -962,6 +931,24 @@ class Graph():
     def _visualize_dead_end_label(self, distance: int, fontSize:dict = {}, config:dict = {}):
         edge_label = "<"
         edge_label += "<font point-size=\"{}\" color=\"grey\">{}</font>".format(fontSize.get("distance","0"), distance)
+        edge_label += ">"
+        return edge_label
+
+    def _visualize_connection_label(self, connection, fontSize:dict = {}, config:dict = {}):
+        edge_label = "<"
+        if connection._sequence:
+            s = len(connection._sequence) - connection._graph._k
+            edge_label += "<font point-size=\"{}\" color=\"grey\">{}</font>".format(fontSize.get("size","0"), s)
+        elif connection._sequenceFrom or connection._sequenceTo:
+            s1 = (len(connection._sequenceFrom) - connection._graph._k) if connection._sequenceFrom else 0
+            s2 = (len(connection._sequenceTo) - connection._graph._k) if connection._sequenceTo else 0
+            if s1>0:
+                edge_label += "<font point-size=\"{}\" color=\"grey\">{}</font><br/>".format(fontSize.get("size","0"), s1)
+            edge_label += "<font point-size=\"{}\" color=\"grey\">&#183;&#183;&#183;</font>".format(fontSize.get("size","0"))
+            if s2>0:
+                edge_label += "<br/><font point-size=\"{}\" color=\"grey\">{}</font>".format(fontSize.get("size","0"), s2)
+        else:
+            edge_label += "<font point-size=\"{}\" color=\"grey\">??</font>".format(fontSize.get("size","0"))
         edge_label += ">"
         return edge_label
     
@@ -1288,625 +1275,6 @@ class Graph():
     def getArms(self):
         return self._arms
 
-    def connectArms(self, **args):
-
-        numberOfCandidates = args.get("numberOfCandidates",3)
-        numberOfKmers = args.get("numberOfKmers",10)
-        maximumLength = args.get("maximumLength",1000)
-        maximumSteps = args.get("maximumSteps",100)
-        maximumPaths = args.get("maximumPaths",0)
-        minimumReadDepth = args.get("minimumReadDepth",2)
-        minimumGlueSize = args.get("minimumGlueSize",10)
-        
-        def processArmReads(reads,arm,newArmKmers={}):
-            #first raw filtering
-            filteredReads = []
-            candidateKmers = set([entry[0] for entry in self.getCandidates()])
-            armKmers = set([item[0] for item in arm._orientatedCkmers])
-            for read in reads:
-                #compute type
-                kmerTypes = []        
-                for kmer in read["kmers"]:
-                    if (kmer["ckmer"] in armKmers) or (kmer["ckmer"] in newArmKmers):
-                        kmerTypes.append("a")
-                    elif kmer["ckmer"] in candidateKmers:
-                        kmerTypes.append("c")
-                    else:
-                        kmerTypes.append("u")
-                #filter
-                if not "u" in kmerTypes : 
-                    #only if no new arm k-mers (initial)
-                    if (len(newArmKmers)==0) and not ("a" in kmerTypes and "c" in kmerTypes):
-                        continue #nothing new or relevant
-                elif not ("a" in kmerTypes or "c" in kmerTypes):
-                    continue #no arm or candidate
-                elif kmerTypes[0]=="u" and kmerTypes[-1]=="u":
-                    continue #doesn't belong to the graph
-                elif not (kmerTypes[-1]=="u" or kmerTypes[0]=="u"):
-                    continue #problematic
-                filteredReads.append(([item.copy() for item in read["kmers"]],kmerTypes,len(read["kmers"]) * [read["number"]],))
-            
-            #orientate or filter
-            orientatedReads = []
-            for entry in filteredReads:
-                orientation = None
-                for i in range(len(entry[0])):
-                    if entry[1][i]=="u":
-                        continue
-                    else:
-                        if entry[0][i]["orientation"]=="forward":
-                            ockmer = (entry[0][i]["ckmer"],"forward")
-                            rckmer = (entry[0][i]["ckmer"],"backward")
-                        elif entry[0][i]["orientation"]=="backward":
-                            ockmer = (entry[0][i]["ckmer"],"backward")
-                            rckmer = (entry[0][i]["ckmer"],"forward")
-                        else:
-                            orientation = "conflict"
-                            continue
-                        if ockmer in self.getCandidates() or ockmer in arm._orientatedCkmers:
-                            if orientation is None:
-                                orientation="forward"
-                            elif not orientation=="forward":
-                                orientation = "conflict"
-                                continue
-                        elif rckmer in self.getCandidates() or rckmer in arm._orientatedCkmers:
-                            if orientation is None:
-                                orientation="backward"
-                            elif not orientation=="backward":
-                                orientation = "conflict"
-                                continue
-                        elif ockmer[0] in newArmKmers:
-                            if newArmKmers[ockmer[0]]==ockmer[1]:
-                                if orientation is None:
-                                    orientation="forward"
-                                elif not orientation=="forward":
-                                    orientation = "conflict"
-                                    continue
-                            elif newArmKmers[rckmer[0]]==rckmer[1]:
-                                if orientation is None:
-                                    orientation="backward"
-                                elif not orientation=="backward":
-                                    orientation = "conflict"
-                                    continue
-                            else:
-                                orientation = "conflict"
-                                continue
-                        else:
-                            orientation = "conflict"
-                            continue
-                if orientation=="forward":
-                    if arm.armType()=="incoming":
-                        if entry[1][0]=="u" and not entry[1][-1]=="u":
-                            if "a" in entry[1] and "u" in entry[1][entry[1].index("a"):]:
-                                pass #unknown after first arm k-mer
-                            elif "c" in entry[1] and "a" in entry[1][entry[1].index("c"):]:
-                                pass #arm k-mer after first candidate k-mer
-                            elif "c" in entry[1] and "u" in entry[1][entry[1].index("c"):]:
-                                pass #unknown after first candidate k-mer
-                            elif "a" in entry[1]: #should at least contain arm-kmer
-                                orientatedReads.append([[item.copy() for item in entry[0]],entry[1].copy(),entry[2]])
-                        elif "a" in entry[1] and "c" in entry[1] and not "u" in entry[1]: 
-                            if "a" in entry[1][entry[1].index("c"):]:
-                                pass #arm k-mer after candidate k-mer
-                            else:
-                                orientatedReads.append([[item.copy() for item in entry[0]],entry[1].copy(),entry[2]])
-                    elif arm.armType()=="outgoing":
-                        if entry[1][-1]=="u" and not entry[1][0]=="u":
-                            if "a" in entry[1] and "u" in entry[1][:entry[1].index("a")]:
-                                pass #unknown before first arm k-mer
-                            elif "c" in entry[1] and "a" in entry[1][:entry[1].index("c")]:
-                                pass #arm k-mer before first candidate k-mer
-                            elif "c" in entry[1] and "u" in entry[1][:entry[1].index("c")]:
-                                pass #unknown before first candidate k-mer
-                            elif "a" in entry[1]: #should at least contain arm-kmer
-                                orientatedReads.append([[item.copy() for item in entry[0]],entry[1].copy(),entry[2]])
-                        elif "a" in entry[1] and "c" in entry[1] and not "u" in entry[1]:
-                            if "a" in entry[1][:entry[1].index("c")]:
-                                pass #arm k-mer before candidate k-mer
-                            else:
-                                orientatedReads.append([[item.copy() for item in entry[0]],entry[1].copy(),entry[2]])
-                elif orientation=="backward":
-                    reverseReads = [item.copy() for item in entry[0][::-1]]
-                    reverseTypes = [item for item in entry[1][::-1]]
-                    maxPosition = entry[0][-1]["position"]
-                    for i in range(len(reverseReads)):
-                        reverseReads[i]["position"] = maxPosition - reverseReads[i]["position"]
-                        reverseReads[i]["orientation"] = ("forward" if reverseReads[i]["orientation"]=="backward" else (
-                                                          "backward" if reverseReads[i]["orientation"]=="forward" else "unknown"))
-                    if arm.armType()=="incoming":
-                        if reverseTypes[0]=="u" and not reverseTypes[-1]=="u":
-                            if "a" in reverseTypes and "u" in reverseTypes[reverseTypes.index("a"):]:
-                                pass #unknown after first arm k-mer
-                            elif "c" in reverseTypes and "a" in reverseTypes[reverseTypes.index("c"):]:
-                                pass #arm k-mer after first candidate k-mer
-                            elif "c" in reverseTypes and "u" in reverseTypes[reverseTypes.index("c"):]:
-                                pass #unknown after first candidate k-mer
-                            elif "a" in reverseTypes: #should at least contain arm-kmer
-                                orientatedReads.append([reverseReads,reverseTypes,entry[2]])
-                        elif "a" in reverseTypes and "c" in reverseTypes and not "u" in reverseTypes:
-                            if "a" in reverseTypes[:reverseTypes.index("c")]:
-                                pass #arm k-mer before candidate k-mer
-                            else:
-                                orientatedReads.append([reverseReads,reverseTypes,entry[2]])
-                    elif arm.armType()=="outgoing":
-                        if reverseTypes[-1]=="u" and not reverseTypes[0]=="u":
-                            if "a" in reverseTypes and "u" in reverseTypes[:reverseTypes.index("a")]:
-                                pass #unknown before first arm k-mer
-                            elif "c" in reverseTypes and "a" in reverseTypes[:reverseTypes.index("c")]:
-                                pass #arm k-mer before first candidate k-mer
-                            elif "c" in reverseTypes and "u" in reverseTypes[:reverseTypes.index("c")]:
-                                pass #unknown before first candidate k-mer
-                            elif "a" in reverseTypes: #should at least contain arm-kmer
-                                orientatedReads.append([reverseReads,reverseTypes,entry[2]])
-                        elif "a" in reverseTypes and "c" in reverseTypes and not "u" in reverseTypes:
-                            if "a" in reverseTypes[:reverseTypes.index("c")]:
-                                pass #arm k-mer before candidate k-mer
-                            else:
-                                orientatedReads.append([reverseReads,reverseTypes,entry[2]])
-            
-            #build response
-            response = []
-            for entry in orientatedReads:
-                kmerList = []
-                typeList = []
-                positionList = []
-                readNumberList = []
-                for kmerInfo,kmerType,frequency in zip(entry[0],entry[1],entry[2]):
-                    kmerList.append((kmerInfo["ckmer"],kmerInfo["orientation"],kmerInfo["split"],kmerInfo["number"]))
-                    typeList.append(kmerType)
-                    positionList.append(kmerInfo["position"])
-                    readNumberList.append(frequency)
-                response.append([kmerList,typeList,positionList,readNumberList])
-                    
-            return response
-    
-        def expandGlueResponses(arm,glueResponse):
-            for item in glueResponse:
-                if not "u" in item[1]:
-                    if arm.armType()=="outgoing":
-                        expanded = True
-                        while expanded:
-                            expanded = False
-                            kmer = item[0][-1]
-                            direct = self._api.getSplitDirect(self._uid,kmer[0])
-                            if direct:
-                                if kmer[1]=="forward":
-                                    options = direct.get("direct",{}).get("right",{})
-                                else:
-                                    options = direct.get("direct",{}).get("left",{})
-                                if len(options)==1:
-                                    expanded = True
-                                    if options[0]["connection"]["direction"]=="left":
-                                        item[0].append((options[0]["ckmer"],"forward",options[0]["split"],options[0]["number"]))
-                                    else:
-                                        item[0].append((options[0]["ckmer"],"backward",options[0]["split"],options[0]["number"]))
-                                    item[1].append("u")
-                                    item[2].append(item[2][-1]+options[0]["connection"]["distance"])
-                                    item[3].append(options[0]["connection"]["number"])
-                    elif arm.armType()=="incoming":
-                        expanded = True
-                        while expanded:
-                            expanded = False
-                            kmer = item[0][0]
-                            direct = self._api.getSplitDirect(self._uid,kmer[0])
-                            if direct:
-                                if kmer[1]=="forward":
-                                    options = direct.get("direct",{}).get("left",{})
-                                else:
-                                    options = direct.get("direct",{}).get("right",{})
-                                if len(options)==1:
-                                    expanded = True
-                                    if options[0]["connection"]["direction"]=="right":
-                                        item[0] = [(options[0]["ckmer"],"forward",options[0]["split"],options[0]["number"])] + item[0]
-                                    else:
-                                        item[0] = [(options[0]["ckmer"],"backward",options[0]["split"],options[0]["number"])] + item[0]
-                                    item[1] = ["u"] + item[1]
-                                    item[2] = [0] + [x+options[0]["connection"]["distance"] for x in item[2]]
-                                    item[3] = [options[0]["connection"]["number"]] + item[3]
-    
-        def glue(reads,arm,initialList=None):
-            #initiate
-            starters = []
-            others = [item for item in reads]
-            #helper function
-            def _getNewStarters(entries):
-                hasNeighbour = set()
-                for entry in entries:
-                    for i in range(1,len(entry[0])):
-                        if arm.armType()=="incoming":
-                            hasNeighbour.add(entry[0][i-1])
-                        elif arm.armType()=="outgoing":
-                            hasNeighbour.add(entry[0][i])
-                if arm.armType()=="incoming":
-                    newStarters = [entry for entry in entries if not entry[0][-1] in hasNeighbour]
-                    newOthers = [entry for entry in entries if entry[0][-1] in hasNeighbour]
-                elif arm.armType()=="outgoing":
-                    newStarters = [entry for entry in entries if not entry[0][0] in hasNeighbour]
-                    newOthers = [entry for entry in entries if entry[0][0] in hasNeighbour]
-                return newStarters,newOthers    
-            #glue reads
-            glueList = []
-            if not initialList is None:
-                for entry in initialList:
-                    glueList.append(entry)
-            #process all reads
-            while True:
-                if len(others)==0:
-                    break
-                else:
-                    starters,others = _getNewStarters(others)
-                    if len(starters)==0:
-                        break
-                    else:
-                        #first check if read contained, update counters
-                        uncontainedStarters = []
-                        for entry in starters:
-                            contained = False
-                            if arm.armType()=="incoming":
-                                for glueEntry in glueList:
-                                    if entry[0][-1] in glueEntry[0]:
-                                        id = glueEntry[0].index(entry[0][-1])
-                                        glueCandidate = glueEntry[0][:id+1]
-                                        if entry[0] == glueCandidate[-len(entry[0]):]:
-                                            contained = True
-                                            for i in range(len(entry[0])):
-                                                glueEntry[3][i+1+id-len(entry[0])] += entry[3][i]
-                            elif arm.armType()=="outgoing":
-                                for glueEntry in glueList:
-                                    if entry[0][0] in glueEntry[0]:
-                                        id = glueEntry[0].index(entry[0][0])
-                                        glueCandidate = glueEntry[0][id:]
-                                        if entry[0] == glueCandidate[0:len(entry[0])]:
-                                            contained = True
-                                            for i in range(len(entry[0])):
-                                                glueEntry[3][i+id] += entry[3][i]
-                            if not contained:
-                                uncontainedStarters.append(entry)
-                        #then, try to glue
-                        newGlueEntries = []
-                        for entry in starters:
-                            glued = False
-                            if arm.armType()=="incoming":
-                                for glueEntry in glueList:
-                                    if not "u" in glueEntry[1] and not initialList is None:
-                                        pass
-                                    elif entry[0][-1] in glueEntry[0]:
-                                        id = glueEntry[0].index(entry[0][-1])
-                                        glueCandidate = glueEntry[0][:id+1]
-                                        if glueCandidate == entry[0][-len(glueCandidate):]:
-                                            glued = True
-                                            newGlueEntry = [[],[],[],[]]
-                                            for i in range(len(entry[0])):
-                                                newGlueEntry[0].append(tuple(entry[0][i]))
-                                                newGlueEntry[1].append(entry[1][i])
-                                                newGlueEntry[2].append(entry[2][i])
-                                                newGlueEntry[3].append(entry[3][i])
-                                            for i in range(id+1):
-                                                newGlueEntry[3][len(entry[0])+i-id-1] += glueEntry[3][i]
-                                            positionStart = entry[2][-1] - glueEntry[2][id]
-                                            for i in range(id+1,len(glueEntry[0])):
-                                                newGlueEntry[0].append(tuple(glueEntry[0][i]))
-                                                newGlueEntry[1].append(glueEntry[1][i])
-                                                newGlueEntry[2].append(glueEntry[2][i]+positionStart)
-                                                newGlueEntry[3].append(glueEntry[3][i])
-                                            if len([True for item in newGlueEntries if item[0]==newGlueEntry[0]])==0:
-                                                newGlueEntries.append(newGlueEntry)
-                            elif arm.armType()=="outgoing":
-                                for glueEntry in glueList:
-                                    if not "u" in glueEntry[1] and not initialList is None:
-                                        pass
-                                    elif entry[0][0] in glueEntry[0]:
-                                        id = glueEntry[0].index(entry[0][0])
-                                        glueCandidate = glueEntry[0][id:]
-                                        if glueCandidate == entry[0][0:len(glueCandidate)]:
-                                            glued = True
-                                            newGlueEntry = [
-                                                [tuple(item) for item in glueEntry[0][0:id]],
-                                                glueEntry[1][0:id].copy(),
-                                                glueEntry[2][0:id].copy(),
-                                                glueEntry[3][0:id].copy()]
-                                            positionStart = glueEntry[2][id] - entry[2][0]
-                                            for i in range(len(entry[0])):
-                                                newGlueEntry[0].append(tuple(entry[0][i]))
-                                                newGlueEntry[1].append(entry[1][i])
-                                                newGlueEntry[2].append(entry[2][i]+positionStart)
-                                                newGlueEntry[3].append(entry[3][i])
-                                            for i in range(id,len(glueEntry[0])):
-                                                newGlueEntry[3][i]+=glueEntry[3][i]
-                                            if len([True for item in newGlueEntries if item[0]==newGlueEntry[0]])==0:
-                                                newGlueEntries.append(newGlueEntry)
-                            if initialList is None and not glued:
-                                newGlueEntries.append(entry)
-                        #now combine with glueEntries
-                        glueList.extend(newGlueEntries)
-                        #and filter this by removin unnecessary subsets
-                        filteredGlueList = []
-                        glueListReport = []
-                        for i in range(len(glueList)):
-                            reportEntry = {"isRealSubset": set(), "unconfirmed": False, 
-                                           "ignore": False, "duplicate": set(), "subsets": set()}
-                            for k in range(len(glueList[i][0])):
-                                if glueList[i][3][k]<minimumReadDepth:
-                                    if glueList[i][1][k]=="u":
-                                        reportEntry["unconfirmed"] = True
-                                    elif glueList[i][1][k]=="a":
-                                        if arm.armType()=="incoming":
-                                            if (not "u" in glueList[i][1]) or (k>glueList[i][1].index("a")+numberOfKmers-1):
-                                                reportEntry["ignore"] = True
-                                        elif arm.armType()=="outgoing":
-                                            if (not "u" in glueList[i][1]) or (k<glueList[i][1].index("u")-numberOfKmers):
-                                                reportEntry["ignore"] = True
-                            for j in range(len(glueList)):
-                                if not i==j:
-                                    if glueList[i][0]==glueList[j][0]:
-                                        if i>j:
-                                            reportEntry["duplicate"].add(j)
-                                    else:
-                                        if glueList[i][0][0] in glueList[j][0]:
-                                            #todo: loop over all matches
-                                            p = glueList[j][0].index(glueList[i][0][0])
-                                            if glueList[i][0]==glueList[j][0][p:p+len(glueList[i][0])]:
-                                                reportEntry["isRealSubset"].add(j)
-                            glueListReport.append(reportEntry)
-                        #get confirmed subsets
-                        for i in range(len(glueList)):
-                            if not (glueListReport[i]["unconfirmed"] or glueListReport[i]["ignore"]):
-                                for j in glueListReport[i]["isRealSubset"]:
-                                    glueListReport[j]["subsets"].add(i)
-        
-                        includedSubsets = set()
-                        for i in range(len(glueList)):
-                            if len(glueListReport[i]["duplicate"])>0:
-                                pass
-                            elif glueListReport[i]["ignore"]:
-                                pass
-                            elif len(glueListReport[i]["isRealSubset"])==0 and len(glueListReport[i]["duplicate"])==0:
-                                filteredGlueList.append(glueList[i])
-                                if glueListReport[i]["unconfirmed"] and len(glueListReport[i]["subsets"])>0:
-                                    #compute largest confirmed subset(s)
-                                    subsets = glueListReport[i]["subsets"]
-                                    for j in glueListReport[i]["subsets"]:
-                                        subsets = subsets.difference(glueListReport[j]["subsets"])
-                                    #todo: select
-                                    for j in subsets:
-                                        if len(glueListReport[j]["duplicate"])==0:
-                                            includedSubsets.add(j)
-                        for i in range(len(includedSubsets)):
-                            filteredGlueList.append(glueList[i])
-                        glueList = filteredGlueList
-        
-            expandGlueResponses(arm,glueList)                
-            
-            return glueList
-    
-        def expandArm(arm,glueResponse,allNewKmersArm,n,processedReads):
-            newKmersArm = {}
-            #get new k-mers for arm
-            while len(newKmersArm)<n:
-                newKmers = 0
-                for item in glueResponse:
-                    if "u" in item[1]:
-                        id = (item[1].index("u") if arm.armType()=="outgoing" 
-                              else (len(item[1]) - item[1][::-1].index("u") - 1))
-                        newKmersArm[item[0][id][0]] = item[0][id][1]
-                        item[1][id] = "a"
-                        newKmers+=1
-                if newKmers==0:
-                    break
-            #check glue responses for missing k-mers in selection
-            while True:
-                newKmers = 0
-                for item in glueResponse:
-                    for i in range(len(item[0])):
-                        if item[0][i][0] in newKmersArm:
-                            item[1][i] = "a"
-                    if arm.armType()=="outgoing":
-                        while "u" in item[1] and "a" in item[1] and item[1].index("u")<(len(item[1])-item[1][::-1].index("a")-1):
-                            id = item[1].index("u")
-                            if not item[0][id][0] in newKmersArm:
-                                newKmersArm[item[0][id][0]] = item[0][id][1]
-                                newKmers+=1
-                            item[1][id] = "a"
-                    elif arm.armType()=="incoming":
-                        while "u" in item[1] and "a" in item[1] and (len(item[1])-item[1][::-1].index("u")-1)>item[1].index("a"):
-                            id = (len(item[1])-item[1][::-1].index("u")-1)
-                            if not item[0][id][0] in newKmersArm:
-                                newKmersArm[item[0][id][0]] = item[0][id][1]
-                                newKmers+=1
-                            item[1][id] = "a"
-                if newKmers==0:
-                    break
-            #get all reads
-            newReadsArm = self._api.getSplitReads(self._uid,newKmersArm.keys())
-            allNewKmersArm.update(newKmersArm)
-            responsenew = processArmReads(newReadsArm,arm,allNewKmersArm)
-            responsefiltered = []
-            for processedRead in responsenew:
-                entry = tuple([item[0] for item in processedRead[0]])
-                if not entry in processedReads:
-                    processedReads.add(entry)
-                    responsefiltered.append(processedRead)
-            glueResponse = glue(responsefiltered,arm,glueResponse)
-            return glueResponse,allNewKmersArm,len(newKmersArm),len(responsefiltered)
-    
-        def getPathLengths(glueResponse):
-            if len(glueResponse)>0:
-                minLength = min([item[2][-1] for item in glueResponse])
-                maxLength = max([item[2][-1] for item in glueResponse])
-            else:
-                minLength = 0
-                maxLength = 0
-            length = "{}".format(maxLength) if minLength==maxLength else "{}-{}".format(minLength,maxLength)
-            return minLength,maxLength,length
-    
-        def getSolutions(glueResponse1,glueResponse2):
-            solutions = []
-            for path1 in glueResponse1:
-                kmerset1 = set([item[0] for item in path1[0]])
-                for path2 in glueResponse2:
-                    kmerset2 = set([item[0] for item in path2[0]])
-                    if len(kmerset1.intersection(kmerset2))>0:
-                        for i in range(len(path1[0])):
-                            if path1[0][i] in path2[0]:
-                                j = path2[0].index(path1[0][i])
-                                p1 = path1[0][i:]
-                                p2 = path2[0][j:j+len(p1)]
-                                if p1==p2 and (minimumGlueSize==0 or len(p1)>=minimumGlueSize):
-                                    solution = path1[0] + path2[0][j+len(p1):]
-                                    numbers = path1[3][0:i]
-                                    for k in range(i,i+len(p1)):
-                                        numbers.append(max(path1[3][k],path2[3][j-i+k]))
-                                    numbers = numbers + path2[3][j+len(p1):]
-                                    if min(numbers)>=minimumReadDepth:
-                                        solutions.append(solution)
-                                break
-            return solutions
-    
-        def processSolution(solution):
-            #get direct connections
-            kmers = set()
-            for i in range(len(solution)):
-                kmers.add(solution[i][0])
-            directConnections = {item["ckmer"]: item for item in self._api.getSplitDirect(self._uid,kmers)}
-            #process
-            previousCkmer = None
-            for i in range(len(solution)):
-                item = solution[i]
-                ckmer = self._createOrientatedCkmer(item[0], item[1], item[3], item[2])
-                if previousCkmer:
-                    if previousCkmer._key in ckmer._incoming and ckmer._key in previousCkmer._outgoing:
-                        pass
-                    else:
-                        direct = directConnections.get(item[0],{})
-                        if item[1]=="forward":
-                            entries = direct.get("direct",{}).get("left",[])
-                        else:
-                            entries = direct.get("direct",{}).get("right",[])
-                        connection = None
-                        for entry in entries:
-                            if entry["ckmer"]==previousCkmer._ckmer:
-                                if (previousCkmer._orientation=="forward") and (entry.get("connection",{}).get("direction","")=="right"):
-                                    connection = entry.get("connection",{})
-                                    break
-                                elif (previousCkmer._orientation=="backward") and (entry.get("connection",{}).get("direction","")=="left"):
-                                    connection = entry.get("connection",{})
-                                    break
-                        if connection:
-                            if not previousCkmer._key in ckmer._incoming:
-                                ckmer._setIncoming(previousCkmer._key,connection["distance"], connection["number"], connection["problem"]>0)
-                            if not ckmer._key in previousCkmer._outgoing:
-                                previousCkmer._setOutgoing(ckmer._key,connection["distance"], connection["number"], connection["problem"]>0)
-                        else:
-                            #should not happen
-                            pass
-                previousCkmer = ckmer
-    
-        #main function
-        self._detectArms()
-        armPairs = self._detectConnectedArmsCandidates()
-        for pairCounter in range(len(armPairs)):
-            solutions = []
-            self._logger.debug("trying to connect {} of {} pair(s) of arms".format(pairCounter+1,len(armPairs)))
-            arm1 = self.getArm(armPairs[pairCounter][0])
-            arm2 = self.getArm(armPairs[pairCounter][1])
-            arm1Kmers = set([item[0] for item in arm1._orientatedCkmers])
-            arm2Kmers = set([item[0] for item in arm2._orientatedCkmers])
-            assert arm1.armType()=="outgoing"
-            assert arm2.armType()=="incoming"
-            #get orientated k-mers
-            candidatesArm1 = set([entry for entry in [arm1.connection()] 
-                                      if entry in self.getCandidates()])
-            candidatesArm2 = set([entry for entry in [arm2.connection()] 
-                                      if entry in self.getCandidates()])
-            for i in range(numberOfCandidates):
-                newCandidatesArm1 = set()
-                for entry in candidatesArm1:
-                    newCandidatesArm1.update([newEntry for newEntry in self._orientatedCkmers[entry]._incoming
-                                              if newEntry in self.getCandidates()])
-                candidatesArm1.update(newCandidatesArm1)
-                newCandidatesArm2 = set()
-                for entry in candidatesArm2:
-                    newCandidatesArm2.update([newEntry for newEntry in self._orientatedCkmers[entry]._outgoing
-                                              if newEntry in self.getCandidates()])
-                candidatesArm2.update(newCandidatesArm2)
-            #get plain k-mers
-            candidateKmersArm1 = set([entry[0] for entry in candidatesArm1])
-            candidateKmersArm2 = set([entry[0] for entry in candidatesArm2])
-    
-            readsArm1 = self._api.getSplitReads(self._uid,arm1Kmers.union(candidateKmersArm1))
-            response1 = processArmReads(readsArm1,arm1)
-            processedReads1 = set([tuple([item[0] for item in processedRead[0]]) for processedRead in response1])
-            glueResponse1 = glue(response1,arm1)
-            glueResponse1 = [entry for entry in glueResponse1 if "c" in entry[1]]
-            for entry in glueResponse1:
-                for i in range(len(entry[0])):
-                    if entry[0][i][0] in arm1Kmers or entry[0][i][0] in candidateKmersArm1:
-                        entry[3][i]=max(entry[3][i],minimumReadDepth)
-            minLength1,maxLength1,length1 = getPathLengths(glueResponse1)
-            self._logger.debug("starting with {} outgoing path(s) of length {}".format(len(glueResponse1),len(response1),length1))
-            
-            readsArm2 = self._api.getSplitReads(self._uid,arm2Kmers.union(candidateKmersArm2))
-            response2 = processArmReads(readsArm2,arm2)
-            processedReads2 = set([tuple([item[0] for item in processedRead[0]]) for processedRead in response2])
-            glueResponse2 = glue(response2,arm2)
-            glueResponse2 = [entry for entry in glueResponse2 if "c" in entry[1]]
-            for entry in glueResponse2:
-                for i in range(len(entry[0])):
-                    if entry[0][i][0] in arm2Kmers or entry[0][i][0] in candidateKmersArm2:
-                        entry[3][i]=max(entry[3][i],minimumReadDepth)
-            minLength2,maxLength2,length2 = getPathLengths(glueResponse2)
-            self._logger.debug("starting with {} incoming path(s) of length {}".format(len(glueResponse2),len(response2),length2))
-            
-            allNewKmersArm1 = {}
-            allNewKmersArm2 = {}
-            counter = 0
-            solutions = []
-            while True:
-                counter+=1
-                glueResponse1,allNewKmersArm1,newKmersArm1,newReads1 = expandArm(
-                    arm1,glueResponse1,allNewKmersArm1,numberOfKmers,processedReads1)
-                minLength1,maxLength1,length1 = getPathLengths(glueResponse1)
-                self._logger.debug("step {}: expand {} k-mers with {} reads to {} outgoing path(s) of length {}".format(
-                    counter,newKmersArm1,newReads1,len(glueResponse1),length1))
-                glueResponse2,allNewKmersArm2,newKmersArm2,newReads2 = expandArm(
-                    arm2,glueResponse2,allNewKmersArm2,numberOfKmers,processedReads2)
-                minLength2,maxLength2,length2 = getPathLengths(glueResponse2)
-                self._logger.debug("step {}: expand {} k-mers with {} reads to {} incoming path(s) of length {}".format(
-                    counter,newKmersArm2,newReads2,len(glueResponse2),length2))
-                #no solution possible (for now)
-                if newKmersArm1==0 and newKmersArm2==0:
-                    break
-                #check
-                kmerset1 = set()
-                kmerset2 = set()
-                for entry in glueResponse1:
-                    kmerset1.update([item[0] for item in entry[0]])
-                for entry in glueResponse2:
-                    kmerset2.update([item[0] for item in entry[0]])
-                solutions = getSolutions(glueResponse1,glueResponse2)
-                #check for solutions
-                if len(solutions)>0:
-                    break
-                #check limits
-                if maximumSteps>0 and counter>=maximumSteps:
-                    break
-                elif maximumLength>0 and maxLength1+maxLength2>maximumLength:
-                    break
-                elif maximumPaths>0 and len(glueResponse1)+len(glueResponse2)>maximumPaths:
-                    break
-            if len(solutions)>0:
-                self._logger.debug("{} solution(s) for {} of {} pair(s) of arms".format(len(solutions),pairCounter+1,len(armPairs)))
-                for solution in solutions:
-                    self._logger.debug("add solution with {} nodes".format(len(solution)))
-                    processSolution(solution)
-            else:
-                self._logger.debug("no solution for {} of {} pair(s) of arms".format(pairCounter+1,len(armPairs)))
-    
-        #reset arms
-        self._resetArms()
-        self._detectArms()
-
-
     def getArm(self, armId):
         if armId>=0 and armId<=len(self._arms):
             return self._arms[armId]
@@ -1922,6 +1290,16 @@ class Graph():
             self._orientatedCkmers[orientatedCkmer]._outgoingConnections = []
         self._connections = []
 
+    def createConnection(self,fromOrientatedCkmer,toOrientatedCkmer):
+        assert fromOrientatedCkmer in self._orientatedCkmers
+        assert toOrientatedCkmer in self._orientatedCkmers
+        for connection in self._connections:
+            if (connection in self._orientatedCkmers[fromOrientatedCkmer]._outgoingConnections
+                and
+                connection in self._orientatedCkmers[toOrientatedCkmer]._incomingConnections):
+                return connection
+        return self.Connection(self,fromOrientatedCkmer,toOrientatedCkmer)
+    
     def getConnections(self):
         return self._connections
         
@@ -2450,6 +1828,13 @@ class Graph():
         
         def __init__(self, graph, orientatedCkmerFrom, orientatedCkmerTo):
             self._graph = graph
+            self._sequenceFrom = None
+            self._orientatedCkmersFrom = None
+            self._sequenceTo = None
+            self._orientatedCkmersTo = None
+            self._sequence = None
+            self._orientatedCkmers = None
+            self._id = None
             #register from
             assert orientatedCkmerFrom in self._graph._orientatedCkmers
             assert self._graph._orientatedCkmers[orientatedCkmerFrom].candidate()
@@ -2461,10 +1846,97 @@ class Graph():
             self._graph._orientatedCkmers[orientatedCkmerTo]._setIncomingConnection(self)
             self._orientatedCkmerTo = orientatedCkmerTo
             #register connection
+            self._id = len(self._graph._connections)
             self._graph._connections.append(self)
             
         def __repr__(self):
             text = "Connection"
+            if not self._sequence is None:
+                text = "{} - {}bp".format(text,len(self._sequence))
+            elif not (self._sequenceFrom is None and self._sequenceTo is None):
+                if self._sequenceFrom is None:
+                    text = "{} - right {}bp known".format(text,len(self._sequenceTo))
+                elif self._sequenceTo is None:
+                    text = "{} - left {}bp known".format(text,len(self._sequenceFrom))
+                else:
+                    text = "{} - left {}bp and right {}bp known".format(text,len(self._sequenceFrom),len(self._sequenceTo))
             return text
+
+        def setSequence(self,sequence:str,orientatedCkmers:list):
+            self._sequence = sequence
+            self._orientatedCkmers = orientatedCkmers
+            self._sequenceFrom = None
+            self._orientatedCkmersFrom = None
+            self._sequenceTo = None
+            self._orientatedCkmersTo = None
+
+        def setSequenceFrom(self,sequence:str, orientatedCkmers:list):
+            self._sequence = None
+            self._orientatedCkmers = None
+            self._sequenceFrom = sequence
+            self._orientatedCkmersFrom = orientatedCkmers
+
+        def setSequenceTo(self,sequence:str, orientatedCkmers:list):
+            self._sequence = None
+            self._orientatedCkmers = None
+            self._sequenceTo = sequence
+            self._orientatedCkmersTo = orientatedCkmers
+
+        def getOrientatedCkmers(self):
+            orientatedCkmers = []
+            if self._orientatedCkmers:
+                for ockmer in self._orientatedCkmers:
+                    if ockmer in self._graph._orientatedCkmers:
+                        if not self._graph._orientatedCkmers[ockmer].candidate():
+                            orientatedCkmers.append(ockmer)
+            else:
+                if self._orientatedCkmersFrom:
+                    for ockmer in self._orientatedCkmersFrom:
+                        if ockmer in self._graph._orientatedCkmers:
+                            if not self._graph._orientatedCkmers[ockmer].candidate():
+                                orientatedCkmers.append(ockmer)
+                if self._orientatedCkmersTo:
+                    for ockmer in self._orientatedCkmersTo:
+                        if ockmer in self._graph._orientatedCkmers:
+                            if not self._graph._orientatedCkmers[ockmer].candidate():
+                                orientatedCkmers.append(ockmer)
+            return orientatedCkmers
+
+        def getOrientatedCkmersFrom(self):
+            orientatedCkmers = []
+            if self._orientatedCkmersFrom:
+                for ockmer in self._orientatedCkmersFrom:
+                    if ockmer in self._graph._orientatedCkmers:
+                        if not self._graph._orientatedCkmers[ockmer].candidate():
+                            orientatedCkmers.append(ockmer)
+            elif self._orientatedCkmers:
+                for ockmer in self._orientatedCkmers:
+                    if ockmer in self._graph._orientatedCkmers:
+                        if not self._graph._orientatedCkmers[ockmer].candidate():
+                            orientatedCkmers.append(ockmer)
+                    else:
+                        break
+            return orientatedCkmers
+
+        def getOrientatedCkmersTo(self):
+            orientatedCkmers = []
+            if self._orientatedCkmersTo:
+                for ockmer in self._orientatedCkmersTo:
+                    if ockmer in self._graph._orientatedCkmers:
+                        if not self._graph._orientatedCkmers[ockmer].candidate():
+                            orientatedCkmers.append(ockmer)
+            elif self._orientatedCkmers:
+                for ockmer in reversed(list(self._orientatedCkmers)):
+                    if ockmer in self._graph._orientatedCkmers:
+                        if not self._graph._orientatedCkmers[ockmer].candidate():
+                            orientatedCkmers.append(ockmer)
+                    else:
+                        break
+                orientatedCkmers = list(reversed(orientatedCkmers))
+            return orientatedCkmers
+            
+        def id(self):
+            return self._id
+            
             
             

@@ -1,11 +1,32 @@
 import haplotyping.index.database
-from multiprocessing import shared_memory, current_process
+from multiprocessing import current_process, shared_memory, resource_tracker
 from statistics import multimode
 from queue import Empty
 import ahocorasick, metis, networkit as nk
 import os, re, pickle, tables, statistics, logging, time, psutil
 import numpy as np, math
 from contextlib import ExitStack
+
+def remove_shm_from_resource_tracker():
+    """Monkey-patch multiprocessing.resource_tracker so SharedMemory won't be tracked
+
+    More details at: https://bugs.python.org/issue38119
+    """
+
+    def fix_register(name, rtype):
+        if rtype == "shared_memory":
+            return
+        return resource_tracker._resource_tracker.register(self, name, rtype)
+    resource_tracker.register = fix_register
+
+    def fix_unregister(name, rtype):
+        if rtype == "shared_memory":
+            return
+        return resource_tracker._resource_tracker.unregister(self, name, rtype)
+    resource_tracker.unregister = fix_unregister
+
+    if "shared_memory" in resource_tracker._CLEANUP_FUNCS:
+        del resource_tracker._CLEANUP_FUNCS["shared_memory"]
 
 class Storage:
     
@@ -200,6 +221,9 @@ class Storage:
     def workerIndex(shutdown_event,queue_index,queue_matches,queue_storage,queue_finished,
                      filenameBase,numberOfKmers,k,indexType,shm_name):
 
+        #prevent garbage collecting for shared memory
+        remove_shm_from_resource_tracker()
+        
         #logger = logging.getLogger("{}.worker.index".format(__name__))
         logger = logging.getLogger("haplotyping.index.worker.index")
         logger.debug("start workerIndex")
@@ -485,6 +509,9 @@ class Storage:
     def workerMatches(shutdown_event,queue_matches,queue_storage,queue_finished,
                        filenameBase,numberOfKmers,maximumFrequency,estimatedMaximumReadLength,
                        numberDirectArray,indexType,shm_name):
+        
+        #prevent garbage collecting for shared memory
+        remove_shm_from_resource_tracker()
         
         logger = logging.getLogger("{}.worker.matches".format(__name__))
 
@@ -1239,6 +1266,9 @@ class Storage:
                 
                         
                 
+        #prevent garbage collecting for shared memory
+        remove_shm_from_resource_tracker()
+        
         shm = shared_memory.SharedMemory(shm_name)
         logger.debug("merges ({}): shared memory of {} MB used".format(os.getpid(),math.ceil(shm.size/1048576)))
         
@@ -1293,6 +1323,9 @@ class Storage:
     def workerProcessReads(shutdown_event,queue_rawReads,queue_filteredReads,queue_finished,filenameBase,numberOfKmers,
                      numberOfPartitions,numberOfDirect,maximumFrequency,maximumReadLength,shm_kmer_name,shm_direct_name):
 
+        #prevent garbage collecting for shared memory
+        remove_shm_from_resource_tracker()
+        
         logger = logging.getLogger("{}.worker.index".format(__name__))
 
         shm_kmer = shared_memory.SharedMemory(shm_kmer_name)

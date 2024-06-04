@@ -71,67 +71,41 @@ class APIGraph(baseGraph.Graph):
     def getDatasetVarieties(self):
         return self._datasetVarieties
     
-    def getDatasetFrequencies(self, datasetUids: list = None):
+    def getDatasetFrequencies(self, datasetUids):
         #compute dataset uids
         if datasetUids==None:
-            datasetUids = set()
-            start = 0
-            number = 1000
-            while True:
-                response = requests.get("{}dataset?hasVariety=true&dataType=kmer&start={}&number={}".format(
-                    self._baseUrl, start, number))
-                if response.ok:
-                    data = response.json()
-                    total = data.get("total",0)
-                    for item in data["list"]:
-                        datasetUids.add(item["uid"])
-                    if start+number>=total:
-                        break
-                    else:
-                        start+=number
-                else:
-                    self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))            
-        candidateKmers = [k[0] for k in self.getCandidates()] 
+            datasetUids = set(self._api.getDatasets(hasVariety=True, dataType="kmer").keys())
+        candidateAndConnectionKmers = [k[0] for k in self.getCandidates()]
+        for connection in self._connections:
+            candidateAndConnectionKmers = candidateAndConnectionKmers + [k[0] for k in connection.getOrientatedCkmers()]
         recompute = False
         if len(set(datasetUids).difference(self._datasetUids))>0:
             recompute = True
-        elif len(set(candidateKmers).difference(self._datasetFrequencyCkmers))>0:
+        elif len(set(candidateAndConnectionKmers).difference(self._datasetFrequencyCkmers))>0:
             recompute = True
         if recompute:
-            self._api_logger.debug("recompute frequency for {} k-mers in {} datasets".format(
-                len(candidateKmers),len(datasetUids)))
-            self._datasetFrequencyCkmers = set(candidateKmers)
+            self._logger.debug("recompute frequency for {} k-mers in {} datasets".format(
+                len(candidateAndConnectionKmers),len(datasetUids)))
+            self._datasetFrequencyCkmers = set(candidateAndConnectionKmers)
             self._datasetFrequencies = {}
             self._datasetVarieties = {}
             self._datasetUids = set()
             #get dataset info
-            fullRequest = "{}dataset/".format(self._baseUrl)
-            response = requests.post(fullRequest, json = {"uids": sorted(list(datasetUids))}, 
-                                     auth=self._apiAuth, headers=self._apiHeaders)
-            if response.ok:
-                data = response.json()
-                result = {}
-                items = data.get("list",[])
-                for item in items:
-                    dsUid = item["uid"]
-                    if "variety" in item.keys():
-                        self._datasetVarieties[dsUid] = item["variety"]
-                    
-            else:
-                self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+            data = self._api.getDatasetById(datasetUids)
+            for dsUid,item in data.items():
+                if "variety" in item.keys():
+                    self._datasetVarieties[dsUid] = item["variety"]
             #get frequencies
-            for dsUid in datasetUids:                
-                fullRequest = "{}kmer/{}".format(self._baseUrl, dsUid)        
-                response = requests.post(fullRequest, json={"kmers": sorted(candidateKmers),"mismatches": 0}, 
-                                             auth=self._apiAuth, headers=self._apiHeaders)
-                if response.ok:
-                    data = response.json()
-                    self._datasetFrequencies[dsUid] = data.get("kmers",{})
-                    for k in candidateKmers:
-                        if not k in self._datasetFrequencies[dsUid].keys():
-                            self._datasetFrequencies[dsUid][k] = 0
-                else:
-                    self._api_logger.error("request to {} didn't succeed".format(self._baseUrl))
+            for dsUid in datasetUids:
+                data = self._api.getKmer(dsUid,candidateAndConnectionKmers, mismatches=0)
+                self._datasetFrequencies[dsUid] = data.get("kmers",{})
+                nfound = len([x for x in self._datasetFrequencies[dsUid].values() if x>0])
+                name = self._datasetVarieties.get(dsUid,{"name": None})["name"]
+                for k in candidateAndConnectionKmers:
+                    if not k in self._datasetFrequencies[dsUid].keys():
+                        self._datasetFrequencies[dsUid][k] = 0
+                self._logger.debug("get frequency for {} of {} k-mers in {}{}".format(
+                    nfound,len(candidateAndConnectionKmers),dsUid," ({})".format(name) if name else ""))
             #register datasets
             self._datasetUids.update(datasetUids)
         #return result

@@ -19,9 +19,6 @@ class Sections():
         self._graph = graph
         self._parts = []
         
-        self._datasetFrequencies = None
-        self._datasetVarieties = None
-        
         #create sections
         for baseConnectedCandidates in self._graph.getConnectedCandidates(True):
             self._createSections(baseConnectedCandidates)
@@ -39,15 +36,6 @@ class Sections():
             if self._graph._orientatedCkmers[orientatedCkmer].candidate():
                 candidates.append(orientatedCkmer)
         return set(candidates)
-    
-    def processDatasetFrequencies(self):
-        if isinstance(self._graph, APIGraph):
-            self._datasetFrequencies = self._graph.getDatasetFrequencies()
-            self._datasetVarieties = self._graph.getDatasetVarieties()      
-            for part in self._parts:
-                part._processDatasetFrequencies()                
-        else:
-            self._logger.warning("unsupported for this graph type")
         
     def _createSections(self, connectedCandidates):
         #compute section start entries (not every connected start is necessarily a section start)
@@ -153,9 +141,6 @@ class Sections():
             self._order : int = None
             self._pathNumber : int = None
                 
-            self._datasets = set()
-            self._varieties = set()
-                
         def __repr__(self):
             text = "Part graph"
             if self._graph._name:
@@ -189,20 +174,7 @@ class Sections():
             for orientatedCkmer in numbers:
                 if orientatedCkmer in sectionItem._end["ckmers"]:
                     self._pathNumber += numbers[orientatedCkmer]         
-            
-        def _processDatasetFrequencies(self, ignoreDatasets=[]):
-            for sectionItem in self._sectionItems:
-                for sectionItemPath in sectionItem._paths:
-                    orientatedCkmers = sectionItemPath.getOrientatedCkmers()
-                    sectionItemPath._datasets = set(self._sections._datasetFrequencies.index)
-                    for orientatedCkmer in orientatedCkmers:
-                        ckmerDatasets=self._sections._datasetFrequencies.index[
-                            self._sections._datasetFrequencies[orientatedCkmer[0]]>0]
-                        sectionItemPath._datasets = sectionItemPath._datasets.intersection(ckmerDatasets)
-                    sectionItemPath._varieties = set([self._sections._datasetVarieties[ds]["uid"] 
-                                                      for ds in sectionItemPath._datasets 
-                                                      if ds in self._sections._datasetVarieties])
-                    
+                        
         def sectionNumber(self):
             return len(self._sectionItems)
         
@@ -622,6 +594,7 @@ class Sections():
             self._end = {"ckmers": set(), "bases": set()}
             self._orientatedCkmers = set()
             self._orientatedBases = set()
+            self._connections = set()
             
             self._connectedCkmers = connectedCkmers
             self._connectedBases = set()
@@ -637,12 +610,14 @@ class Sections():
             self._checkBackwardList = set()
             self._checkForwardList = {} 
             
-            self._datasets = set()
-            self._varieties = set()
-            
             #compute connected bases
             for connectedCkmer in connectedCkmers:
                 self._connectedBases.update(self._graph._orientatedCkmers[connectedCkmer]._orientatedBases.values())
+            #compute connections
+            for connectedCkmer in connectedCkmers:
+                for connection in self._graph._orientatedCkmers[connectedCkmer]._outgoingConnections:
+                    if connection._orientatedCkmerTo in connectedCkmers:
+                        self._connections.add(connection.id())
 
             self._logger.debug("create section with {} starting k-mers".format(len(initialCkmers)))
             for initialCkmer in initialCkmers:
@@ -723,7 +698,10 @@ class Sections():
                         self._end["ckmers"].add(orientatedBaseCkmer)
                         self._end["bases"].add(orientatedBase)
                     else:
-                        for outgoingCkmer in self._graph._orientatedCkmers[orientatedBaseCkmer]._outgoing:
+                        outgoingCkmers = set(self._graph._orientatedCkmers[orientatedBaseCkmer]._outgoing.keys())
+                        for connection in self._graph._orientatedCkmers[orientatedBaseCkmer]._outgoingConnections:
+                            outgoingCkmers.add(connection._orientatedCkmerTo)
+                        for outgoingCkmer in outgoingCkmers:
                             outgoingBases = self._graph._orientatedCkmers[outgoingCkmer]._orientatedBases.values()
                             if len(self._connectedBases.intersection(outgoingBases))>0:
                                 if not outgoingCkmer in self._orientatedCkmers:
@@ -732,7 +710,10 @@ class Sections():
                                     else:
                                         self._checkForwardList[outgoingCkmer] = set([orientatedBaseCkmer])
                     if not orientatedBase in self._start["bases"]:
-                        for incomingCkmer in self._graph._orientatedCkmers[orientatedBaseCkmer]._incoming:
+                        incomingCkmers = set(self._graph._orientatedCkmers[orientatedBaseCkmer]._incoming.keys())
+                        for connection in self._graph._orientatedCkmers[orientatedBaseCkmer]._outgoingConnections:
+                            outgoingCkmers.add(connection._orientatedCkmerTo)
+                        for incomingCkmer in incomingCkmers:
                             if incomingCkmer in self._connectedCkmers:
                                 if not incomingCkmer in self._orientatedCkmers:
                                     self._checkBackwardList.add(incomingCkmer)
@@ -745,6 +726,7 @@ class Sections():
             partialPaths = [{"distance": 0,
                              "sequence": (orientatedCkmer[0] if orientatedCkmer[1]=="forward" 
                                       else General.reverse_complement(orientatedCkmer[0])),
+                             "connections": [],
                              "list": [orientatedCkmer]} 
                             for orientatedCkmer in 
                                         sectionStarters.union(realStarters)]
@@ -753,11 +735,48 @@ class Sections():
                 for partialPath in partialPaths:
                     if partialPath["list"][-1] in self._end["ckmers"]:
                             self._paths.append(self.SectionItemPath(partialPath["list"],
-                                                               partialPath["sequence"],partialPath["distance"],
+                                                               partialPath["sequence"],partialPath["distance"],partialPath["connections"],
                                                                self._graph))
                     else:
                         orientatedCkmerInfo = self._graph._orientatedCkmers[partialPath["list"][-1]]
                         newPaths = 0
+                        for connection in orientatedCkmerInfo._outgoingConnections:
+                            orientatedCkmer = connection._orientatedCkmerTo
+                            #ignore cycles
+                            if orientatedCkmer in partialPath["list"]:                                
+                                pass
+                            elif orientatedCkmer in self._orientatedCkmers and orientatedCkmer in self._connectedCkmers:
+                                if connection._sequence:
+                                    d = len(connection._sequence)
+                                    s = connection._sequence
+                                    l = connection.getOrientatedCkmers()
+                                    assert partialPath["sequence"][-self._graph._k:]==connection._sequence[:self._graph._k]
+                                elif connection._sequenceFrom or connection._sequenceTo:
+                                    d = -self._graph._k
+                                    s = ""
+                                    l = []
+                                    if connection._sequenceFrom:
+                                        assert partialPath["sequence"][-self._graph._k:]==connection._sequenceFrom[:self._graph._k]
+                                        d+=len(connection._sequenceFrom)
+                                        s = "{}{}".format(s,connection._sequenceFrom[self._graph._k:])
+                                        l = l + connection.getOrientatedCkmersFrom()
+                                    if connection._sequenceTo:
+                                        d+=len(connection._sequenceTo)
+                                        s = "{}...{}".format(s,connection._sequenceTo)
+                                        l = l + connection.getOrientatedCkmersTo()
+                                    elif orientatedCkmer[1]=="forward":
+                                        s = "{}...{}".format(s,orientatedCkmer[0])
+                                    else:
+                                        s = "{}...{}".format(s,General.reverse_complement(orientatedCkmer[0]))
+                                else:
+                                    d = self._graph._k
+                                    s = "...{}".format(General.reverse_complement(orientatedCkmer[0]))
+                                newPartialPath = {"distance": partialPath["distance"] + d,
+                                                  "sequence": partialPath["sequence"] + s,
+                                                  "connections": partialPath["connections"] + [connection.id()],
+                                                  "list": partialPath["list"] + l + [orientatedCkmer]}
+                                newPartialPaths.append(newPartialPath)
+                                newPaths+=1
                         for orientatedCkmer in orientatedCkmerInfo._outgoing:
                             #ignore cycles
                             if orientatedCkmer in partialPath["list"]:                                
@@ -767,30 +786,46 @@ class Sections():
                                 assert partialPath["sequence"][-self._graph._k:]==outgoingInfo["path"][:self._graph._k]
                                 newPartialPath = {"distance": partialPath["distance"] + outgoingInfo["distance"],
                                                   "sequence": partialPath["sequence"] + outgoingInfo["path"][self._graph._k:],
+                                                  "connections": partialPath["connections"],
                                                   "list": partialPath["list"] + [orientatedCkmer]}
                                 newPartialPaths.append(newPartialPath)
                                 newPaths+=1
                         if newPaths==0:
                             self._paths.append(self.SectionItemPath(partialPath["list"],
-                                                               partialPath["sequence"],partialPath["distance"],
+                                                               partialPath["sequence"],partialPath["distance"],partialPath["connections"],
                                                                self._graph))
                 partialPaths = newPartialPaths 
             #update statistics
             self._pathNumber = len(self._paths)
             self._requiredPathNumber = 0
             self._optionalPathNumber = 0
-            frequencies = {orientatedCkmer:[] for orientatedCkmer in 
+            kmerFrequencies = {orientatedCkmer:[] for orientatedCkmer in 
                            self._connectedCkmers.intersection(self._orientatedCkmers)}
+            connectionFrequencies = {id:[] for id in self._connections}
             for i in range(len(self._paths)):
                 for orientatedCkmer in self._paths[i].getOrientatedCkmers():
-                    frequencies[orientatedCkmer].append(i)
+                    if orientatedCkmer in kmerFrequencies:
+                        kmerFrequencies[orientatedCkmer].append(i)
+                    else:
+                        kmerFrequencies[orientatedCkmer] = [i]
+                for id in self._paths[i].getConnections():
+                    connectionFrequencies[id].append(i)
             coveredOrientatedCkmers = set()
-            for orientatedCkmer in frequencies:
-                if len(frequencies[orientatedCkmer])==1:
-                    if not self._paths[frequencies[orientatedCkmer][0]].required():
-                        self._paths[frequencies[orientatedCkmer][0]]._setRequired()
+            coveredConnections = set()
+            for orientatedCkmer in kmerFrequencies:
+                if len(kmerFrequencies[orientatedCkmer])==1:
+                    if not self._paths[kmerFrequencies[orientatedCkmer][0]].required():
+                        self._paths[kmerFrequencies[orientatedCkmer][0]]._setRequired()
                         self._requiredPathNumber+=1
-                        coveredOrientatedCkmers.update(self._paths[frequencies[orientatedCkmer][0]].getOrientatedCkmers())
+                        coveredOrientatedCkmers.update(self._paths[kmerFrequencies[orientatedCkmer][0]].getOrientatedCkmers())
+                        coveredConnections.update(self._paths[kmerFrequencies[orientatedCkmer][0]].getConnections())
+            for id in connectionFrequencies:
+                if len(connectionFrequencies[id])==1:
+                    if not self._paths[connectionFrequencies[id][0]].required():
+                        self._paths[connectionFrequencies[id][0]]._setRequired()
+                        self._requiredPathNumber+=1
+                        coveredOrientatedCkmers.update(self._paths[connectionFrequencies[id][0]].getOrientatedCkmers())
+                        coveredConnections.update(self._paths[connectionFrequencies[id][0]].getConnections())
             for i in range(len(self._paths)):
                 if not self._paths[i].required():
                     if len(set(self._paths[i].getOrientatedCkmers()).difference(coveredOrientatedCkmers))==0:
@@ -875,17 +910,16 @@ class Sections():
 
         class SectionItemPath():
             
-            def __init__(self, orientatedCkmerList, pathSequence, distance, graph):         
+            def __init__(self, orientatedCkmerList, pathSequence, distance, connections, graph):         
                 #initialise
                 self._orientatedCkmerList = orientatedCkmerList
                 self._pathSequence = pathSequence
                 self._distance = distance
+                self._connections = connections
                 self._graph = graph
                 #other variables
                 self._required = False
                 self._optional = False
-                self._datasets = set()
-                self._varieties = set()
 
             def distance(self):
                 return self._distance
@@ -901,6 +935,9 @@ class Sections():
             
             def getOrientatedCkmers(self):
                 return self._orientatedCkmerList
+
+            def getConnections(self):
+                return self._connections
             
             def getCandidates(self):
                 candidates = []

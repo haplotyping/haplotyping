@@ -427,6 +427,7 @@ class Connections:
             shm_index.close()
             try:
                 shm_index.unlink()
+                self._logger.debug("unlink shared memory index")
             except Exception as e:
                 self._logger.debug("problem unlinking shared memory ({})".format(e))
             #collect created files 
@@ -517,6 +518,7 @@ class Connections:
             shm_kmer.close()
             try:
                 shm_kmer.unlink()
+                self._logger.debug("unlink shared memory k-mer properties")
             except Exception as e:
                 self._logger.debug("problem unlinking shared memory ({})".format(e))
         self._logger.debug("created merged file")
@@ -780,7 +782,9 @@ class Connections:
                 shm_direct.close()
                 try:
                     shm_kmer.unlink()
+                    self._logger.debug("unlink shared memory k-mer properties")
                     shm_direct.unlink()
+                    self._logger.debug("unlink shared memory direct connections")
                 except Exception as e:
                     self._logger.debug("problem unlinking shared memory ({})".format(e))
                 #get filtered readfiles
