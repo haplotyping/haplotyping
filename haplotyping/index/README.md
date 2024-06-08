@@ -16,9 +16,9 @@ graph TD;
     k1["k' < k"]
     automaton(("<b>automaton</b><br/>splitting<br/>k-mers"))
     index(("<b>index</b><br/>splitting<br/>k-mers"))
-    k1.->automaton
-    k.->index
-    automaton.->index
+    k1-.->automaton
+    k-.->index
+    automaton-.->index
   end
 
   subgraph HDF5 Database
@@ -32,8 +32,8 @@ graph TD;
     hdf5Partition["partitioning"]
     hdf5ReadInfo["read info"]
     hdf5ReadData["read data"]
-    hdf5Partition.->hdf5ReadInfo
-    hdf5ReadInfo.->hdf5ReadData
+    hdf5Partition-.->hdf5ReadInfo
+    hdf5ReadInfo-.->hdf5ReadData
   end
 
   mergeDirect-->hdf5Direct
@@ -64,11 +64,11 @@ graph TD;
     mergeReads["merge and store reads"]
     automaton-->workerAutomaton
     index-->workerIndex
-    queueAutomaton.->workerAutomaton
-    workerAutomaton.->queueIndex
-    queueIndex.->workerIndex
-    workerIndex.->queueMatches
-    queueMatches.->workerMatches
+    queueAutomaton-.->workerAutomaton
+    workerAutomaton-.->queueIndex
+    queueIndex-.->workerIndex
+    workerIndex-.->queueMatches
+    queueMatches-.->workerMatches
     workerIndex--"optional"-->storageMatches
     workerMatches-->storageDirect
     storageDirect-->workerMergeDirect
