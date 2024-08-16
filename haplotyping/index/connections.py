@@ -551,7 +551,8 @@ class Connections:
                         totalReadLength+=len(sequence)
                         queue_automaton.put(sequence)
                         if readNumber%1000000==0:
-                            self._logger.debug("- processed {} reads".format(readNumber)) 
+                            self._logger.debug("- processed {} reads, queues: {},{},{}".format(
+                                readNumber, queue_automaton.qsize(), queue_index.qsize(), queue_matches.qsize())) 
                 else:
                     break
             endTime = time.time()
@@ -618,7 +619,8 @@ class Connections:
                         else:
                             queue_automaton.put((sequence0,sequence1,))                        
                         if readNumber%1000000==0:
-                            self._logger.debug("- processed {} paired reads".format(readNumber))                     
+                            self._logger.debug("- processed {} paired reads, queues: {},{},{}".format(
+                                readNumber, queue_automaton.qsize(), queue_index.qsize(), queue_matches.qsize()))                    
                 else:
                     break
             endTime = time.time()
