@@ -172,6 +172,8 @@ class VarietyList(Resource):
                               help="variety has dataset from comma separated list of collection uids")
     variety_list.add_argument("dataType", type=str, required=False, location="args", 
                               help="variety has dataset (of specific type)", choices=["any","none","kmer","split","marker"])
+    variety_list.add_argument("collectionType", type=str, required=False, location="args", 
+                              help="variety has dataset from collection of specific type", choices=["marker","wgs","baits"])
     variety_list.add_argument("hasParents", type=bool, required=False, location="args", 
                               help="parent(s) known for this variety")
     variety_list.add_argument("hasOffspring", type=bool, required=False, location="args", 
@@ -192,6 +194,7 @@ class VarietyList(Resource):
             year = request.args.get("year",None)
             collection = request.args.get("collection",None)
             dataType = request.args.get("dataType",None)
+            collectionType = request.args.get("collectionType",None)
             hasParents = request.args.get("hasParents",None)
             hasOffspring = request.args.get("hasOffspring",None)
             condition_sql = "1"
@@ -242,6 +245,15 @@ class VarietyList(Resource):
                     condition_sql = condition_sql + " AND (`dataset`.`type` IS 'marker')"
                 else:
                     abort(422, "incorrect dataType condition "+str(dataset))
+            if not collectionType==None:
+                if collectionType=="marker":
+                    condition_sql = condition_sql + " AND (`collection`.`type` IS 'marker')" 
+                elif collectionType=="wgs":
+                    condition_sql = condition_sql + " AND (`collection`.`type` IS 'wgs')"
+                elif collectionType=="baits":
+                    condition_sql = condition_sql + " AND (`collection`.`type` IS 'baits')"
+                else:
+                    abort(422, "incorrect collectionType condition "+str(collectionType))
             if not hasParents==None:
                 if _make_bool(hasParents):
                     condition_sql = condition_sql + " AND NOT (`ancestor`.`id` IS NULL)"
