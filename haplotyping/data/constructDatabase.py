@@ -134,7 +134,8 @@ class ConstructDatabase:
                             CREATE TABLE IF NOT EXISTS "species" (
                                 "id" INTEGER NOT NULL,
                                 "genus" VARCHAR(255) NOT NULL,
-                                "species" VARCHAR(255) NOT NULL,
+                                "species" VARCHAR(255) NULL,
+                                "subspecies" VARCHAR(255) NULL,
                                 PRIMARY KEY ("id")
                             );
                             CREATE TABLE IF NOT EXISTS "breeder" (
@@ -185,7 +186,7 @@ class ConstructDatabase:
                     self._logger.info("add {} countries".format(len(countries)))
                     #species
                     species = pd.DataFrame(package.get_resource("index_species").read_rows())
-                    species = species[["id","genus","species"]]
+                    species = species[["id","genus","species","subspecies"]]
                     species.to_sql("species", con=self._connection, index=False, if_exists="append")
                     self._logger.info("add {} species".format(len(species)))
                     #breeders
