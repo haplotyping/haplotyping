@@ -21,6 +21,13 @@
       "constraints": {
         "required": true
       }
+    },
+    {
+      "name": "subspecies",
+      "type": "string",
+      "constraints": {
+        "required": false
+      }
     }
   ],
   "primaryKey": [
