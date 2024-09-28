@@ -332,7 +332,8 @@ class ConstructDatabase:
                             collectionId=None
                             for id,row in sequences[sequences["experiment_id"]==experiment_id].iterrows():
                                 variety = varieties.loc[row["variety_id"]]
-                                if variety["uid"]:
+                                #if variety["uid"]:
+                                if 1==1:
                                     #use seperate collection for each sequence type and id
                                     if ((len(collectionList)==0) or 
                                         (not row["type"] in collectionList) or
