@@ -19,7 +19,7 @@
       "name": "species",
       "type": "string",
       "constraints": {
-        "required": true
+        "required": false
       }
     },
     {
