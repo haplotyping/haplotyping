@@ -70,6 +70,8 @@ class DatasetList(Resource):
                               help="linked to a variety")
     dataset_list.add_argument("dataType", type=str, required=False, location="values", choices=["marker","kmer","split"], 
                               help="type of dataset")
+    dataset_list.add_argument("collectionType", type=str, required=False, location="values", 
+                              help="type of collection", choices=["marker","wgs","baits"])
     
     dataset_set = namespace.model("uid list to get datasets", {"uids": fields.List(fields.String, attribute="items", 
                           required=True, description="list of uids")})
@@ -84,6 +86,7 @@ class DatasetList(Resource):
             collection = request.args.get("collection",None)
             hasVariety = request.args.get("hasVariety",None)
             dataType = request.args.get("dataType",None)
+            collectionType = request.args.get("collectionType",None)
             condition_sql = "NOT (`dataset`.`uid` IS NULL OR `dataset`.`type` IS NULL)"
             condition_variables = []
             if not collection==None:
@@ -104,6 +107,15 @@ class DatasetList(Resource):
                     condition_sql = condition_sql + " AND (`dataset`.`type` IS 'marker')"
                 else:
                     abort(422, "incorrect dataType condition "+str(dataType))   
+            if not collectionType==None:
+                if collectionType=="marker":
+                    condition_sql = condition_sql + " AND (`collection`.`type` IS 'marker')" 
+                elif collectionType=="wgs":
+                    condition_sql = condition_sql + " AND (`collection`.`type` IS 'wgs')"
+                elif collectionType=="baits":
+                    condition_sql = condition_sql + " AND (`collection`.`type` IS 'baits')"
+                else:
+                    abort(422, "incorrect collectionType condition "+str(collectionType))
             db_connection = haplotyping.service.API.get_db_connection()
             db_connection.row_factory = sqlite3.Row
             cursor = db_connection.cursor()

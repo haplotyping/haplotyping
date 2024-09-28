@@ -21,9 +21,9 @@ graph TD;
         minfreq["minimum<br/>k-mer frequency"]
         maxfreq["maximum<br/>k-mer frequency"]
         kmc(<b>kmc database</b>)  
-        k.->kmc
-        minfreq.->kmc 
-        maxfreq.->kmc  
+        k-.->kmc
+        minfreq-.->kmc 
+        maxfreq-.->kmc  
     end
 
     subgraph scripts

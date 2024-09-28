@@ -206,6 +206,7 @@ class API():
             :param str year: optional, year of variety (e.g. '1995', '<1995', '>1995', '1990-1995')
             :param str collection: optional, comma separated list of collection uids
             :param str dataType: optional, one of "marker", "kmer", "split"
+            :param str collectionType: optional, one of "marker", "wgs", "baits"
             :param bool hasParents: optional, has defined parents
             :param bool hasOffspring: optional, has defined offspring
             :return: (all) varieties
